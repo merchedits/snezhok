@@ -19,6 +19,7 @@ export function useSocket() {
   const removeParticipant = useVoiceStore((state) => state.removeParticipant);
 
   const loadHistory = useMessageStore((state) => state.loadHistory);
+  const clearMessages = useMessageStore((state) => state.clearMessages);
 
   const [connected, setConnected] = useState(false);
   const userId = user?.id;
@@ -69,6 +70,10 @@ export function useSocket() {
       editMessage(data.message);
     };
 
+    const onMessageClearedAll = () => {
+      clearMessages();
+    };
+
     const onVoiceUpdateParticipants = (list: any[]) => {
       setParticipants(list);
     };
@@ -104,6 +109,7 @@ export function useSocket() {
     socket.on("message:reactions_update", onMessageReactionsUpdate);
     socket.on("message:deleted", onMessageDeleted);
     socket.on("message:edited", onMessageEdited);
+    socket.on("message:cleared_all", onMessageClearedAll);
     socket.on("voice:update-participants", onVoiceUpdateParticipants);
     socket.on("voice:user-joined", onVoiceUserJoined);
     socket.on("voice:user-left", onVoiceUserLeft);
@@ -124,6 +130,7 @@ export function useSocket() {
       socket.off("message:reactions_update", onMessageReactionsUpdate);
       socket.off("message:deleted", onMessageDeleted);
       socket.off("message:edited", onMessageEdited);
+      socket.off("message:cleared_all", onMessageClearedAll);
       socket.off("voice:update-participants", onVoiceUpdateParticipants);
       socket.off("voice:user-joined", onVoiceUserJoined);
       socket.off("voice:user-left", onVoiceUserLeft);

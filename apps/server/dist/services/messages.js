@@ -156,3 +156,12 @@ export async function editMessage(messageId, userId, newContent, isAdmin) {
         .where(eq(messages.id, messageId));
     return await getMessageById(messageId);
 }
+export async function clearAllMessages(userId, isAdmin) {
+    if (!isAdmin) {
+        throw new Error("You do not have permission to clear chat.");
+    }
+    // Delete all reactions first
+    await db.delete(reactions);
+    // Delete all messages
+    await db.delete(messages);
+}

@@ -1,7 +1,7 @@
 import { Server, Socket } from "socket.io";
 import { validateSession } from "../services/auth.js";
 import { setOnline, setOffline, setTyping, getTypers } from "../services/presence.js";
-import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage } from "../services/messages.js";
+import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage, clearAllMessages } from "../services/messages.js";
 
 // In-memory set of voice call participants: socketId -> user details
 interface VoiceParticipant {
@@ -168,6 +168,19 @@ export function setupSocketIO(io: Server) {
 
         // Broadcast edit to all clients
         io.emit("message:edited", { message: updatedMsg });
+      } catch (err: any) {
+        socket.emit("error", { message: err.message });
+      }
+    });
+
+    // 3d. Clear chat history
+    socket.on("message:clear_all", async () => {
+      try {
+        if (!user.isAdmin) {
+          throw new Error("Only admins can clear chat.");
+        }
+        await clearAllMessages(user.id, user.isAdmin);
+        io.emit("message:cleared_all");
       } catch (err: any) {
         socket.emit("error", { message: err.message });
       }

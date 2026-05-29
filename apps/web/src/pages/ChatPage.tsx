@@ -674,6 +674,25 @@ export default function ChatPage() {
                 )}
               </div>
             </div>
+            
+            {/* Danger Zone: Clear Chat History */}
+            <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px dashed var(--color-destructive)", display: "flex", flexDirection: "column", gap: "8px" }}>
+              <h4 style={{ fontWeight: 600, fontSize: "var(--text-sm)", color: "var(--color-destructive)" }}>
+                Danger Zone
+              </h4>
+              <Button
+                variant="danger"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (confirm(t('settings.clearChatConfirm'))) {
+                    const socket = getSocket();
+                    socket.emit("message:clear_all");
+                  }
+                }}
+              >
+                {t('settings.clearChat')}
+              </Button>
+            </div>
           </div>
         )}
       </Modal>

@@ -1,6 +1,6 @@
 import { validateSession } from "../services/auth.js";
 import { setOnline, setOffline, setTyping } from "../services/presence.js";
-import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage } from "../services/messages.js";
+import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage, clearAllMessages } from "../services/messages.js";
 const voiceParticipants = new Map();
 export function setupSocketIO(io) {
     // Authentication middleware
@@ -141,6 +141,19 @@ export function setupSocketIO(io) {
                 socket.emit("error", { message: err.message });
             }
         });
+        // 3d. Clear chat history
+        socket.on("message:clear_all", async () => {
+            try {
+                if (!user.isAdmin) {
+                    throw new Error("Only admins can clear chat.");
+                }
+                await clearAllMessages(user.id, user.isAdmin);
+                io.emit("message:cleared_all");
+            }
+            catch (err) {
+                socket.emit("error", { message: err.message });
+            }
+        });
         // 4. Typing indicators
         socket.on("typing:start", () => {
             const now = Date.now();
@@ -168,18 +181,6 @@ export function setupSocketIO(io) {
             socket.broadcast.emit("voice:user-joined", participant);
             // Emit global update of active voice participants list
             io.emit("voice:update-participants", Array.from(voiceParticipants.values()));
-            // Emit system message to chat log
-            (async () => {
-                try {
-                    const sysMsg = await createMessage({
-                        userId: user.id,
-                        content: `joined the voice call`,
-                        type: "system",
-                    });
-                    io.emit("message:new", sysMsg);
-                }
-                catch (err) { }
-            })();
         });
         socket.on("voice:leave", () => {
             handleVoiceLeave(socketId, user);
