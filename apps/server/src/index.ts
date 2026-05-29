@@ -59,14 +59,8 @@ try {
   console.error("Failed to run migrations on startup:", err);
 }
 
-// ─── Fastify App ──────────────────────────────────────────────────────────────
 const app = fastify({
-  logger: config.NODE_ENV === "development" ? {
-    transport: {
-      target: "pino-pretty",
-      options: { translateTime: "HH:MM:ss Z", ignore: "pid,hostname" },
-    },
-  } : true,
+  logger: true,
 });
 
 // Configure plugins

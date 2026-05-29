@@ -12,7 +12,7 @@ node_modules
 .drizzle
 
 # Local data (persist sqlite and uploads here)
-/data
+data/
 /*.db
 /*.db-journal
 /*.db-shm

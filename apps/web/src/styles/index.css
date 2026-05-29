@@ -1221,6 +1221,8 @@ body {
   flex-direction: column;
   gap: var(--space-4);
   animation: messageAppear var(--dur-slow) var(--ease-soft);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
 
 .modal-sm { max-width: 360px; }

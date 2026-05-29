@@ -578,7 +578,11 @@ export default function ChatPage() {
               </Button>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--color-bg-subtle)" }}>
+            {/* Danger Zone: Logout */}
+            <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px dashed var(--color-destructive)", display: "flex", flexDirection: "column", gap: "8px" }}>
+              <h4 style={{ fontWeight: 600, fontSize: "var(--text-sm)", color: "var(--color-destructive)", fontFamily: "var(--font-display)" }}>
+                Danger Zone
+              </h4>
               <Button variant="danger" onClick={(e) => { e.preventDefault(); if (confirm(t('settings.logoutConfirm'))) logout(); }}>
                 {t('settings.logout')}
               </Button>
