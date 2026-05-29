@@ -1,7 +1,7 @@
 import { db } from "../db/index.js";
 import { users, sessions, inviteCodes } from "../db/schema.js";
 import { eq, count } from "drizzle-orm";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { config } from "../lib/config.js";
 const PASTEL_COLORS = ["#FFCFB3", "#B5CDB5", "#C5B8E8", "#F2B8C6", "#F5E6A3"];

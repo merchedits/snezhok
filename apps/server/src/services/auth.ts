@@ -1,7 +1,7 @@
 import { db } from "../db/index.js";
 import { users, sessions, inviteCodes } from "../db/schema.js";
 import { eq, count } from "drizzle-orm";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import { config } from "../lib/config.js";
 

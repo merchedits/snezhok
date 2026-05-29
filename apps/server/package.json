@@ -19,7 +19,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/session": "^11.0.0",
     "@fastify/static": "^8.0.4",
-    "bcrypt": "^5.1.1",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.3",
@@ -28,7 +28,7 @@
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
-    "@types/bcrypt": "^5.0.2",
+    "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
     "drizzle-kit": "^0.30.1",
