@@ -7,6 +7,11 @@ import { pipeline } from "stream/promises";
 import { db } from "../db/index.js";
 import { files } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const avatarsDir = path.resolve(__dirname, "../../../../data/uploads/avatars");
 
 export async function fileRoutes(fastify: FastifyInstance) {
   // Init file upload
@@ -121,8 +126,7 @@ export async function fileRoutes(fastify: FastifyInstance) {
     { preHandler: [requireAuth] },
     async (request: any, reply) => {
       const { filename } = request.params;
-      const uploadDir = path.resolve("./data/uploads/avatars");
-      const filePath = path.join(uploadDir, filename);
+      const filePath = path.join(avatarsDir, filename);
 
       if (!fs.existsSync(filePath)) {
         reply.status(404).send({ error: "Avatar not found" });

@@ -27,6 +27,22 @@ console.log("Running database migrations...");
 try {
     const migrationsFolder = path.resolve(__dirname, "../drizzle");
     if (fs.existsSync(migrationsFolder)) {
+        // Migration recovery logic
+        try {
+            const { sqlite } = await import("./db/index.js");
+            // If the messages table doesn't have conversation_id, migration 0002 failed
+            const cols = sqlite.prepare("PRAGMA table_info(messages)").all();
+            const hasConvId = cols.some((c) => c.name === "conversation_id");
+            if (!hasConvId) {
+                console.log("🌸 Migration 0002 incomplete. Cleaning up for retry...");
+                sqlite.exec("DELETE FROM `__drizzle_migrations` WHERE `tag` = '0002_chemical_bromley'");
+                sqlite.exec("DROP TABLE IF EXISTS `conversation_members`");
+                sqlite.exec("DROP TABLE IF EXISTS `conversations`");
+            }
+        }
+        catch (e) {
+            console.error("Migration cleanup error:", e);
+        }
         migrate(db, { migrationsFolder });
         console.log("Database migrations applied successfully!");
         // Bootstrap global conversation record for existing/default messages

@@ -246,6 +246,7 @@ export function setupSocketIO(io) {
                 username: user.username,
                 displayName: user.displayName,
                 avatarColor: user.avatarColor,
+                avatarUrl: user.avatarUrl,
             };
             voiceParticipants.set(socketId, participant);
             // Notify others in call about new participant

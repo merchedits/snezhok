@@ -7,6 +7,10 @@ import fs from "fs";
 import path from "path";
 import { pipeline } from "stream/promises";
 import { nanoid } from "nanoid";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const avatarsDir = path.resolve(__dirname, "../../../../data/uploads/avatars");
 export async function userRoutes(fastify) {
     // List all users in system
     fastify.get("/api/users", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -69,11 +73,10 @@ export async function userRoutes(fastify) {
             }
             const ext = path.extname(data.filename) || ".png";
             const filename = `${request.user.id}-${nanoid()}${ext}`;
-            const uploadDir = path.resolve("./data/uploads/avatars");
-            if (!fs.existsSync(uploadDir)) {
-                fs.mkdirSync(uploadDir, { recursive: true });
+            if (!fs.existsSync(avatarsDir)) {
+                fs.mkdirSync(avatarsDir, { recursive: true });
             }
-            const filePath = path.join(uploadDir, filename);
+            const filePath = path.join(avatarsDir, filename);
             await pipeline(data.file, fs.createWriteStream(filePath));
             const avatarUrl = `/api/files/avatars/${filename}`;
             await db

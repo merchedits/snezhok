@@ -14,8 +14,8 @@ services:
       - HOST=0.0.0.0
       - PORT=3000
     volumes:
-      # Persist SQLite database and uploaded files
-      - ./data:/app/data
+      # Persist SQLite database and uploaded files securely via named volume
+      - snezhok_data:/app/data
     ports:
       - "3002:3000"
     networks:
@@ -48,6 +48,7 @@ services:
   #     - ./turnserver.conf:/etc/turnserver.conf:ro
 
 volumes:
+  snezhok_data:
   caddy_data:
   caddy_config:
 
