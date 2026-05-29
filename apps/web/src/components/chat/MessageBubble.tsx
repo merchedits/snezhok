@@ -150,7 +150,6 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
       id={`msg-${message.id}`}
       className="msg-group"
       style={{
-        alignItems: isOwn ? "flex-end" : "flex-start",
         marginBottom: isGroupStart ? "14px" : "4px",
       }}
     >
