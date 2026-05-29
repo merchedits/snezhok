@@ -72,6 +72,32 @@ export default function ChatPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Handle screenshare video elements
+  useEffect(() => {
+    const handleNewScreenshare = (e: any) => {
+      const container = document.getElementById("screenshare-container");
+      if (container && e.detail?.videoElement) {
+        container.appendChild(e.detail.videoElement);
+        container.style.display = "flex";
+      }
+    };
+
+    const handleEndedScreenshare = () => {
+      const container = document.getElementById("screenshare-container");
+      if (container && container.childNodes.length === 0) {
+        container.style.display = "none";
+      }
+    };
+
+    window.addEventListener("screenshare:new", handleNewScreenshare);
+    window.addEventListener("screenshare:ended", handleEndedScreenshare);
+
+    return () => {
+      window.removeEventListener("screenshare:new", handleNewScreenshare);
+      window.removeEventListener("screenshare:ended", handleEndedScreenshare);
+    };
+  }, []);
+
   // Update profile inputs when user loads
   useEffect(() => {
     if (user) {
@@ -239,6 +265,19 @@ export default function ChatPage() {
       <main className="chat-area" aria-label="Main chat area">
         {/* Voice Call Banner if any users connected */}
         <VoiceBanner />
+        
+        {/* Screenshare Container */}
+        <div 
+          id="screenshare-container" 
+          style={{ 
+            display: "none", 
+            flexDirection: "column", 
+            gap: "16px", 
+            padding: "16px",
+            background: "var(--color-bg-base)",
+            borderBottom: "1px solid rgba(168, 151, 140, 0.15)"
+          }} 
+        />
 
         {/* Chat Area Header */}
         <ChatHeader />

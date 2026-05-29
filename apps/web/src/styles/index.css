@@ -73,16 +73,16 @@
 /* Dark Theme Tokens */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-bg-base: #1E1812;
-    --color-bg-surface: #2A2018;
-    --color-bg-elevated: #352820;
-    --color-bg-subtle: #3D2E24;
+    --color-bg-base: #1A1614;
+    --color-bg-surface: #26211E;
+    --color-bg-elevated: #332B28;
+    --color-bg-subtle: #302A27;
     --color-text-primary: #F0E8E0;
     --color-text-secondary: #B8A89A;
     --color-text-tertiary: #7A6558;
     --color-text-inverse: #1E1812;
 
-    --color-peach-soft: #352A20;
+    --color-peach-soft: #382A22;
     --color-lavender-soft: #2D253A;
     --color-sage-soft: #252D25;
     --color-bg-overlay: rgba(15, 10, 8, 0.6);
@@ -90,16 +90,16 @@
 }
 
 [data-theme="dark"] {
-  --color-bg-base: #1E1812;
-  --color-bg-surface: #2A2018;
-  --color-bg-elevated: #352820;
-  --color-bg-subtle: #3D2E24;
+  --color-bg-base: #1A1614;
+  --color-bg-surface: #26211E;
+  --color-bg-elevated: #332B28;
+  --color-bg-subtle: #302A27;
   --color-text-primary: #F0E8E0;
   --color-text-secondary: #B8A89A;
   --color-text-tertiary: #7A6558;
   --color-text-inverse: #1E1812;
 
-  --color-peach-soft: #352A20;
+  --color-peach-soft: #382A22;
   --color-lavender-soft: #2D253A;
   --color-sage-soft: #252D25;
   --color-bg-overlay: rgba(15, 10, 8, 0.6);
@@ -196,12 +196,25 @@ body {
   to { transform: rotate(360deg); }
 }
 
+@keyframes highlightPulse {
+  0% { background-color: rgba(197, 184, 232, 0.4); }
+  100% { background-color: transparent; }
+}
+
+.highlight-msg {
+  animation: highlightPulse 2s ease-out forwards;
+  border-radius: 8px;
+}
+
 /* Global Application Layout */
 .app-container {
   display: flex;
   width: 100%;
   height: 100vh;
   overflow: hidden;
+  padding: var(--space-4);
+  gap: var(--space-4);
+  background: var(--color-bg-base);
 }
 
 /* Auth Pages Styling */
@@ -357,13 +370,13 @@ body {
 /* Layout Panels */
 .sidebar {
   width: 72px;
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-surface);
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: var(--space-5) 0;
   gap: var(--space-3);
-  border-right: 1px solid rgba(168, 151, 140, 0.15);
+  border-radius: 24px;
   flex-shrink: 0;
 }
 
@@ -372,17 +385,20 @@ body {
   display: flex;
   flex-direction: column;
   background: var(--color-bg-surface);
+  border-radius: 24px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .member-panel {
   width: 280px;
-  background: var(--color-bg-base);
-  border-left: 1px solid rgba(168, 151, 140, 0.15);
+  background: var(--color-bg-surface);
+  border-radius: 24px;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   transition: transform var(--dur-slow) var(--ease-soft);
+  overflow: hidden;
 }
 
 /* Sidebar Branding & Buttons */
@@ -481,6 +497,7 @@ body {
   gap: var(--space-1);
   margin-bottom: var(--space-3);
   animation: messageAppear var(--dur-base) var(--ease-out);
+  width: 100%;
 }
 
 .msg-group-header {
@@ -520,6 +537,7 @@ body {
   line-height: 1.65;
   color: var(--color-text-primary);
   max-width: 85%;
+  width: fit-content;
   word-break: break-word;
 }
 
@@ -654,13 +672,16 @@ body {
 
 /* Input Area */
 .input-area {
-  padding: var(--space-4) var(--space-5);
-  background: var(--color-bg-surface);
-  border-top: 1px solid var(--color-bg-subtle);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-bg-subtle);
+  border-radius: 24px;
   display: flex;
   align-items: flex-end;
   gap: var(--space-3);
   flex-shrink: 0;
+  margin: var(--space-4) var(--space-6) var(--space-6) var(--space-6);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
 }
 
 .input-left {
@@ -752,15 +773,18 @@ body {
 
 /* Voice Call Widgets */
 .voice-banner {
-  background: var(--color-lavender-soft);
-  border-bottom: 1px solid rgba(197, 184, 232, 0.3);
+  background: var(--color-bg-elevated);
+  border: 1px solid rgba(197, 184, 232, 0.15);
+  border-radius: 16px;
   padding: 0 var(--space-4);
-  height: 48px;
+  height: 56px;
   display: flex;
   align-items: center;
   gap: var(--space-3);
   flex-shrink: 0;
+  margin: var(--space-4) var(--space-6) 0 var(--space-6);
   animation: messageAppear var(--dur-base) var(--ease-out);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .voice-ring {

@@ -105,6 +105,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
 
   return (
     <div
+      id={`msg-${message.id}`}
       className="msg-group"
       style={{
         alignItems: isOwn ? "flex-end" : "flex-start",
@@ -112,15 +113,20 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
       }}
     >
       {isGroupStart && (
-        <div className="msg-group-header" style={{ flexDirection: isOwn ? "row-reverse" : "row" }}>
-          <Avatar
-            displayName={message.user?.displayName}
-            username={message.user?.username}
-            avatarColor={message.user?.avatarColor}
-            size="sm"
-          />
-          <span className="msg-username">{isOwn ? "You" : message.user?.displayName}</span>
-          <span className="msg-time">{formatTime(message.createdAt)}</span>
+        <div className="msg-group-header" style={{ flexDirection: isOwn ? "row-reverse" : "row", marginBottom: "4px" }}>
+          {!isOwn && (
+            <Avatar
+              displayName={message.user?.displayName}
+              username={message.user?.username}
+              avatarColor={message.user?.avatarColor}
+              size="sm"
+            />
+          )}
+          {!isOwn && <span className="msg-username">{message.user?.displayName}</span>}
+          <span className="msg-time" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            {formatTime(message.createdAt)}
+            {isOwn && <span style={{ color: "var(--color-peach-dark)", fontSize: "12px", fontWeight: "bold" }}>✓</span>}
+          </span>
         </div>
       )}
 
@@ -150,6 +156,14 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           {/* Reply preview */}
           {replyMessage && (
             <div
+              onClick={() => {
+                const el = document.getElementById(`msg-${replyMessage.id}`);
+                if (el) {
+                  el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el.classList.add("highlight-msg");
+                  setTimeout(() => el.classList.remove("highlight-msg"), 2000);
+                }
+              }}
               style={{
                 borderLeft: "3px solid var(--color-peach)",
                 paddingLeft: "10px",
@@ -159,6 +173,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
                 lineHeight: 1.4,
                 maxHeight: "48px",
                 overflow: "hidden",
+                cursor: "pointer",
               }}
             >
               <strong style={{ color: "var(--color-peach-dark)", fontSize: "var(--text-sm)" }}>

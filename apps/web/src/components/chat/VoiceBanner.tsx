@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mic, MicOff, PhoneOff, PhoneCall, Settings } from "lucide-react";
+import { Mic, MicOff, PhoneOff, PhoneCall, Settings, Monitor, MonitorOff } from "lucide-react";
 import Button from "../Button.jsx";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import { useVoice } from "../../hooks/useVoice.js";
@@ -7,7 +7,7 @@ import VoiceSettings from "./VoiceSettings.jsx";
 
 export default function VoiceBanner() {
   const { participants, isInCall, isMuted } = useVoiceStore();
-  const { joinCall, leaveCall, toggleMute } = useVoice();
+  const { joinCall, leaveCall, toggleMute, startScreenshare, stopScreenshare, isScreensharing } = useVoice();
   const [showSettings, setShowSettings] = useState(false);
 
   if (participants.length === 0) return null;
@@ -72,6 +72,17 @@ export default function VoiceBanner() {
             {isMuted ? <MicOff size={12} /> : <Mic size={12} />}
             {isMuted ? "Unmute" : "Mute"}
           </Button>
+          
+          <Button
+            variant="ghost"
+            onClick={isScreensharing ? stopScreenshare : startScreenshare}
+            style={{ height: "30px", fontSize: "var(--text-sm)", padding: "0 var(--space-3)", color: isScreensharing ? "var(--color-destructive)" : undefined }}
+            aria-label={isScreensharing ? "Stop screenshare" : "Start screenshare"}
+          >
+            {isScreensharing ? <MonitorOff size={12} /> : <Monitor size={12} />}
+            {isScreensharing ? "Stop" : "Share"}
+          </Button>
+
           <Button
             variant="danger"
             onClick={leaveCall}

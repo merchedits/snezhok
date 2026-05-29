@@ -2,16 +2,18 @@ import { useEffect } from "react";
 import Peer from "simple-peer";
 import { getSocket } from "../lib/socket.js";
 import { useVoiceStore, VoiceParticipant } from "../stores/voiceStore.js";
+import { playJoinSound, playLeaveSound, playMuteSound } from "../lib/sounds.js";
 
 // Module-level singletons to ensure voice state is shared across all components calling useVoice()
 let localStreamSingleton: MediaStream | null = null;
+let localScreenStreamSingleton: MediaStream | null = null;
 const peersSingleton = new Map<string, Peer.Instance>(); // socketId -> Peer instance
 const audioElementsSingleton = new Map<string, HTMLAudioElement>(); // socketId -> Audio element
 const audioContextsSingleton = new Map<string, { audioContext: AudioContext; analyser: AnalyserNode; cancelFrame: number }>(); // socketId -> Audio analysis nodes
 
 export function useVoice() {
   const { 
-    isInCall, isMuted, setIsInCall, setIsMuted, setSpeaking,
+    isInCall, isMuted, isScreensharing, setIsInCall, setIsMuted, setIsScreensharing, setSpeaking,
     selectedInputDeviceId, selectedOutputDeviceId, volumes, setAvailableDevices 
   } = useVoiceStore();
 
@@ -45,6 +47,7 @@ export function useVoice() {
 
       // Set up speaking detection for local user
       setupSpeakingDetection("local", stream);
+      playJoinSound();
     } catch (err) {
       console.error("Failed to get microphone permissions:", err);
       alert("Could not access microphone. Please check permissions.");
@@ -60,6 +63,10 @@ export function useVoice() {
     if (localStreamSingleton) {
       localStreamSingleton.getTracks().forEach((track) => track.stop());
       localStreamSingleton = null;
+    }
+    if (localScreenStreamSingleton) {
+      localScreenStreamSingleton.getTracks().forEach((track) => track.stop());
+      localScreenStreamSingleton = null;
     }
 
     // Destroy all peers
@@ -81,19 +88,65 @@ export function useVoice() {
     });
     audioContextsSingleton.clear();
 
+    playLeaveSound();
     setIsInCall(false);
+    setIsScreensharing(false);
   };
 
   // Toggle mute
   const toggleMute = () => {
     const nextMute = !isMuted;
     setIsMuted(nextMute);
+    
+    // Only play sound if muting
+    if (nextMute) playMuteSound();
 
     if (localStreamSingleton) {
       localStreamSingleton.getAudioTracks().forEach((track) => {
         track.enabled = !nextMute;
       });
     }
+  };
+
+  // Screenshare
+  const startScreenshare = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true, // will capture system/tab audio if supported
+      });
+
+      localScreenStreamSingleton = stream;
+      setIsScreensharing(true);
+
+      // Handle user stopping screenshare via browser UI
+      stream.getVideoTracks()[0].onended = () => {
+        stopScreenshare();
+      };
+
+      // Add stream to all active peer connections
+      peersSingleton.forEach((peer) => {
+        peer.addStream(stream);
+      });
+    } catch (err) {
+      console.error("Could not start screenshare:", err);
+    }
+  };
+
+  const stopScreenshare = () => {
+    if (localScreenStreamSingleton) {
+      // Remove stream from all peers
+      peersSingleton.forEach((peer) => {
+        try {
+          peer.removeStream(localScreenStreamSingleton!);
+        } catch (e) {
+          // simple-peer throws if stream is not present
+        }
+      });
+      localScreenStreamSingleton.getTracks().forEach((track) => track.stop());
+      localScreenStreamSingleton = null;
+    }
+    setIsScreensharing(false);
   };
 
   // Speaking detection using Web Audio API (AnalyserNode with requestAnimationFrame)
@@ -169,6 +222,10 @@ export function useVoice() {
         stream: localStreamSingleton,
       });
 
+      if (localScreenStreamSingleton) {
+        peer.addStream(localScreenStreamSingleton);
+      }
+
       peer.on("signal", (signal) => {
         socket.emit("voice:signal", {
           to: participant.socketId,
@@ -205,6 +262,10 @@ export function useVoice() {
           trickle: true,
           stream: localStreamSingleton,
         });
+
+        if (localScreenStreamSingleton) {
+          peer.addStream(localScreenStreamSingleton);
+        }
 
         peer.on("signal", (signal) => {
           socket.emit("voice:signal", {
@@ -248,7 +309,44 @@ export function useVoice() {
   }, [isInCall]);
 
   const handleRemoteStream = (socketId: string, stream: MediaStream) => {
-    // Create HTMLAudioElement dynamically to play remote user audio
+    // Determine if this is a screen share stream (has video tracks)
+    const isVideo = stream.getVideoTracks().length > 0;
+
+    if (isVideo) {
+      // Render screenshare video dynamically
+      const existingVideo = document.getElementById(`screenshare-${socketId}`);
+      if (existingVideo) existingVideo.remove();
+
+      const video = document.createElement("video");
+      video.id = `screenshare-${socketId}`;
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.setAttribute("playsinline", "true");
+      
+      // Screenshare video styles (floating PIP or full container depending on implementation)
+      // The VoiceBanner/ChatPage will need to look for elements with this class/id and place them
+      video.style.width = "100%";
+      video.style.maxHeight = "400px";
+      video.style.backgroundColor = "#000";
+      video.style.borderRadius = "12px";
+      video.style.objectFit = "contain";
+      
+      // We emit a custom event so React components can grab it
+      const event = new CustomEvent('screenshare:new', { detail: { socketId, videoElement: video } });
+      window.dispatchEvent(event);
+
+      // Handle stream removal
+      stream.getTracks().forEach(track => {
+        track.onended = () => {
+          video.remove();
+          window.dispatchEvent(new CustomEvent('screenshare:ended', { detail: { socketId } }));
+        };
+      });
+
+      return;
+    }
+
+    // Audio-only (microphone) stream processing
     if (audioElementsSingleton.has(socketId)) {
       audioElementsSingleton.get(socketId)?.remove();
     }
@@ -342,7 +440,10 @@ export function useVoice() {
     joinCall,
     leaveCall,
     toggleMute,
+    startScreenshare,
+    stopScreenshare,
     isInCall,
     isMuted,
+    isScreensharing,
   };
 }
