@@ -1,4 +1,4 @@
-FROM node:20-slim AS builder
+FROM node:20 AS builder
 
 WORKDIR /app
 
@@ -7,8 +7,8 @@ COPY package.json package-lock.json ./
 COPY apps/server/package.json ./apps/server/
 COPY apps/web/package.json ./apps/web/
 
-# Install dependencies using npm
-RUN npm ci
+# Install dependencies using npm (disable progress bar and audits to prevent hangs)
+RUN npm config set progress=false && npm ci --no-audit --no-fund
 
 # Copy source code
 COPY . .
@@ -27,7 +27,7 @@ COPY --from=builder /app/apps/server/package.json ./apps/server/
 COPY --from=builder /app/apps/web/package.json ./apps/web/
 
 # Install only production dependencies
-RUN npm ci --omit=dev
+RUN npm config set progress=false && npm ci --omit=dev --no-audit --no-fund
 
 # Copy compiled backend and frontend
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
