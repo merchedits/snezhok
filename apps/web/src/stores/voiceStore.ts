@@ -37,8 +37,8 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   isMuted: false,
   isScreensharing: false,
   volumes: {},
-  selectedInputDeviceId: null,
-  selectedOutputDeviceId: null,
+  selectedInputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedInputDeviceId") : null,
+  selectedOutputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedOutputDeviceId") : null,
   availableDevices: [],
 
   setParticipants: (participants) => set({ participants }),
@@ -84,7 +84,21 @@ export const useVoiceStore = create<VoiceState>((set) => ({
       volumes: { ...state.volumes, [socketId]: volume },
     })),
 
-  setInputDevice: (selectedInputDeviceId) => set({ selectedInputDeviceId }),
-  setOutputDevice: (selectedOutputDeviceId) => set({ selectedOutputDeviceId }),
+  setInputDevice: (selectedInputDeviceId) => {
+    if (selectedInputDeviceId) {
+      localStorage.setItem("selectedInputDeviceId", selectedInputDeviceId);
+    } else {
+      localStorage.removeItem("selectedInputDeviceId");
+    }
+    set({ selectedInputDeviceId });
+  },
+  setOutputDevice: (selectedOutputDeviceId) => {
+    if (selectedOutputDeviceId) {
+      localStorage.setItem("selectedOutputDeviceId", selectedOutputDeviceId);
+    } else {
+      localStorage.removeItem("selectedOutputDeviceId");
+    }
+    set({ selectedOutputDeviceId });
+  },
   setAvailableDevices: (availableDevices) => set({ availableDevices }),
 }));

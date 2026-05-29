@@ -1170,6 +1170,20 @@ body {
 .avatar-md { width: 48px; height: 48px; font-size: 16px; }
 .avatar-lg { width: 64px; height: 64px; font-size: 22px; }
 
+.avatar-speaking-glow {
+  box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 4px var(--color-online), 0 0 8px var(--color-online);
+  animation: avatarSpeakingPulse 1.2s infinite alternate;
+}
+
+@keyframes avatarSpeakingPulse {
+  0% {
+    box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 3px var(--color-online), 0 0 6px rgba(110, 231, 135, 0.4);
+  }
+  100% {
+    box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 5px var(--color-online), 0 0 14px rgba(110, 231, 135, 0.8);
+  }
+}
+
 /* Screenshare PIP */
 .screenshare-pip {
   position: absolute;

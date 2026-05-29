@@ -44,7 +44,7 @@ export default function Avatar({
   return (
     <div style={{ position: "relative", display: "inline-flex" }} className={className}>
       <div
-        className={`avatar ${sizeClass}`}
+        className={`avatar ${sizeClass} ${isSpeaking ? "avatar-speaking-glow" : ""}`}
         style={{
           backgroundColor: avatarColor,
           backgroundImage: avatarUrl ? `url(${avatarUrl})` : undefined,
