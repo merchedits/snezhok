@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Users, MoreHorizontal, PhoneCall, Settings, Moon, Sun, LogOut, Menu } from "lucide-react";
+import { Users, MoreHorizontal, PhoneCall, Settings, Moon, Sun, LogOut } from "lucide-react";
 import Button from "../Button.jsx";
 import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import { useVoice } from "../../hooks/useVoice.js";
 import { useTranslation } from "../../i18n/index.jsx";
-import { useMessageStore } from "../../stores/messageStore.js";
 
 interface ChatHeaderProps {
   onOpenSettings?: () => void;
@@ -17,25 +16,16 @@ export default function ChatHeader({ onOpenSettings, onLogout }: ChatHeaderProps
   const usersList = usePresenceStore((state) => state.usersList);
   const onlineUserIds = usePresenceStore((state) => state.onlineUserIds);
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
-  const toggleChannelsSidebar = useUIStore((state) => state.toggleChannelsSidebar);
   const { theme, setTheme } = useUIStore();
   const { joinCall } = useVoice();
   const isInCall = useVoiceStore((state) => state.isInCall);
   const { t } = useTranslation();
-
-  const activeConversationId = useMessageStore((state) => state.activeConversationId);
-  const conversations = useMessageStore((state) => state.conversations);
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const onlineCount = onlineUserIds.size;
   const totalCount = usersList.length;
-
-  const isDM = activeConversationId !== "global";
-  const activeConversation = conversations.find((c) => c.id === activeConversationId);
-  const recipient = activeConversation?.recipient;
-  const isRecipientOnline = recipient ? onlineUserIds.has(recipient.id) : false;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -59,50 +49,20 @@ export default function ChatHeader({ onOpenSettings, onLogout }: ChatHeaderProps
 
   return (
     <header className="chat-header">
-      {/* Mobile Drawer Trigger Menu */}
-      <Button
-        variant="icon"
-        onClick={() => toggleChannelsSidebar()}
-        title="Toggle Channels Sidebar"
-        aria-label="Toggle channels sidebar"
-        className="channels-toggle-btn"
-        style={{ marginRight: "8px" }}
-      >
-        <Menu size={18} />
-      </Button>
-
       <div className="chat-header-info">
-        {isDM && recipient ? (
-          <>
-            <h2 style={{ fontSize: "18px", fontWeight: "700" }}>{recipient.displayName}</h2>
-            <p style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-              <span style={{ 
-                display: "inline-block", 
-                width: "6px", 
-                height: "6px", 
-                borderRadius: "50%", 
-                background: isRecipientOnline ? "var(--color-online)" : "var(--color-text-tertiary)" 
-              }} />
-              {isRecipientOnline ? t('chat.online') : (t('members.offlineSection') || "Offline").toLowerCase()}
-            </p>
-          </>
-        ) : (
-          <>
-            <h2 style={{ fontSize: "18px", fontWeight: "700" }}>{t('chat.title')}</h2>
-            <p style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-              {totalCount} {t('chat.members')}
-              <span>•</span>
-              <span style={{ 
-                display: "inline-block", 
-                width: "6px", 
-                height: "6px", 
-                borderRadius: "50%", 
-                background: "var(--color-online)" 
-              }} />
-              {onlineCount} {t('chat.online')}
-            </p>
-          </>
-        )}
+        <h2 style={{ fontSize: "20px", fontWeight: "700" }}>{t('chat.title')}</h2>
+        <p style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
+          {totalCount} {t('chat.members')}
+          <span>•</span>
+          <span style={{ 
+            display: "inline-block", 
+            width: "6px", 
+            height: "6px", 
+            borderRadius: "50%", 
+            background: "var(--color-online)" 
+          }} />
+          {onlineCount} {t('chat.online')}
+        </p>
       </div>
 
       <div className="header-actions">

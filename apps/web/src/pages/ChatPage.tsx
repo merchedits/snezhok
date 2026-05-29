@@ -12,7 +12,6 @@ import InCallCard from "../components/chat/InCallCard.jsx";
 import MessageBubble from "../components/chat/MessageBubble.jsx";
 import MessageInput from "../components/chat/MessageInput.jsx";
 import MemberPanel from "../components/chat/MemberPanel.jsx";
-import DMSidebar from "../components/chat/DMSidebar.jsx";
 import TypingIndicator from "../components/TypingIndicator.jsx";
 import Modal from "../components/Modal.jsx";
 import Input from "../components/Input.jsx";
@@ -37,7 +36,7 @@ interface InviteCode {
 
 export default function ChatPage() {
   const { user } = useAuthStore();
-  const { messages, isLoading, hasMore, loadHistory, activeConversationId } = useMessageStore();
+  const { messages, isLoading, hasMore, loadHistory } = useMessageStore();
   const { fetchUsers, usersList } = usePresenceStore();
   const memberPanelOpen = useUIStore((state) => state.memberPanelOpen);
   const { isInCall, isScreensharing } = useVoiceStore();
@@ -73,6 +72,7 @@ export default function ChatPage() {
 
   // Load initial data
   useEffect(() => {
+    loadHistory();
     fetchUsers();
 
     // Poll users presence list occasionally
@@ -82,11 +82,6 @@ export default function ChatPage() {
 
     return () => clearInterval(interval);
   }, []);
-
-  // Fetch messages whenever active conversation changes
-  useEffect(() => {
-    loadHistory();
-  }, [activeConversationId]);
 
   // Handle screenshare video elements
   useEffect(() => {
@@ -337,9 +332,6 @@ export default function ChatPage() {
     <div className="app-container">
       {/* Sidebar (rail icons) */}
       <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
-
-      {/* Channels / DMs Sidebar Panel */}
-      <DMSidebar />
 
       {/* Main Chat Area */}
       <main className="chat-area" aria-label="Main chat area">
