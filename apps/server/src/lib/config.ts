@@ -14,7 +14,7 @@ export const config = {
   NODE_ENV: process.env.NODE_ENV || "development",
   SESSION_SECRET: process.env.SESSION_SECRET || "a_very_long_and_warm_cozy_secret_phrase_change_me_please",
   INITIAL_INVITE_CODE: process.env.INITIAL_INVITE_CODE || "COZY_SNEZHOK",
-  MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || "104857600", 10), // Default 100MB
+  MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || "10737418240", 10), // Default 10GB
   DATABASE_URL: process.env.DATABASE_URL || "file:./data/app.db",
   USE_TURN: process.env.USE_TURN === "true",
   TURN_URL: process.env.TURN_URL || "",
