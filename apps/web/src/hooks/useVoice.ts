@@ -11,6 +11,7 @@ let localScreenStreamSingleton: MediaStream | null = null;
 const peersSingleton = new Map<string, Peer.Instance>(); // socketId -> Peer instance
 const audioElementsSingleton = new Map<string, HTMLAudioElement>(); // socketId -> Audio element
 const audioContextsSingleton = new Map<string, { audioContext: AudioContext; analyser: AnalyserNode; cancelFrame: number }>(); // socketId -> Audio analysis nodes
+const gainNodesSingleton = new Map<string, GainNode>(); // socketId -> GainNode
 
 export function useVoice() {
   const { 
@@ -92,6 +93,14 @@ export function useVoice() {
       audioContext.close();
     });
     audioContextsSingleton.clear();
+
+    // Clean up all GainNodes
+    gainNodesSingleton.forEach((gainNode) => {
+      try {
+        gainNode.disconnect();
+      } catch (e) {}
+    });
+    gainNodesSingleton.clear();
 
     playLeaveSound();
     setIsInCall(false);
@@ -178,6 +187,27 @@ export function useVoice() {
       analyser.smoothingTimeConstant = 0.85;
 
       source.connect(analyser);
+
+      // Create GainNode for volume adjustment (0% to 200%)
+      const gainNode = audioContext.createGain();
+      
+      // Look up participant to get their userId
+      const participant = useVoiceStore.getState().participants.find(p => p.socketId === socketId);
+      const userId = participant?.userId;
+      
+      const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
+      const userVolumePercent = userId ? (saved[userId] ?? 100) : 100;
+      gainNode.gain.setValueAtTime(userVolumePercent / 100, audioContext.currentTime);
+
+      source.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      // Apply output device if supported on AudioContext
+      if (selectedOutputDeviceId && typeof (audioContext as any).setSinkId === "function") {
+        (audioContext as any).setSinkId(selectedOutputDeviceId).catch(console.error);
+      }
+
+      gainNodesSingleton.set(socketId, gainNode);
 
       let speakingCounter = 0;
       let silentCounter = 0;
@@ -374,11 +404,8 @@ export function useVoice() {
     audio.srcObject = stream;
     audio.autoplay = true;
     audio.setAttribute("playsinline", "true");
+    audio.muted = true; // Mute element to prevent double playback; Web Audio API GainNode handles playback and volume!
 
-    // Apply current volume and output device if set
-    if (volumes[socketId] !== undefined) {
-      audio.volume = volumes[socketId];
-    }
     if (selectedOutputDeviceId && typeof (audio as any).setSinkId === "function") {
       (audio as any).setSinkId(selectedOutputDeviceId).catch(console.error);
     }
@@ -390,12 +417,13 @@ export function useVoice() {
     setupSpeakingDetection(socketId, stream);
   };
 
-  // Sync volumes to audio elements when they change
+  // Sync volumes to GainNodes when they change
   useEffect(() => {
-    Object.entries(volumes).forEach(([socketId, volume]) => {
-      const audio = audioElementsSingleton.get(socketId);
-      if (audio) {
-        audio.volume = volume;
+    Object.entries(volumes).forEach(([socketId, volumePercent]) => {
+      const gainNode = gainNodesSingleton.get(socketId);
+      if (gainNode) {
+        // Smoothly transition volume to avoid clicks/pops
+        gainNode.gain.setTargetAtTime(volumePercent / 100, gainNode.context.currentTime, 0.01);
       }
     });
   }, [volumes]);
@@ -450,6 +478,14 @@ export function useVoice() {
       analysis.analyser.disconnect();
       analysis.audioContext.close();
       audioContextsSingleton.delete(socketId);
+    }
+
+    const gainNode = gainNodesSingleton.get(socketId);
+    if (gainNode) {
+      try {
+        gainNode.disconnect();
+      } catch (e) {}
+      gainNodesSingleton.delete(socketId);
     }
 
     setSpeaking(socketId, false);

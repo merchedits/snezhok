@@ -6,6 +6,7 @@ import { useVoice } from "../../hooks/useVoice.js";
 import VoiceSettings from "./VoiceSettings.jsx";
 import Avatar from "../Avatar.jsx";
 import { useTranslation } from "../../i18n/index.jsx";
+import VoiceVolumeMenu from "./VoiceVolumeMenu.jsx";
 
 export default function VoiceBanner() {
   const { participants, isInCall, isMuted } = useVoiceStore();
@@ -15,6 +16,13 @@ export default function VoiceBanner() {
   const [callDuration, setCallDuration] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    userId: string;
+    displayName: string;
+    socketId: string;
+  } | null>(null);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 768);
@@ -106,7 +114,21 @@ export default function VoiceBanner() {
       {!isMobile && participants.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: "24px", flex: 1, justifyContent: "center" }}>
           {participants.slice(0, 1).map((p) => (
-            <div key={p.socketId} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div 
+              key={p.socketId} 
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({
+                  x: e.clientX,
+                  y: e.clientY,
+                  userId: p.userId,
+                  displayName: p.displayName,
+                  socketId: p.socketId
+                });
+              }}
+              title="Right click to adjust volume"
+              style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "context-menu" }}
+            >
               <div style={{ position: "relative" }}>
                 <Avatar 
                   displayName={p.displayName} 
@@ -228,6 +250,17 @@ export default function VoiceBanner() {
         )}
       </div>
       </>
+      )}
+      
+      {contextMenu && (
+        <VoiceVolumeMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          userId={contextMenu.userId}
+          displayName={contextMenu.displayName}
+          socketId={contextMenu.socketId}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   );

@@ -42,14 +42,29 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   selectedOutputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedOutputDeviceId") : null,
   availableDevices: [],
 
-  setParticipants: (participants) => set({ participants }),
+  setParticipants: (participants) =>
+    set((state) => {
+      const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
+      const newVolumes = { ...state.volumes };
+      participants.forEach((p) => {
+        if (newVolumes[p.socketId] === undefined) {
+          newVolumes[p.socketId] = saved[p.userId] ?? 100;
+        }
+      });
+      return { participants, volumes: newVolumes };
+    }),
 
   addParticipant: (participant) =>
     set((state) => {
       if (state.participants.some((p) => p.socketId === participant.socketId)) {
         return state;
       }
-      return { participants: [...state.participants, participant] };
+      const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
+      const savedVol = saved[participant.userId] ?? 100;
+      return {
+        participants: [...state.participants, participant],
+        volumes: { ...state.volumes, [participant.socketId]: savedVol },
+      };
     }),
 
   removeParticipant: (socketId) =>

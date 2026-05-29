@@ -3,11 +3,20 @@ import { Activity } from "lucide-react";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import Avatar from "../Avatar.jsx";
 import { useTranslation } from "../../i18n/index.jsx";
+import VoiceVolumeMenu from "./VoiceVolumeMenu.jsx";
 
 export default function InCallCard() {
   const { participants, isInCall } = useVoiceStore();
   const [callDuration, setCallDuration] = useState(0);
   const { t } = useTranslation();
+  
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    userId: string;
+    displayName: string;
+    socketId: string;
+  } | null>(null);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -42,18 +51,32 @@ export default function InCallCard() {
       marginTop: "24px",
       marginBottom: "24px",
     }}>
-      <div style={{
-        background: "var(--color-bg-elevated)",
-        borderRadius: "24px",
-        padding: "24px 32px",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: "12px",
-        minWidth: "160px",
-        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
-        position: "relative"
-      }}>
+      <div 
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            userId: activeParticipant.userId,
+            displayName: activeParticipant.displayName,
+            socketId: activeParticipant.socketId
+          });
+        }}
+        title="Right click to adjust volume"
+        style={{
+          background: "var(--color-bg-elevated)",
+          borderRadius: "24px",
+          padding: "24px 32px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "12px",
+          minWidth: "160px",
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
+          position: "relative",
+          cursor: "context-menu"
+        }}
+      >
         <Avatar 
           displayName={activeParticipant.displayName} 
           username={activeParticipant.displayName} 
@@ -79,6 +102,17 @@ export default function InCallCard() {
           </p>
         </div>
       </div>
+
+      {contextMenu && (
+        <VoiceVolumeMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          userId={contextMenu.userId}
+          displayName={contextMenu.displayName}
+          socketId={contextMenu.socketId}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }
