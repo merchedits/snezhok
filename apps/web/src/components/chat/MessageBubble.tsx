@@ -22,6 +22,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
 
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   const isOwn = message.userId === currentUser?.id;
   const isAdmin = currentUser?.isAdmin || false;
@@ -117,6 +118,33 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
     );
   }
 
+  // Long press mobile touch event handlers
+  const handleTouchStart = () => {
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    touchTimerRef.current = setTimeout(() => {
+      setShowMobileMenu(true);
+      if (navigator.vibrate) {
+        try {
+          navigator.vibrate(40);
+        } catch (e) {}
+      }
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleTouchMove = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
   return (
     <div
       id={`msg-${message.id}`}
@@ -142,17 +170,11 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
       <div 
         className={isOwn ? "msg-row own" : "msg-row"} 
         style={{ position: "relative" }}
-        onTouchStart={() => {
-          touchTimerRef.current = setTimeout(() => {}, 500);
-        }}
-        onTouchEnd={() => {
-          if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
-        }}
-        onTouchMove={() => {
-          if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
-        }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchMove}
       >
-        {/* Message bubble content */}
+        {/* Message bubble container */}
         <div
           className={`bubble ${isOwn ? "own" : "other"}`}
           style={{
@@ -160,6 +182,8 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
             padding: message.fileId ? "4px" : undefined,
             background: message.fileId ? "transparent" : undefined,
             border: message.fileId ? "none" : undefined,
+            position: "relative",
+            overflow: "visible"
           }}
         >
           {/* Reply preview */}
@@ -178,11 +202,8 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
                 paddingLeft: "10px",
                 marginBottom: "8px",
                 fontSize: "var(--text-sm)",
-                color: "var(--color-text-secondary)",
-                lineHeight: 1.4,
-                maxHeight: "48px",
-                overflow: "hidden",
                 cursor: "pointer",
+                userSelect: "none"
               }}
             >
               <strong style={{ color: "var(--color-peach-dark)", fontSize: "var(--text-sm)" }}>
@@ -220,10 +241,6 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
                     e.preventDefault();
                     handleEditSubmit();
                   }
-                  if (e.key === "Escape") {
-                    setIsEditing(false);
-                    setEditContent(message.content);
-                  }
                 }}
                 style={{
                   width: "100%",
@@ -251,6 +268,86 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           ) : (
             <div>{renderMessageContent(message.content)}</div>
           )}
+
+          {/* Action buttons on hover (Desktop only, hidden on mobile via CSS) */}
+          <div
+            className="reaction-trigger"
+            style={{
+              position: "absolute",
+              top: "50%",
+              transform: "translateY(-50%)",
+              [isOwn ? "right" : "left"]: "calc(100% + 8px)",
+              zIndex: 10,
+              display: "flex",
+              gap: "2px",
+            }}
+          >
+            {/* Heart button */}
+            <Button
+              variant="icon"
+              style={{
+                width: "32px",
+                height: "32px",
+                background: "var(--color-bg-elevated)",
+                border: "1px solid var(--color-bg-subtle)",
+                color: hasHearted ? "#E8627A" : undefined,
+              }}
+              onClick={handleHeart}
+              title="Heart"
+            >
+              <Heart size={15} fill={hasHearted ? "#E8627A" : "none"} />
+            </Button>
+
+            {/* Reply button */}
+            <Button
+              variant="icon"
+              style={{
+                width: "32px",
+                height: "32px",
+                background: "var(--color-bg-elevated)",
+                border: "1px solid var(--color-bg-subtle)",
+              }}
+              onClick={handleReply}
+              title="Reply"
+            >
+              <Reply size={15} />
+            </Button>
+
+            {/* Edit button */}
+            {isOwn && message.type === "text" && !message.fileId && (
+              <Button
+                variant="icon"
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  background: "var(--color-bg-elevated)",
+                  border: "1px solid var(--color-bg-subtle)",
+                }}
+                onClick={() => { setIsEditing(true); setEditContent(message.content); }}
+                title="Edit"
+              >
+                <Pencil size={15} />
+              </Button>
+            )}
+
+            {/* Delete button */}
+            {(isOwn || isAdmin) && (
+              <Button
+                variant="icon"
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  background: "var(--color-bg-elevated)",
+                  border: "1px solid var(--color-bg-subtle)",
+                  color: "var(--color-destructive)",
+                }}
+                onClick={handleDelete}
+                title="Delete message"
+              >
+                <Trash2 size={15} />
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Timestamp outside bubble */}
@@ -267,89 +364,9 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           {formatTime(message.createdAt)}
           {isOwn && <span style={{ color: "var(--color-lavender)" }}>✓</span>}
         </div>
-
-        {/* Action buttons on hover: heart, reply, delete */}
-        <div
-          className="reaction-trigger"
-          style={{
-            position: "absolute",
-            top: "50%",
-            transform: "translateY(-50%)",
-            [isOwn ? "left" : "right"]: "-110px",
-            zIndex: 10,
-            display: "flex",
-            gap: "2px",
-          }}
-        >
-          {/* Heart button */}
-          <Button
-            variant="icon"
-            style={{
-              width: "32px",
-              height: "32px",
-              background: "var(--color-bg-elevated)",
-              border: "1px solid var(--color-bg-subtle)",
-              color: hasHearted ? "#E8627A" : undefined,
-            }}
-            onClick={handleHeart}
-            title="Heart"
-          >
-            <Heart size={15} fill={hasHearted ? "#E8627A" : "none"} />
-          </Button>
-
-          {/* Reply button */}
-          <Button
-            variant="icon"
-            style={{
-              width: "32px",
-              height: "32px",
-              background: "var(--color-bg-elevated)",
-              border: "1px solid var(--color-bg-subtle)",
-            }}
-            onClick={handleReply}
-            title="Reply"
-          >
-            <Reply size={15} />
-          </Button>
-
-          {/* Edit button (only for own messages and text messages) */}
-          {isOwn && message.type === "text" && !message.fileId && (
-            <Button
-              variant="icon"
-              style={{
-                width: "32px",
-                height: "32px",
-                background: "var(--color-bg-elevated)",
-                border: "1px solid var(--color-bg-subtle)",
-              }}
-              onClick={() => { setIsEditing(true); setEditContent(message.content); }}
-              title="Edit"
-            >
-              <Pencil size={15} />
-            </Button>
-          )}
-
-          {/* Delete button (only for own messages or admin) */}
-          {(isOwn || isAdmin) && (
-            <Button
-              variant="icon"
-              style={{
-                width: "32px",
-                height: "32px",
-                background: "var(--color-bg-elevated)",
-                border: "1px solid var(--color-bg-subtle)",
-                color: "var(--color-destructive)",
-              }}
-              onClick={handleDelete}
-              title="Delete message"
-            >
-              <Trash2 size={15} />
-            </Button>
-          )}
-        </div>
       </div>
 
-      {/* Render heart reactions if any exist */}
+      {/* Render heart reactions */}
       {heartReaction && (
         <div
           className="reaction-row"
@@ -362,6 +379,150 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
             onClick={handleHeart}
           >
             <span>❤️</span>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile touch action sheet overlay modal */}
+      {showMobileMenu && (
+        <div 
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            background: "rgba(0, 0, 0, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setShowMobileMenu(false)}
+        >
+          <div 
+            style={{
+              background: "var(--color-bg-elevated)",
+              borderRadius: "20px",
+              padding: "16px",
+              width: "280px",
+              boxShadow: "var(--shadow-lg)",
+              border: "1px solid var(--color-border)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              animation: "slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ padding: "4px 8px 8px", borderBottom: "1px solid var(--color-bg-subtle)", fontSize: "13px", color: "var(--color-text-tertiary)", fontWeight: 600 }}>
+              Actions
+            </div>
+
+            <button 
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                padding: "10px 12px",
+                border: "none",
+                background: "transparent",
+                color: "var(--color-text-primary)",
+                width: "100%",
+                textAlign: "left",
+                fontSize: "15px",
+                cursor: "pointer",
+                borderRadius: "8px"
+              }}
+              onClick={() => {
+                handleHeart();
+                setShowMobileMenu(false);
+              }}
+              className="mobile-action-item"
+            >
+              <Heart size={18} fill={hasHearted ? "#E8627A" : "none"} color={hasHearted ? "#E8627A" : "currentColor"} />
+              {hasHearted ? "Remove Heart" : "Heart Message"}
+            </button>
+
+            <button 
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "12px",
+                padding: "10px 12px",
+                border: "none",
+                background: "transparent",
+                color: "var(--color-text-primary)",
+                width: "100%",
+                textAlign: "left",
+                fontSize: "15px",
+                cursor: "pointer",
+                borderRadius: "8px"
+              }}
+              onClick={() => {
+                handleReply();
+                setShowMobileMenu(false);
+              }}
+              className="mobile-action-item"
+            >
+              <Reply size={18} />
+              Reply
+            </button>
+
+            {isOwn && message.type === "text" && !message.fileId && (
+              <button 
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "10px 12px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--color-text-primary)",
+                  width: "100%",
+                  textAlign: "left",
+                  fontSize: "15px",
+                  cursor: "pointer",
+                  borderRadius: "8px"
+                }}
+                onClick={() => {
+                  setIsEditing(true);
+                  setEditContent(message.content);
+                  setShowMobileMenu(false);
+                }}
+                className="mobile-action-item"
+              >
+                <Pencil size={18} />
+                Edit Message
+              </button>
+            )}
+
+            {(isOwn || isAdmin) && (
+              <button 
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "10px 12px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--color-destructive)",
+                  width: "100%",
+                  textAlign: "left",
+                  fontSize: "15px",
+                  cursor: "pointer",
+                  borderRadius: "8px"
+                }}
+                onClick={() => {
+                  handleDelete();
+                  setShowMobileMenu(false);
+                }}
+                className="mobile-action-item"
+              >
+                <Trash2 size={18} color="var(--color-destructive)" />
+                Delete Message
+              </button>
+            )}
           </div>
         </div>
       )}

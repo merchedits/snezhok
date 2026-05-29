@@ -49,7 +49,7 @@ export function useVoice() {
       socket.emit("voice:join");
 
       // Set up speaking detection for local user
-      setupSpeakingDetection("local", stream);
+      setupSpeakingDetection(socket.id || "local", stream);
       playJoinSound();
     } catch (err) {
       console.error("Failed to get microphone permissions:", err);

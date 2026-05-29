@@ -1193,6 +1193,10 @@ body {
   background: var(--color-peach-dark) !important;
 }
 
+.mobile-action-item:active {
+  background: var(--color-bg-subtle) !important;
+}
+
 /* Screenshare PIP */
 .screenshare-pip {
   position: absolute;
@@ -1345,6 +1349,10 @@ body {
 
   .message-input-inner {
     padding: 0 8px 8px 8px;
+  }
+
+  .reaction-trigger {
+    display: none !important;
   }
 }
 
