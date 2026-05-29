@@ -49,7 +49,7 @@ services:
 
 volumes:
   snezhok_data:
-    name: snezhok_data
+    external: true
   caddy_data:
   caddy_config:
 
