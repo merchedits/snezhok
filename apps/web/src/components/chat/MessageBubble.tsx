@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import Avatar from "../Avatar.jsx";
 import FileCard from "../FileCard.jsx";
 import ImagePreview from "../ImagePreview.jsx";
+import VideoPreview from "../VideoPreview.jsx";
 import Button from "../Button.jsx";
 import { Message, useMessageStore } from "../../stores/messageStore.js";
 import { useAuthStore } from "../../stores/authStore.js";
@@ -199,33 +200,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
             message.file.mimeType.startsWith("image/") ? (
               <ImagePreview id={message.file.id} originalName={message.file.originalName} />
             ) : message.file.mimeType.startsWith("video/") ? (
-              <div style={{
-                marginTop: "6px",
-                marginBottom: "6px",
-                maxWidth: "100%",
-                width: "480px",
-                borderRadius: "16px",
-                overflow: "hidden",
-                border: "1px solid var(--color-border)",
-                background: "#000",
-                boxShadow: "var(--shadow-sm)",
-                display: "flex",
-                flexDirection: "column"
-              }}>
-                <video
-                  src={`/api/files/${message.file.id}/${encodeURIComponent(message.file.originalName)}`}
-                  controls
-                  preload="metadata"
-                  playsInline
-                  style={{
-                    width: "100%",
-                    height: "auto",
-                    maxHeight: "360px",
-                    display: "block",
-                    borderRadius: "16px"
-                  }}
-                />
-              </div>
+              <VideoPreview id={message.file.id} originalName={message.file.originalName} />
             ) : (
               <FileCard
                 id={message.file.id}

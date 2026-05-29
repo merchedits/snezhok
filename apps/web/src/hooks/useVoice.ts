@@ -162,6 +162,12 @@ export function useVoice() {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioContext = new AudioContextClass();
+      
+      // Explicitly resume audio context to ensure it runs immediately
+      if (audioContext.state === "suspended") {
+        audioContext.resume();
+      }
+
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 512;
@@ -186,17 +192,17 @@ export function useVoice() {
         }
         const average = values / length;
 
-        // speaking threshold (volume average > 12 is typical voice level)
-        if (average > 12) {
+        // speaking threshold (volume average > 5 is highly responsive and sensitive)
+        if (average > 5) {
           speakingCounter++;
           silentCounter = 0;
-          if (speakingCounter > 2) {
+          if (speakingCounter > 1) {
             setSpeaking(socketId, true);
           }
         } else {
           silentCounter++;
           speakingCounter = 0;
-          if (silentCounter > 15) {
+          if (silentCounter > 12) {
             setSpeaking(socketId, false);
           }
         }

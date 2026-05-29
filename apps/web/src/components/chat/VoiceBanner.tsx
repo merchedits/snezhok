@@ -113,6 +113,7 @@ export default function VoiceBanner() {
                   username={p.displayName} 
                   avatarColor={p.avatarColor} 
                   size="md" 
+                  isSpeaking={p.isSpeaking}
                 />
                 {p.isSpeaking && (
                   <span style={{

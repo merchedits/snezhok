@@ -73,7 +73,7 @@ export default function ImagePreview({ id, originalName }: ImagePreviewProps) {
         />
       </div>
 
-      <Modal isOpen={isOpen} onClose={handleClose} title={originalName}>
+      <Modal isOpen={isOpen} onClose={handleClose} title={originalName} size="xl">
         <div
           ref={containerRef}
           onMouseDown={handleMouseDown}

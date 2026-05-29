@@ -7,9 +7,10 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  size?: "sm" | "md" | "lg" | "xl";
 }
 
-export default function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export default function Modal({ isOpen, onClose, title, children, size = "md" }: ModalProps) {
   useEffect(() => {
     if (!isOpen) return;
 
@@ -31,7 +32,7 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
       aria-modal="true"
     >
       <div
-        className="modal-content"
+        className={`modal-content modal-${size}`}
         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking content
       >
         <div className="modal-header">

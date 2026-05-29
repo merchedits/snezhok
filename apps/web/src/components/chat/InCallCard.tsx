@@ -59,6 +59,7 @@ export default function InCallCard() {
           username={activeParticipant.displayName} 
           avatarColor={activeParticipant.avatarColor} 
           size="lg" 
+          isSpeaking={activeParticipant.isSpeaking}
         />
         
         <div style={{ position: "absolute", top: "32px", right: "24px" }}>

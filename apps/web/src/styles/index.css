@@ -1111,7 +1111,6 @@ body {
   background: var(--color-bg-elevated);
   border-radius: 16px;
   width: 100%;
-  max-width: 480px;
   padding: var(--space-6);
   box-shadow: 0 12px 64px rgba(60, 40, 25, 0.15);
   display: flex;
@@ -1119,6 +1118,11 @@ body {
   gap: var(--space-4);
   animation: messageAppear var(--dur-slow) var(--ease-soft);
 }
+
+.modal-sm { max-width: 360px; }
+.modal-md { max-width: 480px; }
+.modal-lg { max-width: 640px; }
+.modal-xl { max-width: 90%; width: 1000px; }
 
 .modal-header {
   display: flex;
@@ -1171,17 +1175,22 @@ body {
 .avatar-lg { width: 64px; height: 64px; font-size: 22px; }
 
 .avatar-speaking-glow {
-  box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 4px var(--color-online), 0 0 8px var(--color-online);
+  border: 2px solid var(--color-online) !important;
   animation: avatarSpeakingPulse 1.2s infinite alternate;
 }
 
 @keyframes avatarSpeakingPulse {
   0% {
-    box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 3px var(--color-online), 0 0 6px rgba(110, 231, 135, 0.4);
+    box-shadow: 0 0 4px rgba(110, 231, 135, 0.4);
   }
   100% {
-    box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 5px var(--color-online), 0 0 14px rgba(110, 231, 135, 0.8);
+    box-shadow: 0 0 12px var(--color-online);
   }
+}
+
+.video-preview-bubble:hover .video-play-btn {
+  transform: scale(1.1) !important;
+  background: var(--color-peach-dark) !important;
 }
 
 /* Screenshare PIP */
