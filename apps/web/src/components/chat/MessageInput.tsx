@@ -381,31 +381,32 @@ export default function MessageInput() {
         style={{ display: "none" }}
       />
 
-      <div className="input-area" style={{ flexDirection: "column", gap: "0" }}>
+      <div style={{ padding: "0 24px 24px 24px" }}>
         {/* Reply Preview Bar */}
         {replyingTo && (
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "var(--space-3)",
-              padding: "var(--space-2) var(--space-3)",
-              marginBottom: "var(--space-2)",
-              background: "var(--color-bg-subtle)",
-              borderRadius: "10px",
-              fontSize: "var(--text-sm)",
+              gap: "12px",
+              padding: "8px 12px",
+              marginBottom: "12px",
+              background: "var(--color-bg-elevated)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "12px",
+              fontSize: "13px",
               width: "100%",
             }}
           >
             <div
               style={{
-                borderLeft: "3px solid var(--color-peach)",
-                paddingLeft: "var(--space-2)",
+                borderLeft: "3px solid var(--color-lavender)",
+                paddingLeft: "12px",
                 flex: 1,
                 overflow: "hidden",
               }}
             >
-              <div style={{ fontWeight: 600, color: "var(--color-peach-dark)", fontSize: "var(--text-sm)" }}>
+              <div style={{ fontWeight: 600, color: "var(--color-lavender)", fontSize: "13px" }}>
                 {replyingTo.user?.displayName}
               </div>
               <div
@@ -422,7 +423,7 @@ export default function MessageInput() {
             <Button
               variant="icon"
               onClick={clearReplyingTo}
-              style={{ width: "28px", height: "28px", flexShrink: 0 }}
+              style={{ width: "24px", height: "24px", flexShrink: 0 }}
               aria-label="Cancel reply"
             >
               <X size={14} />
@@ -430,92 +431,96 @@ export default function MessageInput() {
           </div>
         )}
 
-        <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--space-3)", width: "100%" }}>
-        <div className="input-left">
-          {/* Attach File Button */}
-          <Button
-            variant="icon"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploads.some(u => u.status === "uploading")}
-            aria-label="Attach file"
-          >
-            <Paperclip size={18} />
-          </Button>
-
-          {/* Quick Emoji Picker Button */}
-          <div style={{ position: "relative" }}>
-            <Button
-              variant="icon"
-              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              aria-label="Add emoji"
-            >
-              <Smile size={18} />
-            </Button>
-
-            {showEmojiPicker && (
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: "44px",
-                  left: "0",
-                  display: "flex",
-                  flexWrap: "wrap",
-                  background: "var(--color-bg-elevated)",
-                  border: "1px solid var(--color-bg-subtle)",
-                  borderRadius: "12px",
-                  padding: "8px",
-                  gap: "6px",
-                  width: "160px",
-                  boxShadow: "0 6px 24px rgba(60,40,25,0.1)",
-                  zIndex: 40,
-                }}
+        <div style={{ display: "flex", alignItems: "flex-end", gap: "12px", width: "100%" }}>
+          <div className="input-area" style={{ margin: 0, flex: 1, display: "flex", alignItems: "flex-end", background: "var(--color-bg-elevated)", border: "1px solid var(--color-border)", borderRadius: "24px", padding: "4px" }}>
+            <div className="input-left" style={{ paddingLeft: "8px", paddingBottom: "4px" }}>
+              {/* Attach File Button */}
+              <button
+                className="composer-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploads.some(u => u.status === "uploading")}
+                aria-label="Attach file"
               >
-                {QUICK_EMOJIS.map((emoji) => (
-                  <span
-                    key={emoji}
-                    onClick={() => handleEmojiClick(emoji)}
-                    style={{
-                      cursor: "pointer",
-                      fontSize: "18px",
-                      padding: "4px",
-                      borderRadius: "6px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                    className="quick-emoji-picker-item"
-                  >
-                    {emoji}
-                  </span>
-                ))}
-              </div>
-            )}
+                <Paperclip size={20} strokeWidth={2} />
+              </button>
+            </div>
+
+            {/* Text Box */}
+            <textarea
+              ref={textareaRef}
+              className="input-box"
+              rows={1}
+              placeholder="Message #general"
+              value={content}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onBlur={stopTyping}
+              aria-label="Message input"
+              style={{ minHeight: "44px", padding: "10px 12px", fontSize: "15px" }}
+            />
+
+            <div className="send-btn-container" style={{ paddingRight: "8px", paddingBottom: "4px", position: "relative" }}>
+              {/* Quick Emoji Picker Button */}
+              <button
+                className="composer-btn"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                aria-label="Add emoji"
+              >
+                <Smile size={20} strokeWidth={2} />
+              </button>
+
+              {showEmojiPicker && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "48px",
+                    right: "0",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    background: "var(--color-bg-elevated)",
+                    border: "1px solid var(--color-border-strong)",
+                    borderRadius: "16px",
+                    padding: "8px",
+                    gap: "6px",
+                    width: "180px",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+                    zIndex: 40,
+                  }}
+                >
+                  {QUICK_EMOJIS.map((emoji) => (
+                    <span
+                      key={emoji}
+                      onClick={() => handleEmojiClick(emoji)}
+                      style={{
+                        cursor: "pointer",
+                        fontSize: "20px",
+                        padding: "6px",
+                        borderRadius: "8px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "background 0.2s",
+                      }}
+                      className="quick-emoji-picker-item"
+                    >
+                      {emoji}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Text Box */}
-        <textarea
-          ref={textareaRef}
-          className="input-box"
-          rows={1}
-          placeholder="Say something nice..."
-          value={content}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          onBlur={stopTyping}
-          aria-label="Message input"
-        />
-
-        {/* Send Button */}
-        <Button
-          variant="primary"
-          onClick={handleSend}
-          disabled={!content.trim() || uploads.some(u => u.status === "uploading")}
-          style={{ width: "44px", height: "44px", borderRadius: "50%", padding: 0 }}
-          aria-label="Send message"
-        >
-          <Send size={18} />
-        </Button>
+          {/* Detached Send Button */}
+          <button
+            className="send-btn-round"
+            onClick={handleSend}
+            disabled={!content.trim() || uploads.some(u => u.status === "uploading")}
+            aria-label="Send message"
+            style={{ flexShrink: 0, marginBottom: "4px", width: "44px", height: "44px" }}
+          >
+            <Send size={18} strokeWidth={2.5} style={{ marginLeft: "2px" }} />
+          </button>
         </div>
       </div>
     </div>

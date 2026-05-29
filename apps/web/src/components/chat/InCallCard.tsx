@@ -1,0 +1,80 @@
+import { useEffect, useState } from "react";
+import { Activity } from "lucide-react";
+import { useVoiceStore } from "../../stores/voiceStore.js";
+import Avatar from "../Avatar.jsx";
+
+export default function InCallCard() {
+  const { participants, isInCall } = useVoiceStore();
+  const [callDuration, setCallDuration] = useState(0);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isInCall) {
+      interval = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallDuration(0);
+    }
+    return () => clearInterval(interval);
+  }, [isInCall]);
+
+  const formatDuration = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  // Only show if there's someone in the call and we're not currently rendering a massive grid
+  if (participants.length === 0) return null;
+
+  // Render the primary speaker or first participant
+  const activeParticipant = participants.find(p => p.isSpeaking) || participants[0];
+
+  return (
+    <div style={{
+      display: "flex",
+      justifyContent: "center",
+      marginTop: "24px",
+      marginBottom: "24px",
+    }}>
+      <div style={{
+        background: "var(--color-bg-elevated)",
+        borderRadius: "24px",
+        padding: "24px 32px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "12px",
+        minWidth: "160px",
+        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
+        position: "relative"
+      }}>
+        <Avatar 
+          displayName={activeParticipant.displayName} 
+          username={activeParticipant.displayName} 
+          avatarColor={activeParticipant.avatarColor} 
+          size="lg" 
+        />
+        
+        <div style={{ position: "absolute", top: "32px", right: "24px" }}>
+          <Activity size={16} color="var(--color-online)" />
+        </div>
+
+        <div style={{ textAlign: "center" }}>
+          <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "4px" }}>
+            {activeParticipant.displayName}
+          </h3>
+          <p style={{ fontSize: "13px", color: "var(--color-online)", marginBottom: "4px" }}>
+            In voice call
+          </p>
+          <p style={{ fontSize: "13px", color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
+            {formatDuration(callDuration)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -6,6 +6,7 @@ import { useUIStore } from "../stores/uiStore.js";
 import Sidebar from "../components/chat/Sidebar.jsx";
 import ChatHeader from "../components/chat/ChatHeader.jsx";
 import VoiceBanner from "../components/chat/VoiceBanner.jsx";
+import InCallCard from "../components/chat/InCallCard.jsx";
 import MessageBubble from "../components/chat/MessageBubble.jsx";
 import MessageInput from "../components/chat/MessageInput.jsx";
 import MemberPanel from "../components/chat/MemberPanel.jsx";
@@ -265,6 +266,7 @@ export default function ChatPage() {
       <main className="chat-area" aria-label="Main chat area">
         {/* Voice Call Banner if any users connected */}
         <VoiceBanner />
+        <InCallCard />
         
         {/* Screenshare Container */}
         <div 

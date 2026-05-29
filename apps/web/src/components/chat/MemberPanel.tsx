@@ -1,20 +1,14 @@
-import { PhoneCall, PhoneOff } from "lucide-react";
+import { X, Activity } from "lucide-react";
 import Avatar from "../Avatar.jsx";
 import Button from "../Button.jsx";
 import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useVoiceStore } from "../../stores/voiceStore.js";
-import { useAuthStore } from "../../stores/authStore.js";
-import { useVoice } from "../../hooks/useVoice.js";
+import { useUIStore } from "../../stores/uiStore.js";
 
 export default function MemberPanel() {
   const usersList = usePresenceStore((state) => state.usersList);
   const voiceParticipants = useVoiceStore((state) => state.participants);
-  const isInCall = useVoiceStore((state) => state.isInCall);
-  const volumes = useVoiceStore((state) => state.volumes);
-  const setVolume = useVoiceStore((state) => state.setVolume);
-  const localUser = useAuthStore((state) => state.user);
-
-  const { joinCall, leaveCall } = useVoice();
+  const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
 
   // Helper to check if a user is in a voice call
   const isUserInVoice = (userId: string) => {
@@ -26,145 +20,138 @@ export default function MemberPanel() {
     return voiceParticipants.find((p) => p.userId === userId)?.isSpeaking || false;
   };
 
-  // Separate online and offline
-  const onlineUsers = usersList.filter((u) => u.isOnline);
+  // Lists
+  const inCallUsers = usersList.filter((u) => isUserInVoice(u.id));
+  const onlineUsersNotInCall = usersList.filter((u) => u.isOnline && !isUserInVoice(u.id));
   const offlineUsers = usersList.filter((u) => !u.isOnline);
 
   return (
     <aside className="member-panel" aria-label="Member List">
-      <div className="member-panel-header">Members</div>
+      <div 
+        style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "space-between", 
+          padding: "24px 24px 16px",
+          borderBottom: "1px solid var(--color-border)",
+        }}
+      >
+        <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "16px" }}>Members</span>
+        <Button variant="ghost" onClick={toggleMemberPanel} style={{ padding: 0, width: "24px", height: "24px" }}>
+          <X size={18} />
+        </Button>
+      </div>
 
-      {/* Online List */}
-      <div className="member-section-label">Online — {onlineUsers.length}</div>
-      <div style={{ overflowY: "auto", flex: 1 }}>
-        {onlineUsers.map((member) => (
-          <div key={member.id} className="member-item">
-            <Avatar
-              displayName={member.displayName}
-              username={member.username}
-              avatarColor={member.avatarColor}
-              size="xs"
-              showOnline={true}
-              isOnline={true}
-              isSpeaking={isUserSpeaking(member.id)}
-            />
-            <span className="member-name">{member.displayName}</span>
-            {isUserInVoice(member.id) && (
-              <div
-                className="presence-dot presence-speaking"
-                title="In voice call"
-                style={{ width: "6px", height: "6px" }}
-              />
-            )}
-          </div>
-        ))}
-
-        {/* Offline List */}
-        {offlineUsers.length > 0 && (
-          <>
-            <div className="member-section-label" style={{ marginTop: "12px" }}>
-              Offline — {offlineUsers.length}
+      <div style={{ overflowY: "auto", flex: 1, padding: "16px 24px" }}>
+        
+        {/* IN CALL NOW */}
+        {inCallUsers.length > 0 && (
+          <div style={{ marginBottom: "24px" }}>
+            <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
+              IN CALL NOW
             </div>
-            {offlineUsers.map((member) => (
-              <div key={member.id} className="member-item" style={{ opacity: 0.6 }}>
+            {inCallUsers.map((member) => (
+              <div 
+                key={member.id} 
+                style={{
+                  background: "var(--color-bg-elevated)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "16px",
+                  padding: "12px 16px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  marginBottom: "8px",
+                }}
+              >
                 <Avatar
                   displayName={member.displayName}
                   username={member.username}
                   avatarColor={member.avatarColor}
-                  size="xs"
+                  size="sm"
                   showOnline={true}
-                  isOnline={false}
+                  isOnline={true}
+                  isSpeaking={isUserSpeaking(member.id)}
                 />
-                <span className="member-name">{member.displayName}</span>
+                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {member.displayName}
+                  </span>
+                  <span style={{ fontSize: "12px", color: "var(--color-online)" }}>
+                    In voice call
+                  </span>
+                </div>
+                <Activity size={14} color="var(--color-online)" />
               </div>
             ))}
-          </>
-        )}
-      </div>
-
-      {/* Voice widget at the bottom of the panel */}
-      <div className="voice-in-panel">
-        <div className="voice-panel-title">
-          <PhoneCall size={12} style={{ color: "#6B5B9E" }} />
-          <span>Voice Channel</span>
-        </div>
-
-        {voiceParticipants.length > 0 ? (
-          <>
-            <div className="voice-member-chips">
-              {voiceParticipants.map((p) => {
-                const isLocal = localUser?.id === p.userId;
-                const pVolume = volumes[p.socketId] ?? 1;
-
-                return (
-                  <div key={p.socketId} style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%', marginBottom: '8px' }}>
-                    <div className="voice-chip" style={{ width: '100%' }}>
-                      <div
-                        className="voice-chip-avatar"
-                        style={{
-                          backgroundColor: p.avatarColor,
-                          border: p.isSpeaking ? "2px solid var(--color-lavender)" : undefined,
-                        }}
-                      >
-                        {p.displayName.slice(0, 2).toUpperCase()}
-                      </div>
-                      <span>{p.displayName} {isLocal && "(You)"}</span>
-                    </div>
-                    {!isLocal && (
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.05"
-                        value={pVolume}
-                        onChange={(e) => setVolume(p.socketId, parseFloat(e.target.value))}
-                        title="Volume"
-                        style={{ width: '100%', height: '4px', cursor: 'pointer' }}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {isInCall ? (
-              <Button
-                variant="danger"
-                onClick={leaveCall}
-                style={{ width: "100%", height: "32px", fontSize: "var(--text-sm)" }}
-                aria-label="Disconnect voice call"
-              >
-                <PhoneOff size={12} />
-                Disconnect
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                onClick={joinCall}
-                className="join-voice-btn"
-                style={{ width: "100%", height: "32px", fontSize: "var(--text-sm)" }}
-                aria-label="Join voice call"
-              >
-                <PhoneCall size={12} />
-                Join Call
-              </Button>
-            )}
-          </>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-secondary)" }}>
-              No one is in the call. Start one to hang out!
-            </p>
-            <Button
-              variant="ghost"
-              onClick={joinCall}
-              style={{ width: "100%", height: "32px", fontSize: "var(--text-sm)" }}
-              aria-label="Start voice call"
-            >
-              <PhoneCall size={12} />
-              Start Call
-            </Button>
           </div>
         )}
+
+        {/* ONLINE */}
+        {onlineUsersNotInCall.length > 0 && (
+          <div style={{ marginBottom: "24px" }}>
+            <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
+              ONLINE — {onlineUsersNotInCall.length}
+            </div>
+            {onlineUsersNotInCall.map((member) => (
+              <div 
+                key={member.id} 
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "8px 0",
+                }}
+              >
+                <Avatar
+                  displayName={member.displayName}
+                  username={member.username}
+                  avatarColor={member.avatarColor}
+                  size="sm"
+                  showOnline={true}
+                  isOnline={true}
+                />
+                <span style={{ fontSize: "14px", color: "var(--color-text-primary)", fontWeight: 500 }}>
+                  {member.displayName}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* OFFLINE */}
+        {offlineUsers.length > 0 && (
+          <div style={{ marginBottom: "24px" }}>
+            <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
+              OFFLINE — {offlineUsers.length}
+            </div>
+            {offlineUsers.map((member) => (
+              <div 
+                key={member.id} 
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "8px 0",
+                  opacity: 0.5,
+                }}
+              >
+                <Avatar
+                  displayName={member.displayName}
+                  username={member.username}
+                  avatarColor={member.avatarColor}
+                  size="sm"
+                  showOnline={false}
+                  isOnline={false}
+                />
+                <span style={{ fontSize: "14px", color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                  {member.displayName}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
     </aside>
   );

@@ -97,8 +97,8 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
 
   if (message.type === "system") {
     return (
-      <div className="sys-msg">
-        🌸 <strong>{message.user?.displayName || "Someone"}</strong> {message.content}
+      <div className="time-divider" style={{ textTransform: "none", letterSpacing: "normal" }}>
+        🌸 {message.user?.displayName || "Someone"} {message.content} • {formatTime(message.createdAt)}
       </div>
     );
   }
@@ -112,21 +112,15 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
         marginBottom: isGroupStart ? "14px" : "4px",
       }}
     >
-      {isGroupStart && (
-        <div className="msg-group-header" style={{ flexDirection: isOwn ? "row-reverse" : "row", marginBottom: "4px" }}>
-          {!isOwn && (
-            <Avatar
-              displayName={message.user?.displayName}
-              username={message.user?.username}
-              avatarColor={message.user?.avatarColor}
-              size="sm"
-            />
-          )}
-          {!isOwn && <span className="msg-username">{message.user?.displayName}</span>}
-          <span className="msg-time" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            {formatTime(message.createdAt)}
-            {isOwn && <span style={{ color: "var(--color-peach-dark)", fontSize: "12px", fontWeight: "bold" }}>✓</span>}
-          </span>
+      {!isOwn && isGroupStart && (
+        <div className="msg-group-header" style={{ flexDirection: "row", marginBottom: "4px" }}>
+          <Avatar
+            displayName={message.user?.displayName}
+            username={message.user?.username}
+            avatarColor={message.user?.avatarColor}
+            size="sm"
+          />
+          <span className="msg-username">{message.user?.displayName}</span>
         </div>
       )}
 
@@ -201,6 +195,20 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           ) : (
             <div>{renderMessageContent(message.content)}</div>
           )}
+        </div>
+
+        {/* Timestamp outside bubble */}
+        <div style={{ 
+          fontSize: "11px", 
+          color: "var(--color-text-tertiary)", 
+          display: "flex", 
+          alignItems: "center", 
+          gap: "4px",
+          paddingBottom: "4px",
+          userSelect: "none"
+        }}>
+          {formatTime(message.createdAt)}
+          {isOwn && <span style={{ color: "var(--color-lavender)" }}>✓</span>}
         </div>
 
         {/* Action buttons on hover: heart, reply, delete */}

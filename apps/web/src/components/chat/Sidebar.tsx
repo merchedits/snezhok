@@ -1,4 +1,4 @@
-import { MessageCircle, Settings, Sun, Moon, LogOut } from "lucide-react";
+import { MessageCircle, Settings, Sun, Moon, LogOut, Compass, Bell } from "lucide-react";
 import Avatar from "../Avatar.jsx";
 import { useAuthStore } from "../../stores/authStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
@@ -13,12 +13,27 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 
   return (
     <nav className="sidebar" aria-label="Main Navigation">
-      <div className="app-logo" title="Snezhok Снежок">🌸</div>
-      <div className="sidebar-divider" />
+      <div 
+        className="app-logo" 
+        style={{ background: 'transparent', color: 'var(--color-peach)', fontSize: '24px', marginBottom: '16px' }}
+        title="Snezhok"
+      >
+        🌸
+      </div>
 
-      {/* Navigation - Chat (Single room MVP) */}
+      {/* Navigation Main */}
       <button className="sidebar-btn active" title="Global Chat" aria-label="Global Chat">
-        <MessageCircle size={24} />
+        <MessageCircle size={20} strokeWidth={2.5} />
+      </button>
+
+      {/* Explore / Compass Placeholder */}
+      <button className="sidebar-btn" title="Explore" aria-label="Explore">
+        <Compass size={22} strokeWidth={2} />
+      </button>
+
+      {/* Notifications Placeholder */}
+      <button className="sidebar-btn" title="Notifications" aria-label="Notifications">
+        <Bell size={22} strokeWidth={2} />
       </button>
 
       {/* Theme Toggle Button */}
@@ -40,7 +55,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         title="Settings"
         aria-label="Settings"
       >
-        <Settings size={24} />
+        <Settings size={22} strokeWidth={2} />
       </button>
 
       {/* Logout Button */}
@@ -50,7 +65,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         title="Logout"
         aria-label="Logout"
       >
-        <LogOut size={24} />
+        <LogOut size={22} strokeWidth={2} />
       </button>
 
       {/* Current User Display Profile */}

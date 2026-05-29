@@ -1,4 +1,4 @@
-import { Users } from "lucide-react";
+import { Users, MoreHorizontal } from "lucide-react";
 import Button from "../Button.jsx";
 import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
@@ -13,15 +13,19 @@ export default function ChatHeader() {
 
   return (
     <header className="chat-header">
-      {/* Mobile menu toggle or brand icon */}
-      <div className="chat-header-icon">
-        <Users size={18} style={{ color: "var(--color-peach-dark)" }} />
-      </div>
-
       <div className="chat-header-info">
-        <h2>The Crew 🌸</h2>
-        <p>
-          {totalCount} {totalCount === 1 ? "member" : "members"} · {onlineCount} online
+        <h2 style={{ fontSize: "20px", fontWeight: "700" }}>The Crew 🌸</h2>
+        <p style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
+          {totalCount} {totalCount === 1 ? "member" : "members"}
+          <span>•</span>
+          <span style={{ 
+            display: "inline-block", 
+            width: "6px", 
+            height: "6px", 
+            borderRadius: "50%", 
+            background: "var(--color-online)" 
+          }} />
+          {onlineCount} online
         </p>
       </div>
 
@@ -34,7 +38,14 @@ export default function ChatHeader() {
           aria-label="Toggle member panel"
           className="member-panel-toggle-btn"
         >
-          <Users size={16} />
+          <Users size={18} />
+        </Button>
+        <Button
+          variant="icon"
+          title="More options"
+          aria-label="More options"
+        >
+          <MoreHorizontal size={18} />
         </Button>
       </div>
     </header>
