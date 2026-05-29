@@ -15,5 +15,7 @@ CREATE TABLE `conversations` (
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
+INSERT INTO `conversations` (`id`, `type`, `created_at`) VALUES ('global', 'global', 0);
+--> statement-breakpoint
 ALTER TABLE `messages` ADD `conversation_id` text DEFAULT 'global' NOT NULL REFERENCES conversations(id);--> statement-breakpoint
 CREATE INDEX `messages_conversation_id_idx` ON `messages` (`conversation_id`);
