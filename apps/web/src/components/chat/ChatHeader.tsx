@@ -3,6 +3,7 @@ import { Users, MoreHorizontal, PhoneCall, Settings, Moon, Sun, LogOut } from "l
 import Button from "../Button.jsx";
 import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
+import { useVoiceStore } from "../../stores/voiceStore.js";
 import { useVoice } from "../../hooks/useVoice.js";
 import { useTranslation } from "../../i18n/index.jsx";
 
@@ -17,6 +18,7 @@ export default function ChatHeader({ onOpenSettings, onLogout }: ChatHeaderProps
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
   const { theme, setTheme } = useUIStore();
   const { joinCall } = useVoice();
+  const isInCall = useVoiceStore((state) => state.isInCall);
   const { t } = useTranslation();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -74,14 +76,16 @@ export default function ChatHeader({ onOpenSettings, onLogout }: ChatHeaderProps
         >
           <Users size={18} />
         </Button>
-        <Button
-          variant="icon"
-          title={t('voice.startCall')}
-          aria-label={t('voice.startCall')}
-          onClick={() => joinCall()}
-        >
-          <PhoneCall size={18} />
-        </Button>
+        {!isInCall && (
+          <Button
+            variant="icon"
+            title={t('voice.startCall')}
+            aria-label={t('voice.startCall')}
+            onClick={() => joinCall()}
+          >
+            <PhoneCall size={18} />
+          </Button>
+        )}
         
         <div style={{ position: "relative" }} ref={dropdownRef}>
           <Button

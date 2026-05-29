@@ -144,11 +144,30 @@ export default function ChatPage() {
   }, [user]);
 
   // Scroll to bottom on new message
+  const previousMessagesLengthRef = useRef(messages.length);
+  const previousLastMessageIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     const container = chatContainerRef.current;
-    if (!container || messages.length === 0) return;
+    if (!container || messages.length === 0) {
+      previousMessagesLengthRef.current = messages.length;
+      previousLastMessageIdRef.current = null;
+      return;
+    }
 
     const lastMsg = messages[messages.length - 1];
+    const isLengthIncreased = messages.length > previousMessagesLengthRef.current;
+    const isNewLastMessage = lastMsg.id !== previousLastMessageIdRef.current;
+
+    // Update refs for next run
+    previousMessagesLengthRef.current = messages.length;
+    previousLastMessageIdRef.current = lastMsg.id;
+
+    // Only scroll if a new message was actually appended
+    if (!isLengthIncreased || !isNewLastMessage) {
+      return;
+    }
+
     const isOwn = lastMsg.userId === user?.id;
 
     // Check if scrolled near bottom (within 200px)

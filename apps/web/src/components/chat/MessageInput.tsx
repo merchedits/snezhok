@@ -383,7 +383,7 @@ export default function MessageInput() {
         style={{ display: "none" }}
       />
 
-      <div style={{ padding: "0 24px 24px 24px" }}>
+      <div className="message-input-inner">
         {/* Reply Preview Bar */}
         {replyingTo && (
           <div
@@ -434,7 +434,7 @@ export default function MessageInput() {
         )}
 
         <div style={{ display: "flex", alignItems: "flex-end", gap: "12px", width: "100%" }}>
-          <div className="input-area" style={{ margin: 0, flex: 1, display: "flex", alignItems: "flex-end", background: "var(--color-bg-elevated)", border: "1px solid var(--color-border)", borderRadius: "24px", padding: "4px" }}>
+          <div className="input-area" style={{ margin: 0, flex: 1, minWidth: 0, display: "flex", alignItems: "flex-end", background: "var(--color-bg-elevated)", border: "1px solid var(--color-border)", borderRadius: "24px", padding: "4px" }}>
             <div className="input-left" style={{ paddingLeft: "8px", paddingBottom: "4px" }}>
               {/* Attach File Button */}
               <button

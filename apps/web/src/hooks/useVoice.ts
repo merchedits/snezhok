@@ -19,6 +19,9 @@ export function useVoice() {
 
   // Handle joining a voice call
   const joinCall = async () => {
+    if (useVoiceStore.getState().isInCall) {
+      return;
+    }
     try {
       const audioConstraints: MediaTrackConstraints = {
         echoCancellation: true,

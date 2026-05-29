@@ -64,12 +64,12 @@
   --text-disabled: #B8AEA4;
   --text-inverse: #FFF9F0;
 
-  --accent: #B98AF4;
-  --accent-hover: #A878E8;
-  --accent-active: #9465D8;
-  --accent-soft: rgba(185, 138, 244, 0.18);
-  --accent-soft-hover: rgba(185, 138, 244, 0.26);
-  --accent-border: rgba(151, 102, 216, 0.28);
+  --accent: #8E54E9;
+  --accent-hover: #7A3FE3;
+  --accent-active: #692CD0;
+  --accent-soft: rgba(142, 84, 233, 0.12);
+  --accent-soft-hover: rgba(142, 84, 233, 0.20);
+  --accent-border: rgba(142, 84, 233, 0.28);
 
   --flower: #FF6FA7;
   --flower-soft: rgba(255, 111, 167, 0.14);
@@ -424,12 +424,12 @@ body {
 }
 
 .btn-primary {
-  background: var(--color-peach-dark);
-  color: #FDFAF7;
+  background: var(--color-peach);
+  color: #FFFDF8;
 }
 
 .btn-primary:hover {
-  background: #D4956E;
+  background: var(--color-peach-dark);
 }
 
 .btn-ghost {
@@ -828,6 +828,10 @@ body {
 }
 
 /* Input Area */
+.message-input-inner {
+  padding: 0 24px 24px 24px;
+}
+
 .input-area {
   padding: 0;
   background: var(--color-bg-elevated);
@@ -1271,7 +1275,33 @@ body {
   }
 
   .member-panel {
-    display: none;
+    position: absolute;
+    top: 80px;
+    right: 16px;
+    width: 280px;
+    max-width: calc(100% - 32px);
+    height: auto;
+    max-height: 500px;
+    z-index: 100;
+    box-shadow: var(--shadow-lg);
+    border-radius: 16px;
+    border: 1px solid var(--color-border);
+    animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+  .in-call-card {
+    display: none !important;
   }
 
   .bubble {
@@ -1288,6 +1318,10 @@ body {
     width: 200px;
     bottom: 80px;
     right: 16px;
+  }
+
+  .message-input-inner {
+    padding: 0 8px 8px 8px;
   }
 }
 

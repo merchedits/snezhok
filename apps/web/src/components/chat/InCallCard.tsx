@@ -36,7 +36,7 @@ export default function InCallCard() {
   const activeParticipant = participants.find(p => p.isSpeaking) || participants[0];
 
   return (
-    <div style={{
+    <div className="in-call-card" style={{
       display: "flex",
       justifyContent: "center",
       marginTop: "24px",

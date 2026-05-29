@@ -1,4 +1,4 @@
-import { MessageCircle, Settings, Sun, Moon, LogOut } from "lucide-react";
+import { MessageCircle, Settings, Sun, Moon } from "lucide-react";
 import Avatar from "../Avatar.jsx";
 import { useAuthStore } from "../../stores/authStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
@@ -9,7 +9,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
   const { theme, toggleTheme } = useUIStore();
   const { t } = useTranslation();
 
@@ -50,16 +50,6 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         aria-label={t('sidebar.settings')}
       >
         <Settings size={22} strokeWidth={2} />
-      </button>
-
-      {/* Logout Button */}
-      <button
-        className="sidebar-btn"
-        onClick={logout}
-        title={t('sidebar.logout')}
-        aria-label={t('sidebar.logout')}
-      >
-        <LogOut size={22} strokeWidth={2} />
       </button>
 
       {/* Current User Display Profile */}

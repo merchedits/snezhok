@@ -206,17 +206,6 @@ export function setupSocketIO(io: Server) {
       // Emit global update of active voice participants list
       io.emit("voice:update-participants", Array.from(voiceParticipants.values()));
 
-      // Emit system message to chat log
-      (async () => {
-        try {
-          const sysMsg = await createMessage({
-            userId: user.id,
-            content: `joined the voice call`,
-            type: "system",
-          });
-          io.emit("message:new", sysMsg);
-        } catch (err) {}
-      })();
     });
 
     socket.on("voice:leave", () => {

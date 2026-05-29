@@ -103,7 +103,7 @@ export default function VoiceBanner() {
       {(!isMobile || expanded) && (
         <>
           {/* Middle: Participant Previews (if any) */}
-      {participants.length > 0 && (
+      {!isMobile && participants.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: "24px", flex: 1, justifyContent: "center" }}>
           {participants.slice(0, 1).map((p) => (
             <div key={p.socketId} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
