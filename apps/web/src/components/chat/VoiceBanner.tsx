@@ -112,6 +112,7 @@ export default function VoiceBanner() {
                   displayName={p.displayName} 
                   username={p.displayName} 
                   avatarColor={p.avatarColor} 
+                  avatarUrl={p.avatarUrl || undefined}
                   size="md" 
                   isSpeaking={p.isSpeaking}
                 />

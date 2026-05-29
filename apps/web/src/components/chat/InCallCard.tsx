@@ -58,6 +58,7 @@ export default function InCallCard() {
           displayName={activeParticipant.displayName} 
           username={activeParticipant.displayName} 
           avatarColor={activeParticipant.avatarColor} 
+          avatarUrl={activeParticipant.avatarUrl || undefined}
           size="lg" 
           isSpeaking={activeParticipant.isSpeaking}
         />

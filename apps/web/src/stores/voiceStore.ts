@@ -6,6 +6,7 @@ export interface VoiceParticipant {
   username: string;
   displayName: string;
   avatarColor: string;
+  avatarUrl?: string | null;
   isSpeaking?: boolean;
 }
 

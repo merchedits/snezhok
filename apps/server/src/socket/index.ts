@@ -11,6 +11,7 @@ interface VoiceParticipant {
   username: string;
   displayName: string;
   avatarColor: string;
+  avatarUrl?: string | null;
 }
 const voiceParticipants = new Map<string, VoiceParticipant>();
 
@@ -290,6 +291,7 @@ export function setupSocketIO(io: Server) {
         username: user.username,
         displayName: user.displayName,
         avatarColor: user.avatarColor,
+        avatarUrl: user.avatarUrl,
       };
 
       voiceParticipants.set(socketId, participant);
