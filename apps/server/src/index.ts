@@ -31,6 +31,23 @@ console.log("Running database migrations...");
 try {
   const migrationsFolder = path.resolve(__dirname, "../drizzle");
   if (fs.existsSync(migrationsFolder)) {
+    // Migration recovery logic
+    try {
+      const { sqlite } = await import("./db/index.js");
+      // If the messages table doesn't have conversation_id, migration 0002 failed
+      const cols = sqlite.prepare("PRAGMA table_info(messages)").all() as any[];
+      const hasConvId = cols.some((c) => c.name === "conversation_id");
+      
+      if (!hasConvId) {
+        console.log("🌸 Migration 0002 incomplete. Cleaning up for retry...");
+        sqlite.exec("DELETE FROM `__drizzle_migrations` WHERE `tag` = '0002_chemical_bromley'");
+        sqlite.exec("DROP TABLE IF EXISTS `conversation_members`");
+        sqlite.exec("DROP TABLE IF EXISTS `conversations`");
+      }
+    } catch (e) {
+      console.error("Migration cleanup error:", e);
+    }
+
     migrate(db, { migrationsFolder });
     console.log("Database migrations applied successfully!");
 
@@ -48,15 +65,6 @@ try {
           createdAt: Date.now(),
         });
         console.log("🌸 Initialized global chat conversation in DB.");
-      }
-
-      // Emergency fallback: If the 0002 migration failed but was marked as applied, forcefully add the column.
-      try {
-        const { sqlite } = await import("./db/index.js");
-        sqlite.exec("ALTER TABLE `messages` ADD `conversation_id` text DEFAULT 'global' NOT NULL;");
-        console.log("🌸 Emergency schema fix: manually added conversation_id to messages.");
-      } catch (colErr) {
-        // Ignored if column already exists
       }
     } catch (bootstrapErr) {
       console.error("Failed to bootstrap global conversation:", bootstrapErr);
