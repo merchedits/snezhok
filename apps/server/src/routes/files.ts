@@ -115,6 +115,32 @@ export async function fileRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // Serve avatar
+  fastify.get(
+    "/api/files/avatars/:filename",
+    { preHandler: [requireAuth] },
+    async (request: any, reply) => {
+      const { filename } = request.params;
+      const uploadDir = path.resolve("./data/uploads/avatars");
+      const filePath = path.join(uploadDir, filename);
+
+      if (!fs.existsSync(filePath)) {
+        reply.status(404).send({ error: "Avatar not found" });
+        return;
+      }
+
+      const ext = path.extname(filename).toLowerCase();
+      let mimeType = "image/jpeg";
+      if (ext === ".png") mimeType = "image/png";
+      if (ext === ".gif") mimeType = "image/gif";
+      if (ext === ".webp") mimeType = "image/webp";
+
+      reply.type(mimeType);
+      reply.header("Cache-Control", "public, max-age=86400");
+      return reply.send(fs.createReadStream(filePath));
+    }
+  );
+
   // Serve file
   fastify.get(
     "/api/files/:id/:filename",

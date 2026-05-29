@@ -64,6 +64,7 @@ export async function registerUser({
     passwordHash,
     displayName: displayName?.trim() || username.trim(),
     avatarColor,
+    avatarUrl: null,
     isAdmin: isFirst, // First user is Admin
     createdAt: now,
     lastSeenAt: now,
@@ -84,7 +85,7 @@ export async function registerUser({
     }
   });
 
-  return { id: user.id, username: user.username, displayName: user.displayName, isAdmin: user.isAdmin, avatarColor: user.avatarColor };
+  return { id: user.id, username: user.username, displayName: user.displayName, isAdmin: user.isAdmin, avatarColor: user.avatarColor, avatarUrl: user.avatarUrl };
 }
 
 export async function loginUser(username: string, password: string) {
@@ -126,6 +127,7 @@ export async function loginUser(username: string, password: string) {
       username: user.username,
       displayName: user.displayName,
       avatarColor: user.avatarColor,
+      avatarUrl: user.avatarUrl,
       isAdmin: user.isAdmin,
     },
   };
@@ -170,6 +172,7 @@ export async function validateSession(sessionId: string) {
     username: user.username,
     displayName: user.displayName,
     avatarColor: user.avatarColor,
+    avatarUrl: user.avatarUrl,
     isAdmin: user.isAdmin,
   };
 }

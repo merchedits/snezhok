@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Avatar from "../Avatar.jsx";
 import FileCard from "../FileCard.jsx";
 import ImagePreview from "../ImagePreview.jsx";
@@ -6,7 +6,7 @@ import Button from "../Button.jsx";
 import { Message, useMessageStore } from "../../stores/messageStore.js";
 import { useAuthStore } from "../../stores/authStore.js";
 import { getSocket } from "../../lib/socket.js";
-import { Heart, Trash2, Reply } from "lucide-react";
+import { Heart, Trash2, Reply, Pencil, X, Check } from "lucide-react";
 
 interface MessageBubbleProps {
   message: Message;
@@ -18,6 +18,9 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
   const setReplyingTo = useMessageStore((state) => state.setReplyingTo);
   const messages = useMessageStore((state) => state.messages);
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(message.content);
 
   const isOwn = message.userId === currentUser?.id;
   const isAdmin = currentUser?.isAdmin || false;
@@ -42,6 +45,16 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
 
   const handleReply = () => {
     setReplyingTo(message);
+  };
+
+  const handleEditSubmit = () => {
+    if (!editContent.trim() || editContent === message.content) {
+      setIsEditing(false);
+      return;
+    }
+    const socket = getSocket();
+    socket.emit("message:edit", { messageId: message.id, content: editContent });
+    setIsEditing(false);
   };
 
   // Format message time
@@ -118,6 +131,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
             displayName={message.user?.displayName}
             username={message.user?.username}
             avatarColor={message.user?.avatarColor}
+            avatarUrl={message.user?.avatarUrl}
             size="sm"
           />
           <span className="msg-username">{message.user?.displayName}</span>
@@ -192,6 +206,45 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
                 sizeBytes={message.file.sizeBytes}
               />
             )
+          ) : isEditing ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", minWidth: "200px" }}>
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleEditSubmit();
+                  }
+                  if (e.key === "Escape") {
+                    setIsEditing(false);
+                    setEditContent(message.content);
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  background: "var(--color-bg-subtle)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: "8px",
+                  padding: "8px",
+                  color: "var(--color-text-primary)",
+                  fontFamily: "var(--font-body)",
+                  fontSize: "var(--text-base)",
+                  resize: "vertical",
+                  minHeight: "60px",
+                  outline: "none",
+                }}
+              />
+              <div style={{ display: "flex", gap: "4px", justifyContent: "flex-end" }}>
+                <Button variant="icon" onClick={() => { setIsEditing(false); setEditContent(message.content); }} style={{ width: "24px", height: "24px", background: "var(--color-bg-base)" }}>
+                  <X size={14} />
+                </Button>
+                <Button variant="icon" onClick={handleEditSubmit} style={{ width: "24px", height: "24px", background: "var(--color-peach)", color: "#fff" }}>
+                  <Check size={14} />
+                </Button>
+              </div>
+            </div>
           ) : (
             <div>{renderMessageContent(message.content)}</div>
           )}
@@ -207,6 +260,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           paddingBottom: "4px",
           userSelect: "none"
         }}>
+          {message.editedAt && <span style={{ fontStyle: "italic", opacity: 0.7 }}>(edited)</span>}
           {formatTime(message.createdAt)}
           {isOwn && <span style={{ color: "var(--color-lavender)" }}>✓</span>}
         </div>
@@ -254,6 +308,23 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           >
             <Reply size={15} />
           </Button>
+
+          {/* Edit button (only for own messages and text messages) */}
+          {isOwn && message.type === "text" && !message.fileId && (
+            <Button
+              variant="icon"
+              style={{
+                width: "32px",
+                height: "32px",
+                background: "var(--color-bg-elevated)",
+                border: "1px solid var(--color-bg-subtle)",
+              }}
+              onClick={() => { setIsEditing(true); setEditContent(message.content); }}
+              title="Edit"
+            >
+              <Pencil size={15} />
+            </Button>
+          )}
 
           {/* Delete button (only for own messages or admin) */}
           {(isOwn || isAdmin) && (

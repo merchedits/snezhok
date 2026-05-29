@@ -1,57 +1,114 @@
 import { saveFileMetadata, getUploadFilePath, getFileMetadata } from "../services/files.js";
 import { requireAuth } from "../lib/middleware.js";
 import fs from "fs";
+import path from "path";
 import { pipeline } from "stream/promises";
+import { db } from "../db/index.js";
+import { files } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 export async function fileRoutes(fastify) {
-    // Upload file
-    fastify.post("/api/files/upload", { preHandler: [requireAuth] }, async (request, reply) => {
+    // Init file upload
+    fastify.post("/api/files/upload/init", { preHandler: [requireAuth] }, async (request, reply) => {
+        const { originalName, mimeType, totalSize } = request.body;
+        try {
+            const fileRecord = await saveFileMetadata({
+                userId: request.user.id,
+                originalName,
+                mimeType,
+                sizeBytes: 0,
+            });
+            // Ensure empty file is created or just return the ID
+            const writePath = getUploadFilePath(fileRecord.storedName);
+            fs.writeFileSync(writePath, Buffer.alloc(0));
+            return { success: true, fileId: fileRecord.id, file: fileRecord };
+        }
+        catch (error) {
+            reply.status(400).send({ error: error.message });
+        }
+    });
+    // Upload chunk
+    fastify.post("/api/files/upload/chunk", { preHandler: [requireAuth] }, async (request, reply) => {
         if (!request.isMultipart()) {
             reply.status(400).send({ error: "Request must be multipart/form-data" });
             return;
         }
         try {
-            const parts = request.files();
-            let fileRecord = null;
+            const parts = request.parts();
+            let fileId = null;
+            let chunkIndex = null;
+            let fileStream = null;
             for await (const part of parts) {
-                if (part.type !== "file")
-                    continue;
-                // Save metadata first to get structured IDs and check whitelist
-                fileRecord = await saveFileMetadata({
-                    userId: request.user.id,
-                    originalName: part.filename,
-                    mimeType: part.mimetype,
-                    sizeBytes: 0, // Will update size later or use as is
-                });
-                const writePath = getUploadFilePath(fileRecord.storedName);
-                const writeStream = fs.createWriteStream(writePath);
-                // Track bytes written
-                let bytesWritten = 0;
-                part.file.on("data", (chunk) => {
-                    bytesWritten += chunk.length;
-                });
-                await pipeline(part.file, writeStream);
-                // Update size in database
-                // Wait, drizzle-orm update query
-                const { db } = await import("../db/index.js");
-                const { files } = await import("../db/schema.js");
-                const { eq } = await import("drizzle-orm");
-                await db
-                    .update(files)
-                    .set({ sizeBytes: bytesWritten })
-                    .where(eq(files.id, fileRecord.id));
-                fileRecord.sizeBytes = bytesWritten;
-                break; // Support uploading one file per request for simplicity
+                if (part.type === "field" && part.fieldname === "fileId") {
+                    fileId = part.value;
+                }
+                else if (part.type === "field" && part.fieldname === "chunkIndex") {
+                    chunkIndex = Number(part.value);
+                }
+                else if (part.type === "file" && part.fieldname === "chunk") {
+                    fileStream = part.file;
+                    if (!fileId) {
+                        reply.status(400).send({ error: "fileId must be provided before chunk" });
+                        return;
+                    }
+                    const fileRecord = await getFileMetadata(fileId);
+                    if (!fileRecord || fileRecord.userId !== request.user.id) {
+                        reply.status(403).send({ error: "File not found or unauthorized" });
+                        return;
+                    }
+                    const writePath = getUploadFilePath(fileRecord.storedName);
+                    // Wait for file stream to pipe to append stream
+                    await pipeline(fileStream, fs.createWriteStream(writePath, { flags: "a" }));
+                }
             }
-            if (!fileRecord) {
-                reply.status(400).send({ error: "No file was uploaded." });
+            return { success: true };
+        }
+        catch (error) {
+            reply.status(400).send({ error: error.message });
+        }
+    });
+    // Complete file upload
+    fastify.post("/api/files/upload/complete", { preHandler: [requireAuth] }, async (request, reply) => {
+        const { fileId, finalSize } = request.body;
+        try {
+            const fileRecord = await getFileMetadata(fileId);
+            if (!fileRecord || fileRecord.userId !== request.user.id) {
+                reply.status(403).send({ error: "File not found or unauthorized" });
                 return;
             }
+            const writePath = getUploadFilePath(fileRecord.storedName);
+            const stats = fs.statSync(writePath);
+            const sizeBytes = finalSize !== undefined ? finalSize : stats.size;
+            await db
+                .update(files)
+                .set({ sizeBytes })
+                .where(eq(files.id, fileRecord.id));
+            fileRecord.sizeBytes = sizeBytes;
             return { success: true, file: fileRecord };
         }
         catch (error) {
-            // Limit errors or custom validation errors
             reply.status(400).send({ error: error.message });
         }
+    });
+    // Serve avatar
+    fastify.get("/api/files/avatars/:filename", { preHandler: [requireAuth] }, async (request, reply) => {
+        const { filename } = request.params;
+        const uploadDir = path.resolve("./data/uploads/avatars");
+        const filePath = path.join(uploadDir, filename);
+        if (!fs.existsSync(filePath)) {
+            reply.status(404).send({ error: "Avatar not found" });
+            return;
+        }
+        const ext = path.extname(filename).toLowerCase();
+        let mimeType = "image/jpeg";
+        if (ext === ".png")
+            mimeType = "image/png";
+        if (ext === ".gif")
+            mimeType = "image/gif";
+        if (ext === ".webp")
+            mimeType = "image/webp";
+        reply.type(mimeType);
+        reply.header("Cache-Control", "public, max-age=86400");
+        return reply.send(fs.createReadStream(filePath));
     });
     // Serve file
     fastify.get("/api/files/:id/:filename", { preHandler: [requireAuth] }, async (request, reply) => {
@@ -70,6 +127,13 @@ export async function fileRoutes(fastify) {
         reply.type(file.mimeType);
         // Support cache headers for static files/media
         reply.header("Cache-Control", "private, max-age=86400"); // 1 day cache
+        // Prevent XSS from SVG/HTML by forcing download or at least safely handling it
+        if (file.mimeType.includes("svg") || file.mimeType.includes("html") || file.mimeType.includes("xml")) {
+            reply.header("Content-Disposition", `attachment; filename="${encodeURIComponent(file.originalName)}"`);
+        }
+        else {
+            reply.header("Content-Disposition", `inline; filename="${encodeURIComponent(file.originalName)}"`);
+        }
         return reply.send(fs.createReadStream(filePath));
     });
 }

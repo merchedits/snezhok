@@ -10,6 +10,7 @@ export function useSocket() {
   const addMessage = useMessageStore((state) => state.addMessage);
   const updateMessageReactions = useMessageStore((state) => state.updateMessageReactions);
   const removeMessage = useMessageStore((state) => state.removeMessage);
+  const editMessage = useMessageStore((state) => state.editMessage);
   const updateUserPresence = usePresenceStore((state) => state.updateUserPresence);
   const setTypingUsers = usePresenceStore((state) => state.setTypingUsers);
   const fetchUsers = usePresenceStore((state) => state.fetchUsers);
@@ -64,6 +65,10 @@ export function useSocket() {
       removeMessage(data.messageId);
     };
 
+    const onMessageEdited = (data: { message: any }) => {
+      editMessage(data.message);
+    };
+
     const onVoiceUpdateParticipants = (list: any[]) => {
       setParticipants(list);
     };
@@ -98,6 +103,7 @@ export function useSocket() {
     socket.on("message:new", onMessageNew);
     socket.on("message:reactions_update", onMessageReactionsUpdate);
     socket.on("message:deleted", onMessageDeleted);
+    socket.on("message:edited", onMessageEdited);
     socket.on("voice:update-participants", onVoiceUpdateParticipants);
     socket.on("voice:user-joined", onVoiceUserJoined);
     socket.on("voice:user-left", onVoiceUserLeft);
@@ -117,6 +123,7 @@ export function useSocket() {
       socket.off("message:new", onMessageNew);
       socket.off("message:reactions_update", onMessageReactionsUpdate);
       socket.off("message:deleted", onMessageDeleted);
+      socket.off("message:edited", onMessageEdited);
       socket.off("voice:update-participants", onVoiceUpdateParticipants);
       socket.off("voice:user-joined", onVoiceUserJoined);
       socket.off("voice:user-left", onVoiceUserLeft);

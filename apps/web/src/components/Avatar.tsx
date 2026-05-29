@@ -2,6 +2,7 @@ interface AvatarProps {
   displayName?: string;
   username?: string;
   avatarColor?: string;
+  avatarUrl?: string;
   size?: "xs" | "sm" | "md" | "lg";
   className?: string;
   showOnline?: boolean;
@@ -13,6 +14,7 @@ export default function Avatar({
   displayName,
   username,
   avatarColor = "#FFCFB3",
+  avatarUrl,
   size = "md",
   className = "",
   showOnline = false,
@@ -43,7 +45,13 @@ export default function Avatar({
     <div style={{ position: "relative", display: "inline-flex" }} className={className}>
       <div
         className={`avatar ${sizeClass}`}
-        style={{ backgroundColor: avatarColor }}
+        style={{
+          backgroundColor: avatarColor,
+          backgroundImage: avatarUrl ? `url(${avatarUrl})` : undefined,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          color: avatarUrl ? "transparent" : undefined
+        }}
         title={name}
       >
         {initials}

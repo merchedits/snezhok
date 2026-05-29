@@ -51,22 +51,25 @@ export async function registerUser({ inviteCode, username, password, displayName
         passwordHash,
         displayName: displayName?.trim() || username.trim(),
         avatarColor,
+        avatarUrl: null,
         isAdmin: isFirst, // First user is Admin
         createdAt: now,
         lastSeenAt: now,
     };
-    // Perform inside transaction if database supports, sqlite better-sqlite3 handles operations sequentially
-    await db.insert(users).values(user);
-    if (codeRecord) {
-        await db
-            .update(inviteCodes)
-            .set({
-            usedBy: userId,
-            usedAt: now,
-        })
-            .where(eq(inviteCodes.id, codeRecord.id));
-    }
-    return { id: user.id, username: user.username, displayName: user.displayName, isAdmin: user.isAdmin, avatarColor: user.avatarColor };
+    // Perform inside transaction to ensure atomic registration and code burn
+    await db.transaction(async (tx) => {
+        await tx.insert(users).values(user);
+        if (codeRecord) {
+            await tx
+                .update(inviteCodes)
+                .set({
+                usedBy: userId,
+                usedAt: now,
+            })
+                .where(eq(inviteCodes.id, codeRecord.id));
+        }
+    });
+    return { id: user.id, username: user.username, displayName: user.displayName, isAdmin: user.isAdmin, avatarColor: user.avatarColor, avatarUrl: user.avatarUrl };
 }
 export async function loginUser(username, password) {
     const normalizedUsername = username.trim().toLowerCase();
@@ -101,6 +104,7 @@ export async function loginUser(username, password) {
             username: user.username,
             displayName: user.displayName,
             avatarColor: user.avatarColor,
+            avatarUrl: user.avatarUrl,
             isAdmin: user.isAdmin,
         },
     };
@@ -121,12 +125,14 @@ export async function validateSession(sessionId) {
     });
     if (!user)
         return null;
-    // Touch session expiry and user lastSeenAt occasionally
+    // Touch session expiry and user lastSeenAt if more than 1 hour has passed since last touch
+    // expiresAt is 30 days from last touch, so if expiresAt - now < 29 days, we touch
     const now = Date.now();
-    if (now - session.createdAt > 3600 * 1000) { // touch every hour
+    const maxSessionDuration = 30 * 24 * 60 * 60 * 1000;
+    if (session.expiresAt - now < maxSessionDuration - 3600 * 1000) {
         await db
             .update(sessions)
-            .set({ expiresAt: now + 30 * 24 * 60 * 60 * 1000 })
+            .set({ expiresAt: now + maxSessionDuration })
             .where(eq(sessions.id, sessionId));
         await db
             .update(users)
@@ -138,6 +144,7 @@ export async function validateSession(sessionId) {
         username: user.username,
         displayName: user.displayName,
         avatarColor: user.avatarColor,
+        avatarUrl: user.avatarUrl,
         isAdmin: user.isAdmin,
     };
 }

@@ -7,8 +7,24 @@ export async function authRoutes(fastify) {
         return { isFirst };
     });
     // Register
-    fastify.post("/api/auth/register", async (request, reply) => {
-        const { inviteCode, username, password, displayName } = request.body || {};
+    fastify.post("/api/auth/register", {
+        schema: {
+            body: {
+                type: "object",
+                required: ["username", "password"],
+                properties: {
+                    inviteCode: { type: "string" },
+                    username: { type: "string", minLength: 3, maxLength: 30 },
+                    password: { type: "string", minLength: 6, maxLength: 100 },
+                    displayName: { type: "string", maxLength: 50 },
+                },
+            },
+        },
+        config: {
+            rateLimit: { max: 5, timeWindow: "1 minute" },
+        },
+    }, async (request, reply) => {
+        const { inviteCode, username, password, displayName } = request.body;
         try {
             const user = await registerUser({
                 inviteCode,
@@ -23,8 +39,22 @@ export async function authRoutes(fastify) {
         }
     });
     // Login
-    fastify.post("/api/auth/login", async (request, reply) => {
-        const { username, password } = request.body || {};
+    fastify.post("/api/auth/login", {
+        schema: {
+            body: {
+                type: "object",
+                required: ["username", "password"],
+                properties: {
+                    username: { type: "string" },
+                    password: { type: "string" },
+                },
+            },
+        },
+        config: {
+            rateLimit: { max: 10, timeWindow: "1 minute" },
+        },
+    }, async (request, reply) => {
+        const { username, password } = request.body;
         try {
             const { sessionId, user } = await loginUser(username, password);
             // Set cookie

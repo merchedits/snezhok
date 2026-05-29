@@ -1,6 +1,6 @@
 import { validateSession } from "../services/auth.js";
 import { setOnline, setOffline, setTyping } from "../services/presence.js";
-import { createMessage, addReaction, removeReaction, getMessageById } from "../services/messages.js";
+import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage } from "../services/messages.js";
 const voiceParticipants = new Map();
 export function setupSocketIO(io) {
     // Authentication middleware
@@ -45,9 +45,26 @@ export function setupSocketIO(io) {
         socket.emit("room:state", {
             voiceParticipants: Array.from(voiceParticipants.values()),
         });
+        // Rate limiting maps for this socket
+        const rateLimits = {
+            message: 0,
+            reaction: 0,
+            typing: 0,
+        };
         // 2. Chat messaging events
         socket.on("message:send", async (data) => {
             try {
+                const now = Date.now();
+                if (now - rateLimits.message < 1000) {
+                    throw new Error("You are sending messages too fast.");
+                }
+                rateLimits.message = now;
+                if (!data || !data.content || typeof data.content !== "string") {
+                    throw new Error("Invalid message format.");
+                }
+                if (data.content.length > 4000) {
+                    throw new Error("Message exceeds 4000 characters limit.");
+                }
                 const msg = await createMessage({
                     userId: user.id,
                     content: data.content,
@@ -65,6 +82,18 @@ export function setupSocketIO(io) {
         // 3. Emoji reactions
         socket.on("message:react", async (data) => {
             try {
+                const now = Date.now();
+                if (now - rateLimits.reaction < 500) {
+                    throw new Error("You are reacting too fast.");
+                }
+                rateLimits.reaction = now;
+                if (!data || !data.messageId || !data.emoji || typeof data.emoji !== "string") {
+                    throw new Error("Invalid reaction format.");
+                }
+                // Extremely basic emoji length validation (handling surrogate pairs)
+                if (data.emoji.length > 10) {
+                    throw new Error("Invalid emoji.");
+                }
                 if (data.action === "add") {
                     await addReaction(data.messageId, user.id, data.emoji);
                 }
@@ -84,8 +113,40 @@ export function setupSocketIO(io) {
                 socket.emit("error", { message: err.message });
             }
         });
+        // 3b. Message deletion
+        socket.on("message:delete", async (data) => {
+            try {
+                if (!data || !data.messageId) {
+                    throw new Error("Invalid delete request.");
+                }
+                await deleteMessage(data.messageId, user.id, user.isAdmin);
+                // Broadcast deletion to all clients
+                io.emit("message:deleted", { messageId: data.messageId });
+            }
+            catch (err) {
+                socket.emit("error", { message: err.message });
+            }
+        });
+        // 3c. Message editing
+        socket.on("message:edit", async (data) => {
+            try {
+                if (!data || !data.messageId || !data.content) {
+                    throw new Error("Invalid edit request.");
+                }
+                const updatedMsg = await editMessage(data.messageId, user.id, data.content, user.isAdmin);
+                // Broadcast edit to all clients
+                io.emit("message:edited", { message: updatedMsg });
+            }
+            catch (err) {
+                socket.emit("error", { message: err.message });
+            }
+        });
         // 4. Typing indicators
         socket.on("typing:start", () => {
+            const now = Date.now();
+            if (now - rateLimits.typing < 500)
+                return;
+            rateLimits.typing = now;
             const typers = setTyping("global", user.id, true);
             socket.broadcast.emit("typing:update", { typers });
         });

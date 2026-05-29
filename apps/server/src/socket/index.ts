@@ -1,7 +1,7 @@
 import { Server, Socket } from "socket.io";
 import { validateSession } from "../services/auth.js";
 import { setOnline, setOffline, setTyping, getTypers } from "../services/presence.js";
-import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage } from "../services/messages.js";
+import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage } from "../services/messages.js";
 
 // In-memory set of voice call participants: socketId -> user details
 interface VoiceParticipant {
@@ -152,6 +152,22 @@ export function setupSocketIO(io: Server) {
 
         // Broadcast deletion to all clients
         io.emit("message:deleted", { messageId: data.messageId });
+      } catch (err: any) {
+        socket.emit("error", { message: err.message });
+      }
+    });
+
+    // 3c. Message editing
+    socket.on("message:edit", async (data: { messageId: string; content: string }) => {
+      try {
+        if (!data || !data.messageId || !data.content) {
+          throw new Error("Invalid edit request.");
+        }
+
+        const updatedMsg = await editMessage(data.messageId, user.id, data.content, user.isAdmin);
+
+        // Broadcast edit to all clients
+        io.emit("message:edited", { message: updatedMsg });
       } catch (err: any) {
         socket.emit("error", { message: err.message });
       }

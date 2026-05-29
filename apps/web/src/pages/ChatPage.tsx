@@ -15,7 +15,7 @@ import Modal from "../components/Modal.jsx";
 import Input from "../components/Input.jsx";
 import Button from "../components/Button.jsx";
 import { getSocket } from "../lib/socket.js";
-import { Loader2, Plus, Copy, Check } from "lucide-react";
+import { Loader2, Plus, Copy, Check, Upload } from "lucide-react";
 
 const AVATAR_COLORS = [
   "#FFCFB3", "#E8A882", "#F2B8C6", "#C5B8E8", "#B5CDB5",
@@ -47,6 +47,8 @@ export default function ChatPage() {
   const [profileSuccess, setProfileSuccess] = useState(false);
   const updateDisplayName = useAuthStore((state) => state.updateDisplayName);
   const updateAvatarColor = useAuthStore((state) => state.updateAvatarColor);
+  const updateAvatarImage = useAuthStore((state) => state.updateAvatarImage);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Invite Admin States
   const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
@@ -171,6 +173,21 @@ export default function ChatPage() {
       const socket = getSocket();
       socket.emit("typing:stop"); // forces a dummy state ping or we rely on interval fetch
       
+      setTimeout(() => setProfileSuccess(false), 2000);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsSavingProfile(true);
+    const success = await updateAvatarImage(file);
+    setIsSavingProfile(false);
+
+    if (success) {
+      setProfileSuccess(true);
+      fetchUsers();
       setTimeout(() => setProfileSuccess(false), 2000);
     }
   };
@@ -407,21 +424,40 @@ export default function ChatPage() {
                   height: "56px",
                   borderRadius: "50%",
                   backgroundColor: user?.avatarColor,
+                  backgroundImage: user?.avatarUrl ? `url(${user.avatarUrl})` : undefined,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontFamily: "var(--font-display)",
                   fontWeight: 700,
                   fontSize: "18px",
+                  color: user?.avatarUrl ? "transparent" : undefined
                 }}
               >
                 {user?.displayName.slice(0, 2).toUpperCase()}
               </div>
-              <div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <h4 style={{ fontWeight: 600 }}>{user?.username}</h4>
                 <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }}>
                   Registered user
                 </p>
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg, image/gif, image/webp"
+                  style={{ display: "none" }}
+                  ref={avatarInputRef}
+                  onChange={handleAvatarUpload}
+                />
+                <Button 
+                  variant="ghost" 
+                  onClick={(e) => { e.preventDefault(); avatarInputRef.current?.click(); }}
+                  style={{ fontSize: "12px", padding: "4px 8px", height: "auto" }}
+                  disabled={isSavingProfile}
+                >
+                  <Upload size={14} style={{ marginRight: "4px" }} /> Upload Picture
+                </Button>
               </div>
             </div>
 

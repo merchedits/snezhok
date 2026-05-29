@@ -52,7 +52,7 @@ export async function getMessageById(messageId: string) {
     where: eq(messages.id, messageId),
     with: {
       user: {
-        columns: { id: true, username: true, displayName: true, avatarColor: true },
+        columns: { id: true, username: true, displayName: true, avatarColor: true, avatarUrl: true },
       },
       file: {
         columns: { id: true, originalName: true, mimeType: true, sizeBytes: true },
@@ -90,7 +90,7 @@ export async function getMessages(beforeTimestamp?: number, limit = 50) {
     limit,
     with: {
       user: {
-        columns: { id: true, username: true, displayName: true, avatarColor: true },
+        columns: { id: true, username: true, displayName: true, avatarColor: true, avatarUrl: true },
       },
       file: {
         columns: { id: true, originalName: true, mimeType: true, sizeBytes: true },
@@ -176,4 +176,35 @@ export async function deleteMessage(messageId: string, userId: string, isAdmin: 
   await db.delete(messages).where(eq(messages.id, messageId));
 
   return { id: messageId };
+}
+
+export async function editMessage(messageId: string, userId: string, newContent: string, isAdmin: boolean) {
+  const msg = await db.query.messages.findFirst({
+    where: eq(messages.id, messageId),
+  });
+
+  if (!msg) {
+    throw new Error("Message not found.");
+  }
+
+  // Only message author or admin can edit
+  if (msg.userId !== userId && !isAdmin) {
+    throw new Error("You do not have permission to edit this message.");
+  }
+
+  const trimmedContent = newContent.trim();
+  if (!trimmedContent) {
+    throw new Error("Message content cannot be empty.");
+  }
+  if (trimmedContent.length > 4000) {
+    throw new Error("Message content exceeds maximum length of 4000 characters.");
+  }
+
+  const now = Date.now();
+
+  await db.update(messages)
+    .set({ content: trimmedContent, editedAt: now })
+    .where(eq(messages.id, messageId));
+
+  return await getMessageById(messageId);
 }

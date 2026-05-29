@@ -1,12 +1,14 @@
-import { Users, MoreHorizontal } from "lucide-react";
+import { Users, MoreHorizontal, PhoneCall } from "lucide-react";
 import Button from "../Button.jsx";
 import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
+import { useVoice } from "../../hooks/useVoice.js";
 
 export default function ChatHeader() {
   const usersList = usePresenceStore((state) => state.usersList);
   const onlineUserIds = usePresenceStore((state) => state.onlineUserIds);
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
+  const { joinCall } = useVoice();
 
   const onlineCount = onlineUserIds.size;
   const totalCount = usersList.length;
@@ -39,6 +41,14 @@ export default function ChatHeader() {
           className="member-panel-toggle-btn"
         >
           <Users size={18} />
+        </Button>
+        <Button
+          variant="icon"
+          title="Start Voice Call"
+          aria-label="Start Voice Call"
+          onClick={() => joinCall()}
+        >
+          <PhoneCall size={18} />
         </Button>
         <Button
           variant="icon"

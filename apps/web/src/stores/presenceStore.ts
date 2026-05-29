@@ -5,6 +5,7 @@ export interface PresenceUser {
   username: string;
   displayName: string;
   avatarColor: string;
+  avatarUrl?: string;
   isAdmin: boolean;
   createdAt: number;
   lastSeenAt: number;

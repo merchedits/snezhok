@@ -27,6 +27,7 @@ export interface Message {
     username: string;
     displayName: string;
     avatarColor: string;
+    avatarUrl?: string;
   };
   file: MessageFile | null;
   reactions: MessageReaction[];
@@ -41,6 +42,7 @@ interface MessageState {
   setMessages: (msgs: Message[]) => void;
   updateMessageReactions: (messageId: string, reactions: MessageReaction[]) => void;
   removeMessage: (messageId: string) => void;
+  editMessage: (msg: Message) => void;
   setReplyingTo: (msg: Message | null) => void;
   clearReplyingTo: () => void;
   loadHistory: (beforeTimestamp?: number) => Promise<void>;
@@ -72,6 +74,13 @@ export const useMessageStore = create<MessageState>((set) => ({
   removeMessage: (messageId) =>
     set((state) => ({
       messages: state.messages.filter((m) => m.id !== messageId),
+    })),
+
+  editMessage: (updatedMsg) =>
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === updatedMsg.id ? updatedMsg : m
+      ),
     })),
 
   setReplyingTo: (msg) => set({ replyingTo: msg }),

@@ -214,6 +214,7 @@ export function useVoice() {
       if (!localStreamSingleton) return;
 
       console.log("Creating initiator peer connection for user:", participant.displayName);
+      playJoinSound();
 
       // Create an initiator peer
       const peer = new Peer({
@@ -295,6 +296,7 @@ export function useVoice() {
     // User left call
     const onUserLeft = (data: { socketId: string; userId: string }) => {
       handlePeerClose(data.socketId);
+      playLeaveSound();
     };
 
     socket.on("voice:user-joined", onUserJoined);

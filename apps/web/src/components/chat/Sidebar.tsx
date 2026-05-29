@@ -1,4 +1,4 @@
-import { MessageCircle, Settings, Sun, Moon, LogOut, Compass, Bell } from "lucide-react";
+import { MessageCircle, Settings, Sun, Moon, LogOut } from "lucide-react";
 import Avatar from "../Avatar.jsx";
 import { useAuthStore } from "../../stores/authStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
@@ -26,15 +26,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         <MessageCircle size={20} strokeWidth={2.5} />
       </button>
 
-      {/* Explore / Compass Placeholder */}
-      <button className="sidebar-btn" title="Explore" aria-label="Explore">
-        <Compass size={22} strokeWidth={2} />
-      </button>
 
-      {/* Notifications Placeholder */}
-      <button className="sidebar-btn" title="Notifications" aria-label="Notifications">
-        <Bell size={22} strokeWidth={2} />
-      </button>
 
       {/* Theme Toggle Button */}
       <button
@@ -74,6 +66,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
           displayName={user?.displayName}
           username={user?.username}
           avatarColor={user?.avatarColor}
+          avatarUrl={user?.avatarUrl}
           size="sm"
           showOnline={true}
           isOnline={true}

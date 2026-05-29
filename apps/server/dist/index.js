@@ -3,6 +3,8 @@ import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import rateLimit from "@fastify/rate-limit";
+import helmet from "@fastify/helmet";
 import { Server as SocketIOServer } from "socket.io";
 import path from "path";
 import fs from "fs";
@@ -44,6 +46,13 @@ const app = fastify({
     } : true,
 });
 // Configure plugins
+await app.register(helmet, {
+    contentSecurityPolicy: false, // Don't break React app for now
+});
+await app.register(rateLimit, {
+    max: 500, // Default limit per minute
+    timeWindow: "1 minute",
+});
 await app.register(cors, {
     origin: config.NODE_ENV === "development" ? "http://localhost:5173" : true,
     credentials: true,
@@ -93,6 +102,23 @@ const start = async () => {
         });
         setupSocketIO(io);
         console.log(`🌸 Snezhok server is listening on http://${config.HOST}:${config.PORT}`);
+        // Graceful shutdown
+        const shutdown = async (signal) => {
+            console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+            io.close(() => {
+                console.log("Socket.io closed.");
+            });
+            await app.close();
+            console.log("Fastify closed.");
+            // Close database connection (ensure WAL checkpoint)
+            import("./db/index.js").then(({ db }) => {
+                // Better-sqlite3 client doesn't have an explicit async close in drizzle,
+                // but we can close the underlying connection if needed, though process exit handles WAL on recent sqlite versions.
+            });
+            process.exit(0);
+        };
+        process.on("SIGINT", () => shutdown("SIGINT"));
+        process.on("SIGTERM", () => shutdown("SIGTERM"));
     }
     catch (err) {
         app.log.error(err);

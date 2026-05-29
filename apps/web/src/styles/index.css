@@ -217,13 +217,16 @@ body {
 }
 
 @keyframes highlightPulse {
-  0% { background-color: rgba(197, 184, 232, 0.4); }
-  100% { background-color: transparent; }
+  0% {
+    box-shadow: 0 0 0 3px var(--color-lavender), 0 0 16px var(--color-lavender);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
-.highlight-msg {
-  animation: highlightPulse 2s ease-out forwards;
-  border-radius: 8px;
+.highlight-msg .bubble {
+  animation: highlightPulse 2s var(--ease-soft) forwards;
 }
 
 /* Global Application Layout */
@@ -556,7 +559,7 @@ body {
   font-size: var(--text-base);
   line-height: 1.5;
   color: var(--color-text-primary);
-  max-width: min(520px, 68%);
+  max-width: min(850px, 80%);
   width: fit-content;
   white-space: pre-wrap;
   overflow-wrap: break-word;

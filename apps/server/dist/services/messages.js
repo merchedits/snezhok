@@ -1,14 +1,24 @@
 import { db } from "../db/index.js";
-import { messages, users, files, reactions } from "../db/schema.js";
+import { messages, reactions } from "../db/schema.js";
 import { eq, lt, and, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
 export async function createMessage({ userId, content, type = "text", fileId = null, replyToId = null, }) {
+    if (!content || typeof content !== "string") {
+        throw new Error("Message content is required.");
+    }
+    const trimmedContent = content.trim();
+    if (!trimmedContent) {
+        throw new Error("Message content cannot be empty.");
+    }
+    if (trimmedContent.length > 4000) {
+        throw new Error("Message content exceeds maximum length of 4000 characters.");
+    }
     const messageId = nanoid();
     const now = Date.now();
     const newMsg = {
         id: messageId,
         userId,
-        content: content.trim(),
+        content: trimmedContent,
         type,
         fileId,
         replyToId,
@@ -22,28 +32,20 @@ export async function getMessageById(messageId) {
     const msg = await db.query.messages.findFirst({
         where: eq(messages.id, messageId),
         with: {
-            userId: true, // Wait, in Drizzle query builder it uses schema relations if configured.
+            user: {
+                columns: { id: true, username: true, displayName: true, avatarColor: true, avatarUrl: true },
+            },
+            file: {
+                columns: { id: true, originalName: true, mimeType: true, sizeBytes: true },
+            },
+            reactions: true,
         },
     });
     if (!msg)
         return null;
-    // Let's do raw joins or direct queries for safety if Drizzle relations are not explicitly defined in schema.ts
-    const user = await db.query.users.findFirst({
-        where: eq(users.id, msg.userId),
-        columns: { id: true, username: true, displayName: true, avatarColor: true },
-    });
-    const file = msg.fileId
-        ? await db.query.files.findFirst({
-            where: eq(files.id, msg.fileId),
-            columns: { id: true, originalName: true, mimeType: true, sizeBytes: true },
-        })
-        : null;
-    const msgReactions = await db.query.reactions.findMany({
-        where: eq(reactions.messageId, msg.id),
-    });
     // Group reactions by emoji
     const groupedReactions = {};
-    for (const r of msgReactions) {
+    for (const r of msg.reactions) {
         if (!groupedReactions[r.emoji]) {
             groupedReactions[r.emoji] = { emoji: r.emoji, count: 0, userIds: [] };
         }
@@ -52,8 +54,6 @@ export async function getMessageById(messageId) {
     }
     return {
         ...msg,
-        user,
-        file,
         reactions: Object.values(groupedReactions),
     };
 }
@@ -65,27 +65,23 @@ export async function getMessages(beforeTimestamp, limit = 50) {
         where: conditions,
         orderBy: [desc(messages.createdAt)],
         limit,
+        with: {
+            user: {
+                columns: { id: true, username: true, displayName: true, avatarColor: true, avatarUrl: true },
+            },
+            file: {
+                columns: { id: true, originalName: true, mimeType: true, sizeBytes: true },
+            },
+            reactions: true,
+        },
     });
     // Since we retrieved messages in reverse order (newest first), reverse them back for chronological view
     const reversed = [...rawMessages].reverse();
-    // Populate user, file, and reactions details
-    const populated = await Promise.all(reversed.map(async (msg) => {
-        const user = await db.query.users.findFirst({
-            where: eq(users.id, msg.userId),
-            columns: { id: true, username: true, displayName: true, avatarColor: true },
-        });
-        const file = msg.fileId
-            ? await db.query.files.findFirst({
-                where: eq(files.id, msg.fileId),
-                columns: { id: true, originalName: true, mimeType: true, sizeBytes: true },
-            })
-            : null;
-        const msgReactions = await db.query.reactions.findMany({
-            where: eq(reactions.messageId, msg.id),
-        });
+    // Populate reactions details
+    const populated = reversed.map((msg) => {
         // Group reactions by emoji
         const groupedReactions = {};
-        for (const r of msgReactions) {
+        for (const r of msg.reactions) {
             if (!groupedReactions[r.emoji]) {
                 groupedReactions[r.emoji] = { emoji: r.emoji, count: 0, userIds: [] };
             }
@@ -94,11 +90,9 @@ export async function getMessages(beforeTimestamp, limit = 50) {
         }
         return {
             ...msg,
-            user,
-            file,
             reactions: Object.values(groupedReactions),
         };
-    }));
+    });
     return populated;
 }
 export async function addReaction(messageId, userId, emoji) {
@@ -120,4 +114,45 @@ export async function removeReaction(messageId, userId, emoji) {
     await db
         .delete(reactions)
         .where(and(eq(reactions.messageId, messageId), eq(reactions.userId, userId), eq(reactions.emoji, emoji)));
+}
+export async function deleteMessage(messageId, userId, isAdmin) {
+    const msg = await db.query.messages.findFirst({
+        where: eq(messages.id, messageId),
+    });
+    if (!msg) {
+        throw new Error("Message not found.");
+    }
+    // Only message author or admin can delete
+    if (msg.userId !== userId && !isAdmin) {
+        throw new Error("You do not have permission to delete this message.");
+    }
+    // Delete associated reactions first
+    await db.delete(reactions).where(eq(reactions.messageId, messageId));
+    // Delete the message
+    await db.delete(messages).where(eq(messages.id, messageId));
+    return { id: messageId };
+}
+export async function editMessage(messageId, userId, newContent, isAdmin) {
+    const msg = await db.query.messages.findFirst({
+        where: eq(messages.id, messageId),
+    });
+    if (!msg) {
+        throw new Error("Message not found.");
+    }
+    // Only message author or admin can edit
+    if (msg.userId !== userId && !isAdmin) {
+        throw new Error("You do not have permission to edit this message.");
+    }
+    const trimmedContent = newContent.trim();
+    if (!trimmedContent) {
+        throw new Error("Message content cannot be empty.");
+    }
+    if (trimmedContent.length > 4000) {
+        throw new Error("Message content exceeds maximum length of 4000 characters.");
+    }
+    const now = Date.now();
+    await db.update(messages)
+        .set({ content: trimmedContent, editedAt: now })
+        .where(eq(messages.id, messageId));
+    return await getMessageById(messageId);
 }

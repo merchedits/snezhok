@@ -14,7 +14,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 export const ALLOWED_EXTENSIONS = [
     // Images
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
     // Audio
     ".mp3", ".wav", ".ogg", ".m4a", ".flac",
     // Video
@@ -24,6 +24,9 @@ export const ALLOWED_EXTENSIONS = [
     ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"
 ];
 export async function saveFileMetadata({ userId, originalName, mimeType, sizeBytes, }) {
+    if (originalName.includes("..") || originalName.includes("/") || originalName.includes("\\")) {
+        throw new Error("Invalid filename.");
+    }
     const ext = path.extname(originalName).toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
         throw new Error(`File extension ${ext} is not allowed.`);
@@ -44,6 +47,9 @@ export async function saveFileMetadata({ userId, originalName, mimeType, sizeByt
     return fileRecord;
 }
 export function getUploadFilePath(storedName) {
+    if (storedName.includes("..") || storedName.includes("/") || storedName.includes("\\")) {
+        throw new Error("Path traversal attempt detected.");
+    }
     return path.join(uploadDir, storedName);
 }
 export async function getFileMetadata(fileId) {

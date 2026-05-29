@@ -68,6 +68,7 @@ export default function MemberPanel() {
                   displayName={member.displayName}
                   username={member.username}
                   avatarColor={member.avatarColor}
+                  avatarUrl={member.avatarUrl}
                   size="sm"
                   showOnline={true}
                   isOnline={true}
@@ -107,6 +108,7 @@ export default function MemberPanel() {
                   displayName={member.displayName}
                   username={member.username}
                   avatarColor={member.avatarColor}
+                  avatarUrl={member.avatarUrl}
                   size="sm"
                   showOnline={true}
                   isOnline={true}
@@ -140,6 +142,7 @@ export default function MemberPanel() {
                   displayName={member.displayName}
                   username={member.username}
                   avatarColor={member.avatarColor}
+                  avatarUrl={member.avatarUrl}
                   size="sm"
                   showOnline={false}
                   isOnline={false}

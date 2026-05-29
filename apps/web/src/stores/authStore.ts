@@ -5,6 +5,7 @@ export interface User {
   username: string;
   displayName: string;
   avatarColor: string;
+  avatarUrl?: string;
   isAdmin: boolean;
 }
 
@@ -20,6 +21,7 @@ interface AuthState {
   logout: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<boolean>;
   updateAvatarColor: (avatarColor: string) => Promise<boolean>;
+  updateAvatarImage: (file: File) => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -138,6 +140,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (res.ok) {
         set((state) => ({
           user: state.user ? { ...state.user, avatarColor } : null,
+        }));
+        return true;
+      }
+      return false;
+    } catch (err) {
+      return false;
+    }
+  },
+
+  updateAvatarImage: async (file) => {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/users/me/avatar", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        set((state) => ({
+          user: state.user ? { ...state.user, avatarUrl: data.avatarUrl } : null,
         }));
         return true;
       }
