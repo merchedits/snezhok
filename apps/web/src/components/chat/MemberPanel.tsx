@@ -4,11 +4,13 @@ import Button from "../Button.jsx";
 import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
+import { useTranslation } from "../../i18n/index.jsx";
 
 export default function MemberPanel() {
   const usersList = usePresenceStore((state) => state.usersList);
   const voiceParticipants = useVoiceStore((state) => state.participants);
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
+  const { t } = useTranslation();
 
   // Helper to check if a user is in a voice call
   const isUserInVoice = (userId: string) => {
@@ -36,7 +38,7 @@ export default function MemberPanel() {
           borderBottom: "1px solid var(--color-border)",
         }}
       >
-        <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "16px" }}>Members</span>
+        <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "16px" }}>{t('members.title')}</span>
         <Button variant="ghost" onClick={toggleMemberPanel} style={{ padding: 0, width: "24px", height: "24px" }}>
           <X size={18} />
         </Button>
@@ -48,7 +50,7 @@ export default function MemberPanel() {
         {inCallUsers.length > 0 && (
           <div style={{ marginBottom: "24px" }}>
             <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
-              IN CALL NOW
+              {t('members.inCallNow')}
             </div>
             {inCallUsers.map((member) => (
               <div 
@@ -79,7 +81,7 @@ export default function MemberPanel() {
                     {member.displayName}
                   </span>
                   <span style={{ fontSize: "12px", color: "var(--color-online)" }}>
-                    In voice call
+                    {t('voice.inVoiceCall')}
                   </span>
                 </div>
                 <Activity size={14} color="var(--color-online)" />
@@ -92,7 +94,7 @@ export default function MemberPanel() {
         {onlineUsersNotInCall.length > 0 && (
           <div style={{ marginBottom: "24px" }}>
             <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
-              ONLINE — {onlineUsersNotInCall.length}
+              {t('members.onlineSection')} — {onlineUsersNotInCall.length}
             </div>
             {onlineUsersNotInCall.map((member) => (
               <div 
@@ -125,7 +127,7 @@ export default function MemberPanel() {
         {offlineUsers.length > 0 && (
           <div style={{ marginBottom: "24px" }}>
             <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
-              OFFLINE — {offlineUsers.length}
+              {t('members.offlineSection')} — {offlineUsers.length}
             </div>
             {offlineUsers.map((member) => (
               <div 

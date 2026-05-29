@@ -1,16 +1,27 @@
 import { useState, useEffect } from "react";
-import { Mic, MicOff, PhoneOff, PhoneCall, Monitor, MonitorOff, MoreHorizontal, Activity } from "lucide-react";
+import { Mic, MicOff, PhoneOff, PhoneCall, Monitor, MonitorOff, MoreHorizontal, Activity, ChevronDown, ChevronUp } from "lucide-react";
 import Button from "../Button.jsx";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import { useVoice } from "../../hooks/useVoice.js";
 import VoiceSettings from "./VoiceSettings.jsx";
 import Avatar from "../Avatar.jsx";
+import { useTranslation } from "../../i18n/index.jsx";
 
 export default function VoiceBanner() {
   const { participants, isInCall, isMuted } = useVoiceStore();
   const { joinCall, leaveCall, toggleMute, startScreenshare, stopScreenshare, isScreensharing } = useVoice();
+  const { t } = useTranslation();
   const [showSettings, setShowSettings] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -39,7 +50,8 @@ export default function VoiceBanner() {
     <div 
       className="voice-banner" 
       role="status" 
-      aria-label="Voice call active"
+      aria-label={t('voice.callLive')}
+      onClick={() => { if (isMobile) setExpanded(!expanded); }}
       style={{
         display: "flex",
         alignItems: "center",
@@ -73,17 +85,24 @@ export default function VoiceBanner() {
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", color: "var(--color-text-primary)" }}>
-              Voice call live
+              {t('voice.callLive')}
             </span>
             <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--color-online)" }} />
           </div>
           <span style={{ fontSize: "13px", color: "var(--color-text-tertiary)" }}>
-            {participants.length} in call • {formatDuration(callDuration)}
+            {participants.length} {t('voice.inCall')} • {formatDuration(callDuration)}
           </span>
         </div>
+        {isMobile && (
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
+            {expanded ? <ChevronUp size={20} color="var(--color-text-tertiary)" /> : <ChevronDown size={20} color="var(--color-text-tertiary)" />}
+          </div>
+        )}
       </div>
 
-      {/* Middle: Participant Previews (if any) */}
+      {(!isMobile || expanded) && (
+        <>
+          {/* Middle: Participant Previews (if any) */}
       {participants.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: "24px", flex: 1, justifyContent: "center" }}>
           {participants.slice(0, 1).map((p) => (
@@ -113,36 +132,36 @@ export default function VoiceBanner() {
                   {p.displayName}
                   <Activity size={12} color="var(--color-online)" />
                 </span>
-                <span style={{ fontSize: "12px", color: "var(--color-online)" }}>Connected</span>
+                <span style={{ fontSize: "12px", color: "var(--color-online)" }}>{t('voice.connected')}</span>
               </div>
             </div>
           ))}
           {participants.length > 1 && (
             <span style={{ fontSize: "13px", color: "var(--color-text-tertiary)" }}>
-              +{participants.length - 1} more
+              +{participants.length - 1} {t('voice.more')}
             </span>
           )}
         </div>
       )}
 
       {/* Right side: Controls */}
-      <div style={{ display: "flex", alignItems: "center", gap: "12px", position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", position: "relative", marginTop: isMobile ? "16px" : "0" }}>
         {showSettings && <VoiceSettings onClose={() => setShowSettings(false)} />}
         
         {!isInCall ? (
           <Button
             variant="primary"
-            onClick={joinCall}
+            onClick={(e) => { e.stopPropagation(); joinCall(); }}
             style={{ borderRadius: "12px", background: "var(--color-lavender)" }}
           >
             <PhoneCall size={16} />
-            Join Call
+            {t('voice.joinCall')}
           </Button>
         ) : (
           <>
             <Button
               variant="icon"
-              onClick={toggleMute}
+              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
               style={{
                 width: "40px",
                 height: "40px",
@@ -151,14 +170,14 @@ export default function VoiceBanner() {
                 color: isMuted ? "var(--color-destructive)" : "var(--color-text-secondary)",
                 border: "1px solid var(--color-border)",
               }}
-              title={isMuted ? "Unmute" : "Mute"}
+              title={isMuted ? t('voice.unmute') : t('voice.mute')}
             >
               {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
             </Button>
             
             <Button
               variant="icon"
-              onClick={isScreensharing ? stopScreenshare : startScreenshare}
+              onClick={(e) => { e.stopPropagation(); isScreensharing ? stopScreenshare() : startScreenshare(); }}
               style={{
                 width: "40px",
                 height: "40px",
@@ -167,14 +186,14 @@ export default function VoiceBanner() {
                 color: isScreensharing ? "var(--color-destructive)" : "var(--color-text-secondary)",
                 border: "1px solid var(--color-border)",
               }}
-              title={isScreensharing ? "Stop screenshare" : "Start screenshare"}
+              title={isScreensharing ? t('voice.stopScreenshare') : t('voice.startScreenshare')}
             >
               {isScreensharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
             </Button>
             
             <Button
               variant="icon"
-              onClick={() => setShowSettings(!showSettings)}
+              onClick={(e) => { e.stopPropagation(); setShowSettings(!showSettings); }}
               style={{
                 width: "40px",
                 height: "40px",
@@ -182,14 +201,14 @@ export default function VoiceBanner() {
                 background: "var(--color-bg-subtle)",
                 border: "1px solid var(--color-border)",
               }}
-              title="More options"
+              title={t('voice.moreOptions')}
             >
               <MoreHorizontal size={18} />
             </Button>
 
             <Button
               variant="danger"
-              onClick={leaveCall}
+              onClick={(e) => { e.stopPropagation(); leaveCall(); }}
               style={{
                 height: "40px",
                 borderRadius: "12px",
@@ -201,11 +220,13 @@ export default function VoiceBanner() {
               }}
             >
               <PhoneOff size={16} />
-              Leave call
+              {t('voice.leaveCall')}
             </Button>
           </>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

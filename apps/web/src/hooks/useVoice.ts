@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import Peer from "simple-peer";
 import { getSocket } from "../lib/socket.js";
 import { useVoiceStore, VoiceParticipant } from "../stores/voiceStore.js";
-import { playJoinSound, playLeaveSound, playMuteSound } from "../lib/sounds.js";
+import { playJoinSound, playLeaveSound, playMuteSound, playUnmuteSound, playScreenshareSound } from "../lib/sounds.js";
 
 // Module-level singletons to ensure voice state is shared across all components calling useVoice()
 let localStreamSingleton: MediaStream | null = null;
@@ -100,6 +100,7 @@ export function useVoice() {
     
     // Only play sound if muting
     if (nextMute) playMuteSound();
+    else playUnmuteSound();
 
     if (localStreamSingleton) {
       localStreamSingleton.getAudioTracks().forEach((track) => {
@@ -118,6 +119,10 @@ export function useVoice() {
 
       localScreenStreamSingleton = stream;
       setIsScreensharing(true);
+      playScreenshareSound();
+      
+      // Dispatch event for self-preview
+      window.dispatchEvent(new CustomEvent('screenshare:self', { detail: { stream } }));
 
       // Handle user stopping screenshare via browser UI
       stream.getVideoTracks()[0].onended = () => {
@@ -336,6 +341,7 @@ export function useVoice() {
       // We emit a custom event so React components can grab it
       const event = new CustomEvent('screenshare:new', { detail: { socketId, videoElement: video } });
       window.dispatchEvent(event);
+      playScreenshareSound();
 
       // Handle stream removal
       stream.getTracks().forEach(track => {

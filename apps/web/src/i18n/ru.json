@@ -1,0 +1,83 @@
+{
+  "chat": {
+    "title": "The Crew 🌸",
+    "members": "участников",
+    "online": "онлайн",
+    "emptyTitle": "Привет!",
+    "emptyDescription": "Ты первый здесь. Напиши сообщение, чтобы начать общение.",
+    "newMessages": "Новые сообщения ↓",
+    "messagePlaceholder": "Сообщение в #general",
+    "typing": "печатает..."
+  },
+  "voice": {
+    "callLive": "Голосовой звонок",
+    "inCall": "в звонке",
+    "joinCall": "Присоединиться",
+    "leaveCall": "Покинуть",
+    "mute": "Выключить микрофон",
+    "unmute": "Включить микрофон",
+    "startScreenshare": "Поделиться экраном",
+    "stopScreenshare": "Остановить показ",
+    "moreOptions": "Ещё",
+    "connected": "Подключен",
+    "more": "ещё",
+    "inVoiceCall": "В голосовом звонке",
+    "voiceSettings": "Настройки звука",
+    "microphone": "Микрофон",
+    "outputDevice": "Устройство вывода",
+    "defaultInput": "Устройство по умолчанию",
+    "defaultOutput": "Устройство по умолчанию",
+    "close": "Закрыть",
+    "startCall": "Начать звонок"
+  },
+  "members": {
+    "title": "Участники",
+    "inCallNow": "В ЗВОНКЕ",
+    "onlineSection": "ОНЛАЙН",
+    "offlineSection": "ОФФЛАЙН"
+  },
+  "settings": {
+    "title": "Настройки 🌸",
+    "myProfile": "Мой профиль",
+    "adminInvites": "Приглашения",
+    "registeredUser": "Зарегистрированный пользователь",
+    "uploadPicture": "Загрузить фото",
+    "avatarColor": "Цвет аватара",
+    "displayName": "Отображаемое имя",
+    "displayNamePlaceholder": "Ваш никнейм...",
+    "profileUpdated": "✓ Профиль обновлён!",
+    "saving": "Сохранение...",
+    "saveChanges": "Сохранить",
+    "createInvite": "Создать код приглашения",
+    "invitePlaceholder": "Свой код (оставьте пустым для случайного)...",
+    "generate": "Создать",
+    "activeInvites": "Активные коды приглашений",
+    "noInvites": "Коды приглашений ещё не созданы.",
+    "code": "Код",
+    "status": "Статус",
+    "action": "Действие",
+    "usedBy": "Использован",
+    "unused": "Свободен",
+    "copied": "Скопировано",
+    "copy": "Копировать",
+    "language": "Язык",
+    "theme": "Тема",
+    "darkMode": "Тёмная тема",
+    "lightMode": "Светлая тема",
+    "logout": "Выйти",
+    "logoutConfirm": "Вы уверены, что хотите выйти?"
+  },
+  "sidebar": {
+    "globalChat": "Общий чат",
+    "settings": "Настройки",
+    "logout": "Выход"
+  },
+  "header": {
+    "settings": "Настройки",
+    "toggleTheme": "Сменить тему",
+    "darkMode": "Тёмная тема",
+    "lightMode": "Светлая тема",
+    "logout": "Выйти",
+    "moreOptions": "Ещё"
+  }
+}

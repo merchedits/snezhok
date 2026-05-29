@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { Activity } from "lucide-react";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import Avatar from "../Avatar.jsx";
+import { useTranslation } from "../../i18n/index.jsx";
 
 export default function InCallCard() {
   const { participants, isInCall } = useVoiceStore();
   const [callDuration, setCallDuration] = useState(0);
+  const { t } = useTranslation();
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -68,7 +70,7 @@ export default function InCallCard() {
             {activeParticipant.displayName}
           </h3>
           <p style={{ fontSize: "13px", color: "var(--color-online)", marginBottom: "4px" }}>
-            In voice call
+            {t('voice.inVoiceCall')}
           </p>
           <p style={{ fontSize: "13px", color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
             {formatDuration(callDuration)}

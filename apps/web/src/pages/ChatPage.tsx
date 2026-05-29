@@ -3,6 +3,8 @@ import { useAuthStore } from "../stores/authStore.js";
 import { useMessageStore } from "../stores/messageStore.js";
 import { usePresenceStore } from "../stores/presenceStore.js";
 import { useUIStore } from "../stores/uiStore.js";
+import { useVoiceStore } from "../stores/voiceStore.js";
+import { useTranslation } from "../i18n/index.jsx";
 import Sidebar from "../components/chat/Sidebar.jsx";
 import ChatHeader from "../components/chat/ChatHeader.jsx";
 import VoiceBanner from "../components/chat/VoiceBanner.jsx";
@@ -37,6 +39,10 @@ export default function ChatPage() {
   const { messages, isLoading, hasMore, loadHistory } = useMessageStore();
   const { fetchUsers, usersList } = usePresenceStore();
   const memberPanelOpen = useUIStore((state) => state.memberPanelOpen);
+  const { isInCall, isScreensharing } = useVoiceStore();
+  const { t, language, setLanguage } = useTranslation();
+  const { setTheme, theme } = useUIStore();
+  const { logout } = useAuthStore();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<"profile" | "admin">("profile");
@@ -59,8 +65,10 @@ export default function ChatPage() {
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const selfVideoRef = useRef<HTMLVideoElement>(null);
 
   const [showUnreadBadge, setShowUnreadBadge] = useState(false);
+  const [selfScreenshareStream, setSelfScreenshareStream] = useState<MediaStream | null>(null);
 
   // Load initial data
   useEffect(() => {
@@ -95,11 +103,38 @@ export default function ChatPage() {
     window.addEventListener("screenshare:new", handleNewScreenshare);
     window.addEventListener("screenshare:ended", handleEndedScreenshare);
 
+    const handleSelfScreenshare = (e: any) => {
+      setSelfScreenshareStream(e.detail.stream);
+    };
+    window.addEventListener("screenshare:self", handleSelfScreenshare);
+
     return () => {
       window.removeEventListener("screenshare:new", handleNewScreenshare);
       window.removeEventListener("screenshare:ended", handleEndedScreenshare);
+      window.removeEventListener("screenshare:self", handleSelfScreenshare);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isScreensharing) setSelfScreenshareStream(null);
+  }, [isScreensharing]);
+
+  useEffect(() => {
+    if (selfScreenshareStream && selfVideoRef.current) {
+      selfVideoRef.current.srcObject = selfScreenshareStream;
+    }
+  }, [selfScreenshareStream]);
+
+  // Handle active call navigation warning
+  useEffect(() => {
+    if (!isInCall) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isInCall]);
 
   // Update profile inputs when user loads
   useEffect(() => {
@@ -299,7 +334,7 @@ export default function ChatPage() {
         />
 
         {/* Chat Area Header */}
-        <ChatHeader />
+        <ChatHeader onOpenSettings={() => setSettingsOpen(true)} onLogout={logout} />
 
         {/* Messages List Container */}
         <div
@@ -371,13 +406,21 @@ export default function ChatPage() {
 
         {/* Chat Message Box Input */}
         <MessageInput />
+
+        {/* Self Screenshare PIP */}
+        {selfScreenshareStream && (
+          <div className="screenshare-pip">
+            <button className="screenshare-pip-close" onClick={() => setSelfScreenshareStream(null)}>X</button>
+            <video ref={selfVideoRef} autoPlay playsInline muted />
+          </div>
+        )}
       </main>
 
       {/* Members sidebar rail list */}
       {memberPanelOpen && <MemberPanel />}
 
       {/* Settings Modal Dashboard */}
-      <Modal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} title="Settings 🌸">
+      <Modal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} title={t('settings.title')}>
         <div style={{ display: "flex", gap: "16px", borderBottom: "1px solid var(--color-bg-subtle)", paddingBottom: "12px", marginBottom: "16px" }}>
           <button
             onClick={() => setActiveSettingsTab("profile")}
@@ -393,7 +436,7 @@ export default function ChatPage() {
               paddingBottom: "4px",
             }}
           >
-            My Profile
+            {t('settings.myProfile')}
           </button>
           {user?.isAdmin && (
             <button
@@ -410,7 +453,7 @@ export default function ChatPage() {
                 paddingBottom: "4px",
               }}
             >
-              Admin Invites
+              {t('settings.adminInvites')}
             </button>
           )}
         </div>
@@ -441,7 +484,7 @@ export default function ChatPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 <h4 style={{ fontWeight: 600 }}>{user?.username}</h4>
                 <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }}>
-                  Registered user
+                  {t('settings.registeredUser')}
                 </p>
                 <input
                   type="file"
@@ -456,7 +499,7 @@ export default function ChatPage() {
                   style={{ fontSize: "12px", padding: "4px 8px", height: "auto" }}
                   disabled={isSavingProfile}
                 >
-                  <Upload size={14} style={{ marginRight: "4px" }} /> Upload Picture
+                  <Upload size={14} style={{ marginRight: "4px" }} /> {t('settings.uploadPicture')}
                 </Button>
               </div>
             </div>
@@ -489,22 +532,47 @@ export default function ChatPage() {
             </div>
 
             <Input
-              label="Display Name"
+              label={t('settings.displayName')}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your public nickname..."
+              placeholder={t('settings.displayNamePlaceholder')}
               disabled={isSavingProfile}
               required
             />
 
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "16px" }}>
+              <label className="form-label">{t('settings.language')}</label>
+              <div style={{ display: "flex", gap: "12px" }}>
+                <Button variant={language === "en" ? "primary" : "ghost"} onClick={(e) => { e.preventDefault(); setLanguage("en"); }}>
+                  🇬🇧 English
+                </Button>
+                <Button variant={language === "ru" ? "primary" : "ghost"} onClick={(e) => { e.preventDefault(); setLanguage("ru"); }}>
+                  🇷🇺 Русский
+                </Button>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "16px" }}>
+              <label className="form-label">{t('settings.theme')}</label>
+              <Button variant="ghost" onClick={(e) => { e.preventDefault(); setTheme(theme === 'light' ? 'dark' : 'light'); }}>
+                {theme === 'light' ? t('settings.darkMode') : t('settings.lightMode')}
+              </Button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--color-bg-subtle)" }}>
+              <Button variant="danger" onClick={(e) => { e.preventDefault(); if (confirm(t('settings.logoutConfirm'))) logout(); }}>
+                {t('settings.logout')}
+              </Button>
+            </div>
+
             {profileSuccess && (
-              <p style={{ color: "var(--color-sage)", fontSize: "var(--text-sm)", fontWeight: 500 }}>
-                ✓ Profile updated successfully!
+              <p style={{ color: "var(--color-sage)", fontSize: "var(--text-sm)", fontWeight: 500, marginTop: "16px" }}>
+                {t('settings.profileUpdated')}
               </p>
             )}
 
-            <Button type="submit" disabled={isSavingProfile}>
-              {isSavingProfile ? "Saving..." : "Save Changes"}
+            <Button type="submit" disabled={isSavingProfile} style={{ marginTop: "16px" }}>
+              {isSavingProfile ? t('settings.saving') : t('settings.saveChanges')}
             </Button>
           </form>
         ) : (

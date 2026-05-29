@@ -1,0 +1,83 @@
+{
+  "chat": {
+    "title": "The Crew 🌸",
+    "members": "members",
+    "online": "online",
+    "emptyTitle": "Say hello!",
+    "emptyDescription": "You're the first one here. Send a message to get the conversation going.",
+    "newMessages": "New messages ↓",
+    "messagePlaceholder": "Message #general",
+    "typing": "typing..."
+  },
+  "voice": {
+    "callLive": "Voice call live",
+    "inCall": "in call",
+    "joinCall": "Join Call",
+    "leaveCall": "Leave call",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "startScreenshare": "Start screenshare",
+    "stopScreenshare": "Stop screenshare",
+    "moreOptions": "More options",
+    "connected": "Connected",
+    "more": "more",
+    "inVoiceCall": "In voice call",
+    "voiceSettings": "Voice Settings",
+    "microphone": "Microphone",
+    "outputDevice": "Output Device",
+    "defaultInput": "Default Input Device",
+    "defaultOutput": "Default Output Device",
+    "close": "Close",
+    "startCall": "Start Voice Call"
+  },
+  "members": {
+    "title": "Members",
+    "inCallNow": "IN CALL NOW",
+    "onlineSection": "ONLINE",
+    "offlineSection": "OFFLINE"
+  },
+  "settings": {
+    "title": "Settings 🌸",
+    "myProfile": "My Profile",
+    "adminInvites": "Admin Invites",
+    "registeredUser": "Registered user",
+    "uploadPicture": "Upload Picture",
+    "avatarColor": "Avatar Color",
+    "displayName": "Display Name",
+    "displayNamePlaceholder": "Your public nickname...",
+    "profileUpdated": "✓ Profile updated successfully!",
+    "saving": "Saving...",
+    "saveChanges": "Save Changes",
+    "createInvite": "Create Invite Code",
+    "invitePlaceholder": "Custom code (leave blank for random)...",
+    "generate": "Generate",
+    "activeInvites": "Active Invite Codes",
+    "noInvites": "No invite codes generated yet.",
+    "code": "Code",
+    "status": "Status",
+    "action": "Action",
+    "usedBy": "Used by",
+    "unused": "Unused",
+    "copied": "Copied",
+    "copy": "Copy",
+    "language": "Language",
+    "theme": "Theme",
+    "darkMode": "Dark Mode",
+    "lightMode": "Light Mode",
+    "logout": "Log Out",
+    "logoutConfirm": "Are you sure you want to log out?"
+  },
+  "sidebar": {
+    "globalChat": "Global Chat",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  "header": {
+    "settings": "Settings",
+    "toggleTheme": "Toggle theme",
+    "darkMode": "Dark mode",
+    "lightMode": "Light mode",
+    "logout": "Log out",
+    "moreOptions": "More options"
+  }
+}

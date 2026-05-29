@@ -3,6 +3,7 @@ import { Paperclip, Smile, Send, Loader2, X, RefreshCw } from "lucide-react";
 import Button from "../Button.jsx";
 import { getSocket } from "../../lib/socket.js";
 import { useMessageStore } from "../../stores/messageStore.js";
+import { useTranslation } from "../../i18n/index.jsx";
 
 const QUICK_EMOJIS = ["🌸", "🫶", "✨", "👋", "🌙", "🌊", "❤️", "👍"];
 const CHUNK_SIZE = 1024 * 1024; // 1MB
@@ -18,6 +19,7 @@ export interface UploadJob {
 
 export default function MessageInput() {
   const [content, setContent] = useState("");
+  const { t } = useTranslation();
   const [uploads, setUploads] = useState<UploadJob[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -450,9 +452,9 @@ export default function MessageInput() {
               ref={textareaRef}
               className="input-box"
               rows={1}
-              placeholder="Message #general"
               value={content}
               onChange={handleInputChange}
+              placeholder={t('chat.messagePlaceholder')}
               onKeyDown={handleKeyDown}
               onBlur={stopTyping}
               aria-label="Message input"

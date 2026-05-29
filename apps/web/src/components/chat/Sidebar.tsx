@@ -2,6 +2,7 @@ import { MessageCircle, Settings, Sun, Moon, LogOut } from "lucide-react";
 import Avatar from "../Avatar.jsx";
 import { useAuthStore } from "../../stores/authStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
+import { useTranslation } from "../../i18n/index.jsx";
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -10,6 +11,7 @@ interface SidebarProps {
 export default function Sidebar({ onOpenSettings }: SidebarProps) {
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useUIStore();
+  const { t } = useTranslation();
 
   return (
     <nav className="sidebar" aria-label="Main Navigation">
@@ -22,7 +24,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       </div>
 
       {/* Navigation Main */}
-      <button className="sidebar-btn active" title="Global Chat" aria-label="Global Chat">
+      <button className="sidebar-btn active" title={t('sidebar.globalChat')} aria-label={t('sidebar.globalChat')}>
         <MessageCircle size={20} strokeWidth={2.5} />
       </button>
 
@@ -32,7 +34,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       <button
         className="sidebar-btn"
         onClick={toggleTheme}
-        title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
+        title={theme === "light" ? t('settings.darkMode') : t('settings.lightMode')}
         aria-label="Toggle dark theme"
       >
         {theme === "light" ? <Moon size={24} /> : <Sun size={24} />}
@@ -44,8 +46,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       <button
         className="sidebar-btn"
         onClick={onOpenSettings}
-        title="Settings"
-        aria-label="Settings"
+        title={t('sidebar.settings')}
+        aria-label={t('sidebar.settings')}
       >
         <Settings size={22} strokeWidth={2} />
       </button>
@@ -54,8 +56,8 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
       <button
         className="sidebar-btn"
         onClick={logout}
-        title="Logout"
-        aria-label="Logout"
+        title={t('sidebar.logout')}
+        aria-label={t('sidebar.logout')}
       >
         <LogOut size={22} strokeWidth={2} />
       </button>

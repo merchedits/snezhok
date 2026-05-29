@@ -1,5 +1,6 @@
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import Button from "../Button.jsx";
+import { useTranslation } from "../../i18n/index.jsx";
 
 interface VoiceSettingsProps {
   onClose: () => void;
@@ -16,13 +17,13 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
 
   const audioInputs = availableDevices.filter((d) => d.kind === "audioinput");
   const audioOutputs = availableDevices.filter((d) => d.kind === "audiooutput");
+  const { t } = useTranslation();
 
   return (
     <div style={{
       position: 'absolute',
-      bottom: '100%',
+      top: 'calc(100% + 8px)',
       right: '0',
-      marginBottom: '8px',
       backgroundColor: 'var(--color-bg-elevated)',
       border: '1px solid var(--color-bg-subtle)',
       borderRadius: '14px',
@@ -34,10 +35,10 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
       flexDirection: 'column',
       gap: 'var(--space-4)'
     }}>
-      <h3 style={{ margin: 0, fontSize: 'var(--text-base)', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Voice Settings</h3>
+      <h3 style={{ margin: 0, fontSize: 'var(--text-base)', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-text-primary)' }}>{t('voice.voiceSettings')}</h3>
       
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Microphone</label>
+        <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>{t('voice.microphone')}</label>
         <select
           value={selectedInputDeviceId || ""}
           onChange={(e) => setInputDevice(e.target.value || null)}
@@ -53,7 +54,7 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
             outline: 'none',
           }}
         >
-          <option value="">Default Input Device</option>
+          <option value="">{t('voice.defaultInput')}</option>
           {audioInputs.map(device => (
             <option key={device.deviceId} value={device.deviceId}>
               {device.label || `Microphone ${device.deviceId.slice(0, 5)}...`}
@@ -63,7 +64,7 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Output Device</label>
+        <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>{t('voice.outputDevice')}</label>
         <select
           value={selectedOutputDeviceId || ""}
           onChange={(e) => setOutputDevice(e.target.value || null)}
@@ -79,7 +80,7 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
             outline: 'none',
           }}
         >
-          <option value="">Default Output Device</option>
+          <option value="">{t('voice.defaultOutput')}</option>
           {audioOutputs.map(device => (
             <option key={device.deviceId} value={device.deviceId}>
               {device.label || `Speaker ${device.deviceId.slice(0, 5)}...`}
@@ -89,7 +90,7 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
       </div>
 
       <Button variant="ghost" onClick={onClose} style={{ marginTop: '4px' }}>
-        Close
+        {t('voice.close')}
       </Button>
     </div>
   );
