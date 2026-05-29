@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import Button from "../Button.jsx";
 import { useTranslation } from "../../i18n/index.jsx";
@@ -12,12 +13,30 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
     selectedInputDeviceId, 
     selectedOutputDeviceId, 
     setInputDevice, 
-    setOutputDevice 
+    setOutputDevice,
+    setAvailableDevices
   } = useVoiceStore();
 
   const audioInputs = availableDevices.filter((d) => d.kind === "audioinput");
   const audioOutputs = availableDevices.filter((d) => d.kind === "audiooutput");
   const { t } = useTranslation();
+
+  useEffect(() => {
+    const hasEmptyLabels = audioInputs.length > 0 && !audioInputs[0].label;
+    if (hasEmptyLabels) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => {
+          stream.getTracks().forEach(t => t.stop());
+          return navigator.mediaDevices.enumerateDevices();
+        })
+        .then(devices => {
+          setAvailableDevices(devices);
+        })
+        .catch(err => {
+          console.error("Failed to request audio permissions for labels", err);
+        });
+    }
+  }, [audioInputs, setAvailableDevices]);
 
   return (
     <div style={{
