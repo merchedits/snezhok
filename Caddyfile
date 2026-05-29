@@ -1,0 +1,52 @@
+# ─── Snezhok Caddy Reverse Proxy Config ─────────────────────────────────────
+#
+# USAGE:
+#   • For HTTPS with a real domain (recommended):
+#     Replace ":80" below with your domain, e.g. "snezhok.yourdomain.com"
+#     Caddy will automatically obtain and renew Let's Encrypt certificates.
+#
+#   • For local / LAN access without a domain:
+#     Keep ":80" as-is. Access via http://server-ip
+#
+#   • For self-signed HTTPS without a domain:
+#     Replace ":80" with "https://" and add:
+#       tls internal
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+:80 {
+	# Reverse proxy all traffic to the Node.js application
+	reverse_proxy app:3000 {
+		# WebSocket support for Socket.io
+		header_up Connection {>Connection}
+		header_up Upgrade {>Upgrade}
+
+		# Flush immediately for real-time events
+		flush_interval -1
+	}
+
+	# Security headers
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Cache static assets aggressively
+	@static {
+		path /assets/*
+	}
+	header @static {
+		Cache-Control "public, max-age=31536000, immutable"
+	}
+
+	# Gzip compression
+	encode gzip zstd
+
+	# Logging
+	log {
+		output stdout
+		format console
+	}
+}

@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  # ─── Main Application ────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: snezhok-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3000
+    volumes:
+      # Persist SQLite database and uploaded files
+      - ./data:/app/data
+    ports:
+      - "3000:3000"
+    networks:
+      - snezhok-net
+
+  # ─── Caddy Reverse Proxy ─────────────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: snezhok-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - snezhok-net
+
+  # ─── TURN Server (Optional — uncomment if voice calls need NAT traversal) ──
+  # coturn:
+  #   image: coturn/coturn:latest
+  #   container_name: snezhok-turn
+  #   restart: unless-stopped
+  #   network_mode: host
+  #   volumes:
+  #     - ./turnserver.conf:/etc/turnserver.conf:ro
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  snezhok-net:
+    driver: bridge

@@ -1,0 +1,970 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=DM+Sans:wght@400;500&family=DM+Mono&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-base: #F5F0EB;
+    --bg-surface: #FDFAF7;
+    --bg-elevated: #FFFFFF;
+    --bg-subtle: #EDE8E3;
+    --peach: #FFCFB3;
+    --peach-dark: #E8A882;
+    --peach-soft: #FFF0E8;
+    --sage: #8FC98F;
+    --lavender: #C5B8E8;
+    --lavender-soft: #EDE8F8;
+    --rose: #F2B8C6;
+    --butter: #F5E6A3;
+    --text-primary: #3D2E24;
+    --text-secondary: #7A6558;
+    --text-tertiary: #A8978C;
+    --font-display: 'Nunito', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg-base);
+    min-height: 600px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .app-frame {
+    width: 860px;
+    height: 580px;
+    background: var(--bg-base);
+    border-radius: 20px;
+    overflow: hidden;
+    display: flex;
+    box-shadow: 0 8px 48px rgba(60,40,25,0.14), 0 2px 12px rgba(60,40,25,0.08);
+    position: relative;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 64px;
+    background: var(--bg-subtle);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    gap: 6px;
+    border-right: 1px solid rgba(168,151,140,0.2);
+    flex-shrink: 0;
+  }
+
+  .app-logo {
+    width: 38px;
+    height: 38px;
+    background: var(--peach);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 10px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 16px;
+    color: var(--text-primary);
+  }
+
+  .sidebar-divider {
+    width: 32px;
+    height: 1px;
+    background: rgba(168,151,140,0.3);
+    margin: 4px 0;
+  }
+
+  .sidebar-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-tertiary);
+    transition: all 0.15s ease;
+    position: relative;
+    border: none;
+    background: transparent;
+  }
+
+  .sidebar-btn.active {
+    background: var(--peach-soft);
+    color: var(--peach-dark);
+  }
+
+  .sidebar-btn svg { stroke-width: 1.75; }
+
+  .sidebar-spacer { flex: 1; }
+
+  .user-avatar-sm {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #FFCFB3 0%, #F2B8C6 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-primary);
+    position: relative;
+    cursor: pointer;
+  }
+
+  .online-dot {
+    position: absolute;
+    bottom: 1px;
+    right: 1px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--sage);
+    border: 2px solid var(--bg-subtle);
+  }
+
+  /* MAIN CHAT */
+  .chat-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-surface);
+    min-width: 0;
+  }
+
+  /* VOICE CALL BANNER */
+  .voice-banner {
+    background: var(--lavender-soft);
+    border-bottom: 1px solid rgba(197,184,232,0.3);
+    padding: 0 16px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .voice-ring {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(197,184,232,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: voicePulse 1.4s ease-out infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes voicePulse {
+    0% { box-shadow: 0 0 0 0 rgba(197,184,232,0.6); }
+    70% { box-shadow: 0 0 0 8px rgba(197,184,232,0); }
+    100% { box-shadow: 0 0 0 0 rgba(197,184,232,0); }
+  }
+
+  .voice-label {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    color: #6B5B9E;
+    flex: 1;
+  }
+
+  .voice-label span {
+    color: var(--text-tertiary);
+    font-weight: 400;
+    margin-left: 4px;
+  }
+
+  .voice-avatars {
+    display: flex;
+    gap: -4px;
+  }
+
+  .voice-avatar-chip {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid var(--lavender-soft);
+    margin-left: -6px;
+    font-size: 9px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+  }
+
+  .voice-btn {
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--font-body);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .voice-btn.join {
+    background: var(--lavender);
+    color: #3D2E6E;
+  }
+
+  .voice-btn.mute {
+    background: rgba(197,184,232,0.25);
+    color: #6B5B9E;
+  }
+
+  /* CHAT HEADER */
+  .chat-header {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid rgba(168,151,140,0.15);
+    flex-shrink: 0;
+  }
+
+  .chat-header-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: var(--peach-soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .chat-header-info h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+
+  .chat-header-info p {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-body);
+  }
+
+  .header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+
+  .header-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    transition: background 0.15s;
+  }
+
+  .header-btn:hover { background: var(--bg-subtle); }
+
+  /* MESSAGES */
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--bg-subtle) transparent;
+  }
+
+  .msg-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 12px;
+  }
+
+  .msg-group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 10px;
+    color: var(--text-primary);
+    flex-shrink: 0;
+  }
+
+  .avatar-placeholder {
+    width: 30px;
+    flex-shrink: 0;
+  }
+
+  .msg-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .msg-username {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+
+  .msg-time {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+  }
+
+  .msg-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .msg-row.own {
+    flex-direction: row-reverse;
+  }
+
+  .bubble {
+    padding: 8px 12px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-primary);
+    max-width: 68%;
+  }
+
+  .bubble.other {
+    background: var(--bg-elevated);
+    border: 1px solid rgba(168,151,140,0.18);
+    border-radius: 14px 14px 14px 4px;
+  }
+
+  .bubble.own {
+    background: var(--peach-soft);
+    border: 1px solid rgba(255,207,179,0.4);
+    border-radius: 14px 14px 4px 14px;
+  }
+
+  .reaction-row {
+    display: flex;
+    gap: 4px;
+    padding-left: 8px;
+    margin-top: 2px;
+  }
+
+  .reaction {
+    font-size: 13px;
+    background: var(--bg-elevated);
+    border: 1px solid rgba(168,151,140,0.2);
+    border-radius: 10px;
+    padding: 1px 7px;
+    cursor: pointer;
+  }
+
+  /* IMAGE ATTACHMENT */
+  .img-bubble {
+    background: var(--bg-elevated);
+    border: 1px solid rgba(168,151,140,0.18);
+    border-radius: 14px 14px 14px 4px;
+    overflow: hidden;
+    max-width: 220px;
+  }
+
+  .img-preview {
+    width: 220px;
+    height: 130px;
+    background: linear-gradient(135deg, #F5E6A3 0%, #FFCFB3 50%, #F2B8C6 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .img-overlay-icon {
+    opacity: 0.5;
+    color: var(--text-primary);
+  }
+
+  .img-caption {
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+  }
+
+  /* FILE CARD */
+  .file-card {
+    background: var(--bg-elevated);
+    border: 1px solid rgba(168,151,140,0.2);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 220px;
+  }
+
+  .file-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--butter);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-size: 12px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { font-size: 10px; color: var(--text-tertiary); font-family: var(--font-mono); }
+
+  /* SYSTEM MESSAGE */
+  .sys-msg {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    padding: 4px 0;
+    font-family: var(--font-body);
+  }
+
+  /* INPUT */
+  .input-area {
+    padding: 12px 14px;
+    background: var(--bg-surface);
+    border-top: 1px solid rgba(168,151,140,0.15);
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .input-left {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+    flex-shrink: 0;
+    padding-bottom: 2px;
+  }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+  }
+
+  .input-box {
+    flex: 1;
+    background: var(--bg-subtle);
+    border: 1.5px solid transparent;
+    border-radius: 12px;
+    padding: 9px 13px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--text-primary);
+    resize: none;
+    min-height: 38px;
+    line-height: 1.4;
+    outline: none;
+  }
+
+  .input-box::placeholder { color: var(--text-tertiary); }
+
+  .send-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: var(--peach);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    flex-shrink: 0;
+  }
+
+  /* MEMBER PANEL */
+  .member-panel {
+    width: 220px;
+    background: var(--bg-base);
+    border-left: 1px solid rgba(168,151,140,0.15);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .member-panel-header {
+    padding: 14px 14px 10px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(168,151,140,0.1);
+  }
+
+  .member-section-label {
+    padding: 10px 14px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-family: var(--font-body);
+  }
+
+  .member-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 0 6px;
+  }
+
+  .member-item:hover { background: rgba(168,151,140,0.08); }
+
+  .member-name {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-weight: 400;
+    flex: 1;
+  }
+
+  .member-status-text {
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-online { background: var(--sage); }
+  .dot-offline { background: var(--text-tertiary); opacity: 0.5; }
+  .dot-voice {
+    background: var(--lavender);
+    animation: voicePulse 1.4s ease-out infinite;
+  }
+
+  .voice-in-panel {
+    margin-top: auto;
+    margin: 10px;
+    background: var(--lavender-soft);
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .voice-panel-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: #6B5B9E;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .voice-member-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .voice-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(197,184,232,0.2);
+    border-radius: 20px;
+    padding: 3px 8px 3px 3px;
+    font-size: 11px;
+    color: #6B5B9E;
+    font-family: var(--font-body);
+  }
+
+  .voice-chip-avatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 7px;
+    font-weight: 700;
+    font-family: var(--font-display);
+  }
+
+  .join-voice-btn {
+    width: 100%;
+    padding: 7px;
+    background: var(--lavender);
+    border: none;
+    border-radius: 10px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12px;
+    color: #3D2E6E;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+</style>
+</head>
+<body>
+<h2 class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Cozy Chat app mockup showing a chat interface with voice call, messages, and member list</h2>
+
+<div class="app-frame">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar" aria-label="Navigation">
+    <div class="app-logo">🌸</div>
+    <div class="sidebar-divider"></div>
+
+    <button class="sidebar-btn active" title="Chat" aria-label="Chat">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+    </button>
+
+    <button class="sidebar-btn" title="Voice" aria-label="Voice">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9a16 16 0 0 0 6.09 6.09l1.16-.95a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
+      </svg>
+    </button>
+
+    <button class="sidebar-btn" title="Files" aria-label="Files">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+      </svg>
+    </button>
+
+    <div class="sidebar-spacer"></div>
+
+    <button class="sidebar-btn" title="Settings" aria-label="Settings">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+
+    <div style="position:relative;">
+      <div class="user-avatar-sm" title="You — Artem">AR</div>
+      <div class="online-dot"></div>
+    </div>
+  </nav>
+
+  <!-- MAIN CHAT -->
+  <main class="chat-area" aria-label="Chat">
+
+    <!-- VOICE BANNER -->
+    <div class="voice-banner" role="status" aria-label="Voice call in progress">
+      <div class="voice-ring">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B5B9E" stroke-width="2" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+        </svg>
+      </div>
+      <div>
+        <div class="voice-label">Voice call active <span>· Masha, Dima</span></div>
+      </div>
+      <div class="voice-avatars">
+        <div class="voice-avatar-chip" style="background:#F2B8C6; margin-left:0;">MA</div>
+        <div class="voice-avatar-chip" style="background:#B5CDB5;">DI</div>
+      </div>
+      <button class="voice-btn mute" aria-label="Mute microphone">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        Mute
+      </button>
+      <button class="voice-btn join" aria-label="Join voice call">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+        Join
+      </button>
+    </div>
+
+    <!-- CHAT HEADER -->
+    <header class="chat-header">
+      <div class="chat-header-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E8A882" stroke-width="1.75" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </div>
+      <div class="chat-header-info">
+        <h2>The Crew 🌸</h2>
+        <p>8 members · 5 online</p>
+      </div>
+      <div class="header-actions">
+        <button class="header-btn" title="Search" aria-label="Search messages">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        </button>
+        <button class="header-btn" title="Pin" aria-label="Pinned messages">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="m3 11 19-9-9 19-2-8z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- MESSAGES -->
+    <div class="messages" role="log" aria-live="polite" aria-label="Messages">
+
+      <div class="sys-msg">Tuesday, 14 May</div>
+
+      <!-- Group: Masha -->
+      <div class="msg-group">
+        <div class="msg-row">
+          <div class="avatar" style="background:#F2B8C6;" aria-label="Masha">MA</div>
+          <div>
+            <div class="msg-meta" style="margin-bottom:4px;">
+              <span class="msg-username">Masha</span>
+              <span class="msg-time">18:24</span>
+            </div>
+            <div class="bubble other">good evening everyone 🌙 who's up for a call later?</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Group: Dima -->
+      <div class="msg-group">
+        <div class="msg-row">
+          <div class="avatar" style="background:#B5CDB5;" aria-label="Dima">DI</div>
+          <div>
+            <div class="msg-meta" style="margin-bottom:4px;">
+              <span class="msg-username">Dima</span>
+              <span class="msg-time">18:26</span>
+            </div>
+            <div class="bubble other">yes! around 9pm?</div>
+          </div>
+        </div>
+        <div class="msg-row">
+          <div class="avatar-placeholder"></div>
+          <div class="img-bubble" style="margin-left:0;">
+            <div class="img-preview">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="rgba(61,46,36,0.4)" stroke-width="1.5" class="img-overlay-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            </div>
+            <div class="img-caption">beach_vibes.jpg · 2.4 MB</div>
+          </div>
+        </div>
+        <div class="reaction-row">
+          <div class="reaction">🌊 3</div>
+          <div class="reaction">❤️ 2</div>
+        </div>
+      </div>
+
+      <!-- Group: Katya -->
+      <div class="msg-group">
+        <div class="msg-row">
+          <div class="avatar" style="background:#F5E6A3;" aria-label="Katya">KA</div>
+          <div>
+            <div class="msg-meta" style="margin-bottom:4px;">
+              <span class="msg-username">Katya</span>
+              <span class="msg-time">18:31</span>
+            </div>
+            <div class="bubble other">I'll be there ✨ also sharing the playlist from last time</div>
+          </div>
+        </div>
+        <div class="msg-row">
+          <div class="avatar-placeholder"></div>
+          <div class="file-card">
+            <div class="file-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7A6558" stroke-width="1.75"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </div>
+            <div class="file-info">
+              <div class="file-name">summer_vibes_mix.mp3</div>
+              <div class="file-size">48.2 MB</div>
+            </div>
+            <button class="icon-btn" aria-label="Download file">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Own messages -->
+      <div class="msg-group">
+        <div class="msg-row own">
+          <div>
+            <div class="msg-meta" style="margin-bottom:4px; justify-content:flex-end;">
+              <span class="msg-time">18:44</span>
+              <span class="msg-username">You</span>
+            </div>
+            <div class="bubble own">perfect 🫶 see you all at 9!</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sys-msg">Today</div>
+
+      <!-- Masha joined voice -->
+      <div class="sys-msg">🎤 Masha started a voice call</div>
+
+      <div class="msg-group">
+        <div class="msg-row">
+          <div class="avatar" style="background:#C5B8E8;" aria-label="Sasha">SA</div>
+          <div>
+            <div class="msg-meta" style="margin-bottom:4px;">
+              <span class="msg-username">Sasha</span>
+              <span class="msg-time">21:02</span>
+            </div>
+            <div class="bubble other">omw, give me 2 min 🏃</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- INPUT AREA -->
+    <div class="input-area">
+      <div class="input-left">
+        <button class="icon-btn" aria-label="Attach file">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <button class="icon-btn" aria-label="Add emoji">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+        </button>
+      </div>
+
+      <textarea class="input-box" rows="1" placeholder="Say something nice..." aria-label="Message input"></textarea>
+
+      <button class="send-btn" aria-label="Send message">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+
+  </main>
+
+  <!-- MEMBER PANEL -->
+  <aside class="member-panel" aria-label="Members">
+    <div class="member-panel-header">Members</div>
+
+    <div class="member-section-label">Online — 5</div>
+
+    <div class="member-item">
+      <div class="avatar" style="background:#F2B8C6; width:28px; height:28px; font-size:9px;">MA</div>
+      <span class="member-name">Masha</span>
+      <div class="dot dot-voice" title="In voice call"></div>
+    </div>
+
+    <div class="member-item">
+      <div class="avatar" style="background:#B5CDB5; width:28px; height:28px; font-size:9px;">DI</div>
+      <span class="member-name">Dima</span>
+      <div class="dot dot-voice" title="In voice call"></div>
+    </div>
+
+    <div class="member-item">
+      <div class="avatar" style="background:#F5E6A3; width:28px; height:28px; font-size:9px;">KA</div>
+      <span class="member-name">Katya</span>
+      <div class="dot dot-online" title="Online"></div>
+    </div>
+
+    <div class="member-item">
+      <div class="avatar" style="background:#C5B8E8; width:28px; height:28px; font-size:9px;">SA</div>
+      <span class="member-name">Sasha</span>
+      <div class="dot dot-online" title="Online"></div>
+    </div>
+
+    <div class="member-item">
+      <div class="avatar" style="background:#FFCFB3; width:28px; height:28px; font-size:9px;">AR</div>
+      <span class="member-name" style="font-weight:500;">You</span>
+      <div class="dot dot-online" title="Online"></div>
+    </div>
+
+    <div class="member-section-label" style="margin-top:6px;">Offline — 3</div>
+
+    <div class="member-item" style="opacity:0.5;">
+      <div class="avatar" style="background:#EDE8E3; width:28px; height:28px; font-size:9px; color:#A8978C;">LE</div>
+      <span class="member-name">Lena</span>
+      <div class="dot dot-offline"></div>
+    </div>
+
+    <div class="member-item" style="opacity:0.5;">
+      <div class="avatar" style="background:#EDE8E3; width:28px; height:28px; font-size:9px; color:#A8978C;">PA</div>
+      <span class="member-name">Pasha</span>
+      <div class="dot dot-offline"></div>
+    </div>
+
+    <div class="member-item" style="opacity:0.5;">
+      <div class="avatar" style="background:#EDE8E3; width:28px; height:28px; font-size:9px; color:#A8978C;">TO</div>
+      <span class="member-name">Tonya</span>
+      <div class="dot dot-offline"></div>
+    </div>
+
+    <!-- Voice call widget in panel -->
+    <div style="flex:1;"></div>
+    <div class="voice-in-panel">
+      <div class="voice-panel-title">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6B5B9E" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+        Voice call
+      </div>
+      <div class="voice-member-chips">
+        <div class="voice-chip">
+          <div class="voice-chip-avatar" style="background:#F2B8C6;">MA</div>
+          Masha
+        </div>
+        <div class="voice-chip">
+          <div class="voice-chip-avatar" style="background:#B5CDB5;">DI</div>
+          Dima
+        </div>
+      </div>
+      <button class="join-voice-btn" aria-label="Join the voice call">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+        Join the call
+      </button>
+    </div>
+
+  </aside>
+
+</div>
+</body>
+</html>
