@@ -897,8 +897,8 @@ body {
   opacity: 1;
 }
 
-/* Fade out own message timestamp on hover to cleanly make room for hover buttons */
-.msg-row.own:hover .msg-timestamp {
+/* Fade out message timestamp on hover to cleanly make room for hover buttons */
+.msg-row:hover .msg-timestamp {
   opacity: 0;
 }
 
