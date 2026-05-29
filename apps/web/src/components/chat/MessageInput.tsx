@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Paperclip, Smile, Send, Loader2, X, RefreshCw } from "lucide-react";
 import Button from "../Button.jsx";
 import { getSocket } from "../../lib/socket.js";
+import { useMessageStore } from "../../stores/messageStore.js";
 
 const QUICK_EMOJIS = ["🌸", "🫶", "✨", "👋", "🌙", "🌊", "❤️", "👍"];
 const CHUNK_SIZE = 1024 * 1024; // 1MB
@@ -20,6 +21,8 @@ export default function MessageInput() {
   const [uploads, setUploads] = useState<UploadJob[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const replyingTo = useMessageStore((state) => state.replyingTo);
+  const clearReplyingTo = useMessageStore((state) => state.clearReplyingTo);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -52,9 +55,11 @@ export default function MessageInput() {
     socket.emit("message:send", {
       content: content.trim(),
       type: "text",
+      replyToId: replyingTo?.id || undefined,
     });
 
     setContent("");
+    clearReplyingTo();
     stopTyping();
 
     // Focus input again
@@ -376,7 +381,56 @@ export default function MessageInput() {
         style={{ display: "none" }}
       />
 
-      <div className="input-area">
+      <div className="input-area" style={{ flexDirection: "column", gap: "0" }}>
+        {/* Reply Preview Bar */}
+        {replyingTo && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-3)",
+              padding: "var(--space-2) var(--space-3)",
+              marginBottom: "var(--space-2)",
+              background: "var(--color-bg-subtle)",
+              borderRadius: "10px",
+              fontSize: "var(--text-sm)",
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                borderLeft: "3px solid var(--color-peach)",
+                paddingLeft: "var(--space-2)",
+                flex: 1,
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ fontWeight: 600, color: "var(--color-peach-dark)", fontSize: "var(--text-sm)" }}>
+                {replyingTo.user?.displayName}
+              </div>
+              <div
+                style={{
+                  color: "var(--color-text-secondary)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {replyingTo.content.length > 60 ? replyingTo.content.slice(0, 60) + "…" : replyingTo.content}
+              </div>
+            </div>
+            <Button
+              variant="icon"
+              onClick={clearReplyingTo}
+              style={{ width: "28px", height: "28px", flexShrink: 0 }}
+              aria-label="Cancel reply"
+            >
+              <X size={14} />
+            </Button>
+          </div>
+        )}
+
+        <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--space-3)", width: "100%" }}>
         <div className="input-left">
           {/* Attach File Button */}
           <Button
@@ -457,11 +511,12 @@ export default function MessageInput() {
           variant="primary"
           onClick={handleSend}
           disabled={!content.trim() || uploads.some(u => u.status === "uploading")}
-          style={{ width: "38px", height: "38px", borderRadius: "50%", padding: 0 }}
+          style={{ width: "44px", height: "44px", borderRadius: "50%", padding: 0 }}
           aria-label="Send message"
         >
-          <Send size={16} />
+          <Send size={18} />
         </Button>
+        </div>
       </div>
     </div>
   );

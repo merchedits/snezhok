@@ -16,6 +16,12 @@ import Button from "../components/Button.jsx";
 import { getSocket } from "../lib/socket.js";
 import { Loader2, Plus, Copy, Check } from "lucide-react";
 
+const AVATAR_COLORS = [
+  "#FFCFB3", "#E8A882", "#F2B8C6", "#C5B8E8", "#B5CDB5",
+  "#F5E6A3", "#A8D8EA", "#FFB3B3", "#B8E8C5", "#E8D5B5",
+  "#D4A5A5", "#9FCCB5", "#C9A5E8", "#E8C5A5", "#A5C5E8",
+];
+
 interface InviteCode {
   id: string;
   code: string;
@@ -39,6 +45,7 @@ export default function ChatPage() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const updateDisplayName = useAuthStore((state) => state.updateDisplayName);
+  const updateAvatarColor = useAuthStore((state) => state.updateAvatarColor);
 
   // Invite Admin States
   const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
@@ -374,6 +381,33 @@ export default function ChatPage() {
                 <p style={{ fontSize: "var(--text-xs)", color: "var(--color-text-tertiary)" }}>
                   Registered user
                 </p>
+              </div>
+            </div>
+
+            {/* Avatar Color Picker */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <label className="form-label">Avatar Color</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                {AVATAR_COLORS.map((color) => (
+                  <div
+                    key={color}
+                    onClick={async () => {
+                      await updateAvatarColor(color);
+                      fetchUsers();
+                    }}
+                    style={{
+                      width: "36px",
+                      height: "36px",
+                      borderRadius: "50%",
+                      backgroundColor: color,
+                      cursor: "pointer",
+                      border: user?.avatarColor === color ? "3px solid var(--color-text-primary)" : "3px solid transparent",
+                      transition: "border-color 0.15s ease, transform 0.15s ease",
+                      transform: user?.avatarColor === color ? "scale(1.15)" : "scale(1)",
+                    }}
+                    title={color}
+                  />
+                ))}
               </div>
             </div>
 

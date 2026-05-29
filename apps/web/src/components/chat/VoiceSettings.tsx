@@ -24,31 +24,33 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
       right: '0',
       marginBottom: '8px',
       backgroundColor: 'var(--color-bg-elevated)',
-      border: '1px solid var(--color-border)',
-      borderRadius: 'var(--radius-md)',
-      padding: 'var(--space-4)',
-      width: '280px',
-      boxShadow: 'var(--shadow-lg)',
+      border: '1px solid var(--color-bg-subtle)',
+      borderRadius: '14px',
+      padding: 'var(--space-5)',
+      width: '320px',
+      boxShadow: '0 8px 32px rgba(60,40,25,0.12)',
       zIndex: 100,
       display: 'flex',
       flexDirection: 'column',
-      gap: 'var(--space-3)'
+      gap: 'var(--space-4)'
     }}>
-      <h3 style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--color-text)' }}>Voice Settings</h3>
+      <h3 style={{ margin: 0, fontSize: 'var(--text-base)', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--color-text-primary)' }}>Voice Settings</h3>
       
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <label style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Microphone</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Microphone</label>
         <select
           value={selectedInputDeviceId || ""}
           onChange={(e) => setInputDevice(e.target.value || null)}
           style={{
             width: '100%',
-            padding: '4px 8px',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--color-border)',
+            padding: '10px 12px',
+            borderRadius: '10px',
+            border: '1px solid var(--color-bg-subtle)',
             backgroundColor: 'var(--color-bg-base)',
-            color: 'var(--color-text)',
-            fontSize: 'var(--text-sm)'
+            color: 'var(--color-text-primary)',
+            fontSize: 'var(--text-sm)',
+            fontFamily: 'var(--font-body)',
+            outline: 'none',
           }}
         >
           <option value="">Default Input Device</option>
@@ -60,19 +62,21 @@ export default function VoiceSettings({ onClose }: VoiceSettingsProps) {
         </select>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <label style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)' }}>Output Device</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <label style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Output Device</label>
         <select
           value={selectedOutputDeviceId || ""}
           onChange={(e) => setOutputDevice(e.target.value || null)}
           style={{
             width: '100%',
-            padding: '4px 8px',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--color-border)',
+            padding: '10px 12px',
+            borderRadius: '10px',
+            border: '1px solid var(--color-bg-subtle)',
             backgroundColor: 'var(--color-bg-base)',
-            color: 'var(--color-text)',
-            fontSize: 'var(--text-sm)'
+            color: 'var(--color-text-primary)',
+            fontSize: 'var(--text-sm)',
+            fontFamily: 'var(--font-body)',
+            outline: 'none',
           }}
         >
           <option value="">Default Output Device</option>

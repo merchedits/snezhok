@@ -9,6 +9,7 @@ export function useSocket() {
   const { isAuthenticated, user } = useAuthStore();
   const addMessage = useMessageStore((state) => state.addMessage);
   const updateMessageReactions = useMessageStore((state) => state.updateMessageReactions);
+  const removeMessage = useMessageStore((state) => state.removeMessage);
   const updateUserPresence = usePresenceStore((state) => state.updateUserPresence);
   const setTypingUsers = usePresenceStore((state) => state.setTypingUsers);
   const fetchUsers = usePresenceStore((state) => state.fetchUsers);
@@ -59,6 +60,10 @@ export function useSocket() {
       updateMessageReactions(data.messageId, data.reactions);
     };
 
+    const onMessageDeleted = (data: { messageId: string }) => {
+      removeMessage(data.messageId);
+    };
+
     const onVoiceUpdateParticipants = (list: any[]) => {
       setParticipants(list);
     };
@@ -92,6 +97,7 @@ export function useSocket() {
     socket.on("typing:update", onTypingUpdate);
     socket.on("message:new", onMessageNew);
     socket.on("message:reactions_update", onMessageReactionsUpdate);
+    socket.on("message:deleted", onMessageDeleted);
     socket.on("voice:update-participants", onVoiceUpdateParticipants);
     socket.on("voice:user-joined", onVoiceUserJoined);
     socket.on("voice:user-left", onVoiceUserLeft);
@@ -110,6 +116,7 @@ export function useSocket() {
       socket.off("typing:update", onTypingUpdate);
       socket.off("message:new", onMessageNew);
       socket.off("message:reactions_update", onMessageReactionsUpdate);
+      socket.off("message:deleted", onMessageDeleted);
       socket.off("voice:update-participants", onVoiceUpdateParticipants);
       socket.off("voice:user-joined", onVoiceUserJoined);
       socket.off("voice:user-left", onVoiceUserLeft);

@@ -36,9 +36,13 @@ interface MessageState {
   messages: Message[];
   isLoading: boolean;
   hasMore: boolean;
+  replyingTo: Message | null;
   addMessage: (msg: Message) => void;
   setMessages: (msgs: Message[]) => void;
   updateMessageReactions: (messageId: string, reactions: MessageReaction[]) => void;
+  removeMessage: (messageId: string) => void;
+  setReplyingTo: (msg: Message | null) => void;
+  clearReplyingTo: () => void;
   loadHistory: (beforeTimestamp?: number) => Promise<void>;
   clearMessages: () => void;
 }
@@ -47,6 +51,7 @@ export const useMessageStore = create<MessageState>((set) => ({
   messages: [],
   isLoading: false,
   hasMore: true,
+  replyingTo: null,
 
   addMessage: (msg) =>
     set((state) => {
@@ -63,6 +68,14 @@ export const useMessageStore = create<MessageState>((set) => ({
         m.id === messageId ? { ...m, reactions: nextReactions } : m
       ),
     })),
+
+  removeMessage: (messageId) =>
+    set((state) => ({
+      messages: state.messages.filter((m) => m.id !== messageId),
+    })),
+
+  setReplyingTo: (msg) => set({ replyingTo: msg }),
+  clearReplyingTo: () => set({ replyingTo: null }),
 
   loadHistory: async (beforeTimestamp) => {
     set({ isLoading: true });
@@ -105,5 +118,5 @@ export const useMessageStore = create<MessageState>((set) => ({
     }
   },
 
-  clearMessages: () => set({ messages: [], hasMore: true, isLoading: false }),
+  clearMessages: () => set({ messages: [], hasMore: true, isLoading: false, replyingTo: null }),
 }));

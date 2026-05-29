@@ -155,3 +155,25 @@ export async function removeReaction(messageId: string, userId: string, emoji: s
       )
     );
 }
+
+export async function deleteMessage(messageId: string, userId: string, isAdmin: boolean) {
+  const msg = await db.query.messages.findFirst({
+    where: eq(messages.id, messageId),
+  });
+
+  if (!msg) {
+    throw new Error("Message not found.");
+  }
+
+  // Only message author or admin can delete
+  if (msg.userId !== userId && !isAdmin) {
+    throw new Error("You do not have permission to delete this message.");
+  }
+
+  // Delete associated reactions first
+  await db.delete(reactions).where(eq(reactions.messageId, messageId));
+  // Delete the message
+  await db.delete(messages).where(eq(messages.id, messageId));
+
+  return { id: messageId };
+}

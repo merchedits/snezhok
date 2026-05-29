@@ -36,7 +36,7 @@ export async function userRoutes(fastify: FastifyInstance) {
     "/api/users/me",
     { preHandler: [requireAuth] },
     async (request: any, reply) => {
-      const { displayName } = request.body || {};
+      const { displayName, avatarColor } = request.body || {};
       const trimmedName = displayName?.trim();
 
       if (!trimmedName) {
@@ -44,13 +44,21 @@ export async function userRoutes(fastify: FastifyInstance) {
         return;
       }
 
+      // Validate avatar color if provided (must be a valid hex color)
+      const validColor = avatarColor && /^#[0-9A-Fa-f]{6}$/.test(avatarColor) ? avatarColor : undefined;
+
       try {
+        const updateData: Record<string, string> = { displayName: trimmedName };
+        if (validColor) {
+          updateData.avatarColor = validColor;
+        }
+
         await db
           .update(users)
-          .set({ displayName: trimmedName })
+          .set(updateData)
           .where(eq(users.id, request.user.id));
 
-        return { success: true, displayName: trimmedName };
+        return { success: true, displayName: trimmedName, avatarColor: validColor || undefined };
       } catch (error: any) {
         reply.status(500).send({ error: error.message });
       }

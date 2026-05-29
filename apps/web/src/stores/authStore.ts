@@ -19,6 +19,7 @@ interface AuthState {
   register: (inviteCode: string, username: string, password: string, displayName?: string) => Promise<boolean>;
   logout: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<boolean>;
+  updateAvatarColor: (avatarColor: string) => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -114,6 +115,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       if (res.ok) {
         set((state) => ({
           user: state.user ? { ...state.user, displayName } : null,
+        }));
+        return true;
+      }
+      return false;
+    } catch (err) {
+      return false;
+    }
+  },
+
+  updateAvatarColor: async (avatarColor) => {
+    const currentUser = get().user;
+    if (!currentUser) return false;
+
+    try {
+      const res = await fetch("/api/users/me", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: currentUser.displayName, avatarColor }),
+      });
+
+      if (res.ok) {
+        set((state) => ({
+          user: state.user ? { ...state.user, avatarColor } : null,
         }));
         return true;
       }

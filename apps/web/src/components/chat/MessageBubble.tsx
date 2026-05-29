@@ -1,39 +1,47 @@
-import { useState, useRef } from "react";
+import { useRef } from "react";
 import Avatar from "../Avatar.jsx";
 import FileCard from "../FileCard.jsx";
 import ImagePreview from "../ImagePreview.jsx";
 import Button from "../Button.jsx";
-import { Message } from "../../stores/messageStore.js";
+import { Message, useMessageStore } from "../../stores/messageStore.js";
 import { useAuthStore } from "../../stores/authStore.js";
 import { getSocket } from "../../lib/socket.js";
-import { Smile } from "lucide-react";
+import { Heart, Trash2, Reply } from "lucide-react";
 
 interface MessageBubbleProps {
   message: Message;
   isGroupStart: boolean;
 }
 
-const QUICK_EMOJIS = ["❤️", "👍", "😂", "😮", "😢", "🎉"];
-
 export default function MessageBubble({ message, isGroupStart }: MessageBubbleProps) {
   const { user: currentUser } = useAuthStore();
-  const [showPicker, setShowPicker] = useState(false);
+  const setReplyingTo = useMessageStore((state) => state.setReplyingTo);
+  const messages = useMessageStore((state) => state.messages);
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isOwn = message.userId === currentUser?.id;
+  const isAdmin = currentUser?.isAdmin || false;
 
-  const handleReact = (emoji: string) => {
+  // Heart reaction logic
+  const heartReaction = message.reactions.find((r) => r.emoji === "❤️");
+  const hasHearted = heartReaction?.userIds.includes(currentUser?.id || "") || false;
+
+  const handleHeart = () => {
     const socket = getSocket();
-    const hasReacted = message.reactions
-      .find((r) => r.emoji === emoji)
-      ?.userIds.includes(currentUser?.id || "");
-
     socket.emit("message:react", {
       messageId: message.id,
-      emoji,
-      action: hasReacted ? "remove" : "add",
+      emoji: "❤️",
+      action: hasHearted ? "remove" : "add",
     });
-    setShowPicker(false);
+  };
+
+  const handleDelete = () => {
+    const socket = getSocket();
+    socket.emit("message:delete", { messageId: message.id });
+  };
+
+  const handleReply = () => {
+    setReplyingTo(message);
   };
 
   // Format message time
@@ -82,6 +90,11 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
     });
   };
 
+  // Find replied-to message
+  const replyMessage = message.replyToId
+    ? messages.find((m) => m.id === message.replyToId)
+    : null;
+
   if (message.type === "system") {
     return (
       <div className="sys-msg">
@@ -95,7 +108,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
       className="msg-group"
       style={{
         alignItems: isOwn ? "flex-end" : "flex-start",
-        marginBottom: isGroupStart ? "12px" : "3px",
+        marginBottom: isGroupStart ? "14px" : "4px",
       }}
     >
       {isGroupStart && (
@@ -115,7 +128,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
         className={isOwn ? "msg-row own" : "msg-row"} 
         style={{ position: "relative" }}
         onTouchStart={() => {
-          touchTimerRef.current = setTimeout(() => setShowPicker(true), 500);
+          touchTimerRef.current = setTimeout(() => {}, 500);
         }}
         onTouchEnd={() => {
           if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
@@ -124,21 +137,41 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
         }}
       >
-        {/* Placeholder avatar spacing for group messages to indent them */}
-        {!isGroupStart && (
-          <div style={{ width: "32px", height: "1px", flexShrink: 0 }} />
-        )}
-
         {/* Message bubble content */}
         <div
           className={`bubble ${isOwn ? "own" : "other"}`}
           style={{
             // If it's a file, we want minimal padding or file card styling
-            padding: message.fileId ? "4px" : "10px 14px",
+            padding: message.fileId ? "4px" : undefined,
             background: message.fileId ? "transparent" : undefined,
             border: message.fileId ? "none" : undefined,
           }}
         >
+          {/* Reply preview */}
+          {replyMessage && (
+            <div
+              style={{
+                borderLeft: "3px solid var(--color-peach)",
+                paddingLeft: "10px",
+                marginBottom: "8px",
+                fontSize: "var(--text-sm)",
+                color: "var(--color-text-secondary)",
+                lineHeight: 1.4,
+                maxHeight: "48px",
+                overflow: "hidden",
+              }}
+            >
+              <strong style={{ color: "var(--color-peach-dark)", fontSize: "var(--text-sm)" }}>
+                {replyMessage.user?.displayName}
+              </strong>
+              <div style={{ opacity: 0.8 }}>
+                {replyMessage.content.length > 80
+                  ? replyMessage.content.slice(0, 80) + "…"
+                  : replyMessage.content}
+              </div>
+            </div>
+          )}
+
           {message.fileId && message.file ? (
             message.file.mimeType.startsWith("image/") ? (
               <ImagePreview id={message.file.id} originalName={message.file.originalName} />
@@ -155,79 +188,84 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
           )}
         </div>
 
-        {/* Reaction picker trigger on hover or long-press */}
+        {/* Action buttons on hover: heart, reply, delete */}
         <div
-          className={`reaction-trigger ${showPicker ? "active" : ""}`}
+          className="reaction-trigger"
           style={{
             position: "absolute",
             top: "50%",
             transform: "translateY(-50%)",
-            [isOwn ? "left" : "right"]: "-40px",
+            [isOwn ? "left" : "right"]: "-110px",
             zIndex: 10,
+            display: "flex",
+            gap: "2px",
           }}
         >
+          {/* Heart button */}
           <Button
             variant="icon"
-            style={{ width: "28px", height: "28px", background: "var(--color-bg-elevated)", border: "1px solid var(--color-bg-subtle)" }}
-            onClick={() => setShowPicker(!showPicker)}
-            title="Add reaction"
+            style={{
+              width: "32px",
+              height: "32px",
+              background: "var(--color-bg-elevated)",
+              border: "1px solid var(--color-bg-subtle)",
+              color: hasHearted ? "#E8627A" : undefined,
+            }}
+            onClick={handleHeart}
+            title="Heart"
           >
-            <Smile size={14} />
+            <Heart size={15} fill={hasHearted ? "#E8627A" : "none"} />
           </Button>
 
-          {showPicker && (
-            <div
+          {/* Reply button */}
+          <Button
+            variant="icon"
+            style={{
+              width: "32px",
+              height: "32px",
+              background: "var(--color-bg-elevated)",
+              border: "1px solid var(--color-bg-subtle)",
+            }}
+            onClick={handleReply}
+            title="Reply"
+          >
+            <Reply size={15} />
+          </Button>
+
+          {/* Delete button (only for own messages or admin) */}
+          {(isOwn || isAdmin) && (
+            <Button
+              variant="icon"
               style={{
-                position: "absolute",
-                top: "-36px",
-                [isOwn ? "left" : "right"]: "0px",
-                display: "flex",
+                width: "32px",
+                height: "32px",
                 background: "var(--color-bg-elevated)",
                 border: "1px solid var(--color-bg-subtle)",
-                borderRadius: "20px",
-                padding: "2px 6px",
-                gap: "4px",
-                boxShadow: "0 4px 12px rgba(60,40,25,0.08)",
-                zIndex: 20,
+                color: "var(--color-destructive)",
               }}
+              onClick={handleDelete}
+              title="Delete message"
             >
-              {QUICK_EMOJIS.map((emoji) => (
-                <span
-                  key={emoji}
-                  onClick={() => handleReact(emoji)}
-                  style={{ cursor: "pointer", fontSize: "14px", padding: "2px" }}
-                >
-                  {emoji}
-                </span>
-              ))}
-            </div>
+              <Trash2 size={15} />
+            </Button>
           )}
         </div>
       </div>
 
-      {/* Render reactions row if any exist */}
-      {message.reactions && message.reactions.length > 0 && (
+      {/* Render heart reactions if any exist */}
+      {heartReaction && (
         <div
           className="reaction-row"
           style={{
             alignSelf: isOwn ? "flex-end" : "flex-start",
-            paddingLeft: isOwn ? "0px" : "40px",
-            paddingRight: isOwn ? "40px" : "0px",
           }}
         >
-          {message.reactions.map((react) => {
-            const hasReacted = react.userIds.includes(currentUser?.id || "");
-            return (
-              <div
-                key={react.emoji}
-                className={`reaction ${hasReacted ? "active" : ""}`}
-                onClick={() => handleReact(react.emoji)}
-              >
-                <span>{react.emoji}</span>
-                <span>{react.count}</span>
-              </div>
-            );
-          })}
+          <div
+            className={`reaction ${hasHearted ? "active" : ""}`}
+            onClick={handleHeart}
+          >
+            <span>❤️</span>
+          </div>
         </div>
       )}
     </div>

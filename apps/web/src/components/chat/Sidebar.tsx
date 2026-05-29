@@ -18,7 +18,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
 
       {/* Navigation - Chat (Single room MVP) */}
       <button className="sidebar-btn active" title="Global Chat" aria-label="Global Chat">
-        <MessageCircle size={20} />
+        <MessageCircle size={24} />
       </button>
 
       {/* Theme Toggle Button */}
@@ -28,7 +28,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
         aria-label="Toggle dark theme"
       >
-        {theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
+        {theme === "light" ? <Moon size={24} /> : <Sun size={24} />}
       </button>
 
       <div style={{ flex: 1 }} />
@@ -40,7 +40,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         title="Settings"
         aria-label="Settings"
       >
-        <Settings size={20} />
+        <Settings size={24} />
       </button>
 
       {/* Logout Button */}
@@ -50,7 +50,7 @@ export default function Sidebar({ onOpenSettings }: SidebarProps) {
         title="Logout"
         aria-label="Logout"
       >
-        <LogOut size={20} />
+        <LogOut size={24} />
       </button>
 
       {/* Current User Display Profile */}

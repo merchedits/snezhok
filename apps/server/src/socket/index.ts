@@ -1,7 +1,7 @@
 import { Server, Socket } from "socket.io";
 import { validateSession } from "../services/auth.js";
 import { setOnline, setOffline, setTyping, getTypers } from "../services/presence.js";
-import { createMessage, addReaction, removeReaction, getMessageById } from "../services/messages.js";
+import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage } from "../services/messages.js";
 
 // In-memory set of voice call participants: socketId -> user details
 interface VoiceParticipant {
@@ -136,6 +136,22 @@ export function setupSocketIO(io: Server) {
             reactions: updatedMsg.reactions,
           });
         }
+      } catch (err: any) {
+        socket.emit("error", { message: err.message });
+      }
+    });
+
+    // 3b. Message deletion
+    socket.on("message:delete", async (data: { messageId: string }) => {
+      try {
+        if (!data || !data.messageId) {
+          throw new Error("Invalid delete request.");
+        }
+
+        await deleteMessage(data.messageId, user.id, user.isAdmin);
+
+        // Broadcast deletion to all clients
+        io.emit("message:deleted", { messageId: data.messageId });
       } catch (err: any) {
         socket.emit("error", { message: err.message });
       }
