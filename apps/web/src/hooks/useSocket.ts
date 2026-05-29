@@ -20,6 +20,7 @@ export function useSocket() {
 
   const loadHistory = useMessageStore((state) => state.loadHistory);
   const clearMessages = useMessageStore((state) => state.clearMessages);
+  const fetchConversations = useMessageStore((state) => state.fetchConversations);
 
   const [connected, setConnected] = useState(false);
   const userId = user?.id;
@@ -33,6 +34,7 @@ export function useSocket() {
 
     const socket = getSocket();
     connectSocket();
+    fetchConversations(); // Load DMs on startup
 
     const onConnect = () => {
       setConnected(true);
@@ -89,6 +91,7 @@ export function useSocket() {
     const onReconnect = () => {
       setConnected(true);
       loadHistory(); // Refetch missed messages
+      fetchConversations(); // Refetch conversations list
       fetchUsers(); // Refresh user list
       setTypingUsers([]); // Clear stale typing indicators
       

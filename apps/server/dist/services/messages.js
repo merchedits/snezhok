@@ -2,7 +2,7 @@ import { db } from "../db/index.js";
 import { messages, reactions } from "../db/schema.js";
 import { eq, lt, and, desc } from "drizzle-orm";
 import { nanoid } from "nanoid";
-export async function createMessage({ userId, content, type = "text", fileId = null, replyToId = null, }) {
+export async function createMessage({ userId, conversationId = "global", content, type = "text", fileId = null, replyToId = null, }) {
     if (!content || typeof content !== "string") {
         throw new Error("Message content is required.");
     }
@@ -17,6 +17,7 @@ export async function createMessage({ userId, content, type = "text", fileId = n
     const now = Date.now();
     const newMsg = {
         id: messageId,
+        conversationId,
         userId,
         content: trimmedContent,
         type,
@@ -57,10 +58,10 @@ export async function getMessageById(messageId) {
         reactions: Object.values(groupedReactions),
     };
 }
-export async function getMessages(beforeTimestamp, limit = 50) {
+export async function getMessages(conversationId, beforeTimestamp, limit = 50) {
     const conditions = beforeTimestamp
-        ? lt(messages.createdAt, beforeTimestamp)
-        : undefined;
+        ? and(eq(messages.conversationId, conversationId), lt(messages.createdAt, beforeTimestamp))
+        : eq(messages.conversationId, conversationId);
     const rawMessages = await db.query.messages.findMany({
         where: conditions,
         orderBy: [desc(messages.createdAt)],

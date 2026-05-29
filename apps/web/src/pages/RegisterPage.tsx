@@ -44,8 +44,11 @@ export default function RegisterPage() {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <div>
-          <h1 className="auth-title">🌸 Create Account</h1>
+        <div className="auth-header">
+          <div className="auth-title-row">
+            <span className="auth-logo">🌸</span>
+            <h1 className="auth-title">Create Account</h1>
+          </div>
           <p className="auth-subtitle">
             {isFirstSetup
               ? "Bootstrapping Snezhok. Create the first admin account."
@@ -57,11 +60,11 @@ export default function RegisterPage() {
           <div
             style={{
               padding: "var(--space-2) var(--space-3)",
-              background: "var(--color-peach-soft)",
-              color: "var(--color-text-primary)",
+              background: "rgba(238, 165, 129, 0.12)",
+              color: "rgba(255, 255, 255, 0.8)",
               borderRadius: "8px",
               fontSize: "var(--text-xs)",
-              border: "1px solid var(--color-peach)",
+              border: "1px solid rgba(238, 165, 129, 0.2)",
             }}
           >
             <strong>Note:</strong> You are the first user. This account will automatically become the Administrator.
@@ -128,20 +131,9 @@ export default function RegisterPage() {
           </Button>
         </form>
 
-        <div style={{ textAlign: "center", fontSize: "var(--text-sm)" }}>
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            Already have an account?{" "}
-          </span>
-          <a
-            href="#login"
-            style={{
-              color: "var(--color-text-primary)",
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
-          >
-            Login
-          </a>
+        <div className="auth-footer">
+          <span>Already have an account? </span>
+          <a href="#login">Login</a>
         </div>
       </div>
     </div>

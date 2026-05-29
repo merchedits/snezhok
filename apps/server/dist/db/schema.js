@@ -34,8 +34,32 @@ export const files = sqliteTable("files", {
     sizeBytes: integer("size_bytes").notNull(),
     createdAt: integer("created_at").notNull(),
 });
+export const conversations = sqliteTable("conversations", {
+    id: text("id").primaryKey(),
+    type: text("type").notNull().default("dm"), // 'dm' | 'group' | 'global'
+    createdAt: integer("created_at").notNull(),
+});
+export const conversationMembers = sqliteTable("conversation_members", {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+        .notNull()
+        .references(() => conversations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+        .notNull()
+        .references(() => users.id, { onDelete: "cascade" }),
+    joinedAt: integer("joined_at").notNull(),
+}, (table) => {
+    return {
+        memberIdx: index("conversation_members_user_id_idx").on(table.userId),
+        convIdx: index("conversation_members_conv_id_idx").on(table.conversationId),
+    };
+});
 export const messages = sqliteTable("messages", {
     id: text("id").primaryKey(),
+    conversationId: text("conversation_id")
+        .notNull()
+        .default("global")
+        .references(() => conversations.id, { onDelete: "cascade" }),
     userId: text("user_id")
         .notNull()
         .references(() => users.id, { onDelete: "cascade" }),
@@ -48,6 +72,7 @@ export const messages = sqliteTable("messages", {
 }, (table) => {
     return {
         createdAtIdx: index("messages_created_at_idx").on(table.createdAt),
+        conversationIdIdx: index("messages_conversation_id_idx").on(table.conversationId),
     };
 });
 export const reactions = sqliteTable("reactions", {
@@ -72,6 +97,21 @@ export const usersRelations = relations(users, ({ many }) => ({
     reactions: many(reactions),
     files: many(files),
     sessions: many(sessions),
+    conversationMembers: many(conversationMembers),
+}));
+export const conversationsRelations = relations(conversations, ({ many }) => ({
+    messages: many(messages),
+    members: many(conversationMembers),
+}));
+export const conversationMembersRelations = relations(conversationMembers, ({ one }) => ({
+    conversation: one(conversations, {
+        fields: [conversationMembers.conversationId],
+        references: [conversations.id],
+    }),
+    user: one(users, {
+        fields: [conversationMembers.userId],
+        references: [users.id],
+    }),
 }));
 export const messagesRelations = relations(messages, ({ one, many }) => ({
     user: one(users, {
@@ -81,6 +121,10 @@ export const messagesRelations = relations(messages, ({ one, many }) => ({
     file: one(files, {
         fields: [messages.fileId],
         references: [files.id],
+    }),
+    conversation: one(conversations, {
+        fields: [messages.conversationId],
+        references: [conversations.id],
     }),
     reactions: many(reactions),
 }));

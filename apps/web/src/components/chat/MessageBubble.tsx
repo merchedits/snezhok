@@ -170,13 +170,13 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
       <div 
         className={isOwn ? "msg-row own" : "msg-row"} 
         style={{ position: "relative" }}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchMove}
       >
         {/* Message bubble container */}
         <div
           className={`bubble ${isOwn ? "own" : "other"}`}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onTouchMove={handleTouchMove}
           style={{
             // If it's a file, we want minimal padding or file card styling
             padding: message.fileId ? "4px" : undefined,
@@ -276,7 +276,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
               position: "absolute",
               top: "50%",
               transform: "translateY(-50%)",
-              [isOwn ? "right" : "left"]: "calc(100% + 8px)",
+              right: "calc(100% + 8px)",
               zIndex: 10,
               display: "flex",
               gap: "2px",
@@ -351,15 +351,19 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
         </div>
 
         {/* Timestamp outside bubble */}
-        <div style={{ 
-          fontSize: "11px", 
-          color: "var(--color-text-tertiary)", 
-          display: "flex", 
-          alignItems: "center", 
-          gap: "4px",
-          paddingBottom: "4px",
-          userSelect: "none"
-        }}>
+        <div 
+          className="msg-timestamp"
+          style={{ 
+            fontSize: "11px", 
+            color: "var(--color-text-tertiary)", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "4px",
+            paddingBottom: "4px",
+            userSelect: "none",
+            transition: "opacity 150ms ease"
+          }}
+        >
           {message.editedAt && <span style={{ fontStyle: "italic", opacity: 0.7 }}>(edited)</span>}
           {formatTime(message.createdAt)}
           {isOwn && <span style={{ color: "var(--color-lavender)" }}>✓</span>}

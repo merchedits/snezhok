@@ -1,6 +1,7 @@
 import { validateSession } from "../services/auth.js";
-import { setOnline, setOffline, setTyping } from "../services/presence.js";
+import { setOnline, setOffline, setTyping, getSocketsByUser } from "../services/presence.js";
 import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage, clearAllMessages } from "../services/messages.js";
+import { getUserConversations, checkUserAccessToConversation } from "../services/conversations.js";
 const voiceParticipants = new Map();
 export function setupSocketIO(io) {
     // Authentication middleware
@@ -45,6 +46,23 @@ export function setupSocketIO(io) {
         socket.emit("room:state", {
             voiceParticipants: Array.from(voiceParticipants.values()),
         });
+        // 1b. Join socket rooms for conversations
+        socket.join("room:global");
+        getUserConversations(user.id)
+            .then((convs) => {
+            convs.forEach((c) => {
+                socket.join(`room:${c.id}`);
+            });
+        })
+            .catch((err) => {
+            console.error("Failed to join conversation rooms for user:", user.id, err);
+        });
+        // Listen for joining new rooms dynamically (when DMs are started in real time)
+        socket.on("room:join", (data) => {
+            if (data && data.conversationId) {
+                socket.join(`room:${data.conversationId}`);
+            }
+        });
         // Rate limiting maps for this socket
         const rateLimits = {
             message: 0,
@@ -65,15 +83,44 @@ export function setupSocketIO(io) {
                 if (data.content.length > 4000) {
                     throw new Error("Message exceeds 4000 characters limit.");
                 }
+                const conversationId = data.conversationId || "global";
+                const hasAccess = await checkUserAccessToConversation(user.id, conversationId);
+                if (!hasAccess) {
+                    throw new Error("You do not have permission to post in this conversation.");
+                }
+                // Dynamically ensure all online member sockets are joined to the conversation room
+                if (conversationId !== "global") {
+                    try {
+                        const { db } = await import("../db/index.js");
+                        const { conversationMembers } = await import("../db/schema.js");
+                        const { eq } = await import("drizzle-orm");
+                        const membersList = await db.query.conversationMembers.findMany({
+                            where: eq(conversationMembers.conversationId, conversationId),
+                        });
+                        membersList.forEach((m) => {
+                            const sockets = getSocketsByUser(m.userId);
+                            sockets.forEach((sId) => {
+                                const s = io.sockets.sockets.get(sId);
+                                if (s) {
+                                    s.join(`room:${conversationId}`);
+                                }
+                            });
+                        });
+                    }
+                    catch (joinErr) {
+                        console.error("Failed to dynamically join member sockets to room:", joinErr);
+                    }
+                }
                 const msg = await createMessage({
                     userId: user.id,
+                    conversationId,
                     content: data.content,
                     type: data.type || "text",
                     fileId: data.fileId || null,
                     replyToId: data.replyToId || null,
                 });
-                // Broadcast new message to all clients
-                io.emit("message:new", msg);
+                // Broadcast new message strictly to conversation members room
+                io.to(`room:${conversationId}`).emit("message:new", msg);
             }
             catch (err) {
                 socket.emit("error", { message: err.message });
@@ -94,16 +141,24 @@ export function setupSocketIO(io) {
                 if (data.emoji.length > 10) {
                     throw new Error("Invalid emoji.");
                 }
+                const msg = await getMessageById(data.messageId);
+                if (!msg) {
+                    throw new Error("Message not found.");
+                }
+                const hasAccess = await checkUserAccessToConversation(user.id, msg.conversationId);
+                if (!hasAccess) {
+                    throw new Error("You do not have permission to react in this conversation.");
+                }
                 if (data.action === "add") {
                     await addReaction(data.messageId, user.id, data.emoji);
                 }
                 else {
                     await removeReaction(data.messageId, user.id, data.emoji);
                 }
-                // Get updated message to broadcast reactions update
+                // Get updated message to broadcast reactions update to room
                 const updatedMsg = await getMessageById(data.messageId);
                 if (updatedMsg) {
-                    io.emit("message:reactions_update", {
+                    io.to(`room:${msg.conversationId}`).emit("message:reactions_update", {
                         messageId: data.messageId,
                         reactions: updatedMsg.reactions,
                     });
@@ -119,9 +174,17 @@ export function setupSocketIO(io) {
                 if (!data || !data.messageId) {
                     throw new Error("Invalid delete request.");
                 }
+                const msg = await getMessageById(data.messageId);
+                if (!msg) {
+                    throw new Error("Message not found.");
+                }
+                const hasAccess = await checkUserAccessToConversation(user.id, msg.conversationId);
+                if (!hasAccess) {
+                    throw new Error("You do not have permission to delete messages in this conversation.");
+                }
                 await deleteMessage(data.messageId, user.id, user.isAdmin);
-                // Broadcast deletion to all clients
-                io.emit("message:deleted", { messageId: data.messageId });
+                // Broadcast deletion strictly to conversation members room
+                io.to(`room:${msg.conversationId}`).emit("message:deleted", { messageId: data.messageId });
             }
             catch (err) {
                 socket.emit("error", { message: err.message });
@@ -133,9 +196,17 @@ export function setupSocketIO(io) {
                 if (!data || !data.messageId || !data.content) {
                     throw new Error("Invalid edit request.");
                 }
+                const msg = await getMessageById(data.messageId);
+                if (!msg) {
+                    throw new Error("Message not found.");
+                }
+                const hasAccess = await checkUserAccessToConversation(user.id, msg.conversationId);
+                if (!hasAccess) {
+                    throw new Error("You do not have permission to edit messages in this conversation.");
+                }
                 const updatedMsg = await editMessage(data.messageId, user.id, data.content, user.isAdmin);
-                // Broadcast edit to all clients
-                io.emit("message:edited", { message: updatedMsg });
+                // Broadcast edit strictly to conversation members room
+                io.to(`room:${msg.conversationId}`).emit("message:edited", { message: updatedMsg });
             }
             catch (err) {
                 socket.emit("error", { message: err.message });

@@ -25,6 +25,7 @@ export default function MessageInput() {
   const [isDragging, setIsDragging] = useState(false);
   const replyingTo = useMessageStore((state) => state.replyingTo);
   const clearReplyingTo = useMessageStore((state) => state.clearReplyingTo);
+  const activeConversationId = useMessageStore((state) => state.activeConversationId);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -58,6 +59,7 @@ export default function MessageInput() {
       content: content.trim(),
       type: "text",
       replyToId: replyingTo?.id || undefined,
+      conversationId: activeConversationId,
     });
 
     setContent("");
@@ -225,6 +227,7 @@ export default function MessageInput() {
         content: finalFile.originalName,
         type: "file",
         fileId: finalFile.id,
+        conversationId: activeConversationId,
       });
 
       setUploads((prev) =>

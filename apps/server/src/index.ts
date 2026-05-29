@@ -18,6 +18,7 @@ import { authRoutes } from "./routes/auth.js";
 import { messageRoutes } from "./routes/messages.js";
 import { fileRoutes } from "./routes/files.js";
 import { userRoutes } from "./routes/users.js";
+import { conversationRoutes } from "./routes/conversations.js";
 
 // Socket setup
 import { setupSocketIO } from "./socket/index.js";
@@ -32,6 +33,25 @@ try {
   if (fs.existsSync(migrationsFolder)) {
     migrate(db, { migrationsFolder });
     console.log("Database migrations applied successfully!");
+
+    // Bootstrap global conversation record for existing/default messages
+    try {
+      const { conversations } = await import("./db/schema.js");
+      const { eq } = await import("drizzle-orm");
+      const globalConv = await db.query.conversations.findFirst({
+        where: eq(conversations.id, "global"),
+      });
+      if (!globalConv) {
+        await db.insert(conversations).values({
+          id: "global",
+          type: "global",
+          createdAt: Date.now(),
+        });
+        console.log("🌸 Initialized global chat conversation in DB.");
+      }
+    } catch (bootstrapErr) {
+      console.error("Failed to bootstrap global conversation:", bootstrapErr);
+    }
   } else {
     console.log("Migrations folder not found, skipping startup migration.");
   }
@@ -77,6 +97,7 @@ await app.register(authRoutes);
 await app.register(messageRoutes);
 await app.register(fileRoutes);
 await app.register(userRoutes);
+await app.register(conversationRoutes);
 
 // Serve static frontend assets in production
 const frontendDistPath = path.resolve(__dirname, "../../web/dist");

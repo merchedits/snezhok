@@ -72,10 +72,10 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   setIsMuted: (isMuted) => set({ isMuted }),
   setIsScreensharing: (isScreensharing) => set({ isScreensharing }),
 
-  setSpeaking: (socketId, isSpeaking) =>
+  setSpeaking: (socketIdOrUserId, isSpeaking) =>
     set((state) => ({
       participants: state.participants.map((p) =>
-        p.socketId === socketId ? { ...p, isSpeaking } : p
+        (p.socketId === socketIdOrUserId || p.userId === socketIdOrUserId) ? { ...p, isSpeaking } : p
       ),
     })),
 

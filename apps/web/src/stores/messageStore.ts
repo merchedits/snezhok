@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getSocket } from "../lib/socket.js";
 
 export interface MessageFile {
   id: string;
@@ -16,6 +17,7 @@ export interface MessageReaction {
 export interface Message {
   id: string;
   userId: string;
+  conversationId: string;
   content: string;
   type: "text" | "file" | "system";
   fileId: string | null;
@@ -38,6 +40,11 @@ interface MessageState {
   isLoading: boolean;
   hasMore: boolean;
   replyingTo: Message | null;
+  conversations: any[];
+  activeConversationId: string;
+  setActiveConversationId: (id: string) => void;
+  fetchConversations: () => Promise<void>;
+  startDM: (targetUserId: string) => Promise<string>;
   addMessage: (msg: Message) => void;
   setMessages: (msgs: Message[]) => void;
   updateMessageReactions: (messageId: string, reactions: MessageReaction[]) => void;
@@ -54,9 +61,59 @@ export const useMessageStore = create<MessageState>((set) => ({
   isLoading: false,
   hasMore: true,
   replyingTo: null,
+  conversations: [],
+  activeConversationId: "global",
+
+  setActiveConversationId: (id) => set({ activeConversationId: id, messages: [], hasMore: true, replyingTo: null }),
+
+  fetchConversations: async () => {
+    try {
+      const res = await fetch("/api/conversations");
+      if (res.ok) {
+        const data = await res.json();
+        set({ conversations: data.conversations || [] });
+      }
+    } catch (err) {
+      console.error("Failed to fetch conversations", err);
+    }
+  },
+
+  startDM: async (targetUserId) => {
+    try {
+      const res = await fetch("/api/conversations/dm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetUserId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await useMessageStore.getState().fetchConversations();
+        
+        // Let our socket join this DM conversation room dynamically in real time
+        try {
+          const socket = getSocket();
+          socket.emit("room:join", { conversationId: data.conversationId });
+        } catch (e) {
+          console.warn("Socket not connected yet, skipping instant room join.", e);
+        }
+
+        return data.conversationId;
+      }
+      throw new Error("Failed to start DM");
+    } catch (err) {
+      console.error("Failed to start DM", err);
+      throw err;
+    }
+  },
 
   addMessage: (msg) =>
     set((state) => {
+      // Ignore if message belongs to another conversation
+      if (msg.conversationId !== state.activeConversationId) {
+        // Refresh conversations in background to update DM list
+        state.fetchConversations();
+        return state;
+      }
       // Avoid duplicates
       if (state.messages.some((m) => m.id === msg.id)) return state;
       return { messages: [...state.messages, msg] };
@@ -89,9 +146,11 @@ export const useMessageStore = create<MessageState>((set) => ({
   loadHistory: async (beforeTimestamp) => {
     set({ isLoading: true });
     try {
-      const url = beforeTimestamp
-        ? `/api/messages?before=${beforeTimestamp}&limit=50`
-        : "/api/messages?limit=50";
+      const activeId = useMessageStore.getState().activeConversationId;
+      let url = `/api/messages?conversationId=${activeId}&limit=50`;
+      if (beforeTimestamp) {
+        url += `&before=${beforeTimestamp}`;
+      }
 
       const res = await fetch(url);
       if (res.ok) {
@@ -99,6 +158,10 @@ export const useMessageStore = create<MessageState>((set) => ({
         const fetchedMsgs = data.messages || [];
 
         set((state) => {
+          if (state.activeConversationId !== activeId) {
+            return state;
+          }
+
           if (beforeTimestamp) {
             // Prepend history
             return {
@@ -115,7 +178,7 @@ export const useMessageStore = create<MessageState>((set) => ({
             
             return {
               messages: combined,
-              hasMore: fetchedMsgs.length >= 50 || state.hasMore,
+              hasMore: fetchedMsgs.length >= 50,
             };
           }
         });

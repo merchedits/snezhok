@@ -5,12 +5,18 @@ import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useVoiceStore } from "../../stores/voiceStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
 import { useTranslation } from "../../i18n/index.jsx";
+import { useMessageStore } from "../../stores/messageStore.js";
+import { useAuthStore } from "../../stores/authStore.js";
 
 export default function MemberPanel() {
   const usersList = usePresenceStore((state) => state.usersList);
   const voiceParticipants = useVoiceStore((state) => state.participants);
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
   const { t } = useTranslation();
+
+  const startDM = useMessageStore((state) => state.startDM);
+  const setActiveConversationId = useMessageStore((state) => state.setActiveConversationId);
+  const { user: currentUser } = useAuthStore();
 
   // Helper to check if a user is in a voice call
   const isUserInVoice = (userId: string) => {
@@ -20,6 +26,16 @@ export default function MemberPanel() {
   // Helper to check if a user is speaking in a voice call
   const isUserSpeaking = (userId: string) => {
     return voiceParticipants.find((p) => p.userId === userId)?.isSpeaking || false;
+  };
+
+  const handleStartDM = async (targetUserId: string) => {
+    if (currentUser && targetUserId === currentUser.id) return;
+    try {
+      const convId = await startDM(targetUserId);
+      setActiveConversationId(convId);
+    } catch (err) {
+      console.error("Failed to start DM with user", err);
+    }
   };
 
   // Lists
@@ -52,41 +68,48 @@ export default function MemberPanel() {
             <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
               {t('members.inCallNow')}
             </div>
-            {inCallUsers.map((member) => (
-              <div 
-                key={member.id} 
-                style={{
-                  background: "var(--color-bg-elevated)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "16px",
-                  padding: "12px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  marginBottom: "8px",
-                }}
-              >
-                <Avatar
-                  displayName={member.displayName}
-                  username={member.username}
-                  avatarColor={member.avatarColor}
-                  avatarUrl={member.avatarUrl}
-                  size="sm"
-                  showOnline={true}
-                  isOnline={true}
-                  isSpeaking={isUserSpeaking(member.id)}
-                />
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-                  <span style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {member.displayName}
-                  </span>
-                  <span style={{ fontSize: "12px", color: "var(--color-online)" }}>
-                    {t('voice.inVoiceCall')}
-                  </span>
+            {inCallUsers.map((member) => {
+              const isSelf = currentUser && member.id === currentUser.id;
+              return (
+                <div 
+                  key={member.id} 
+                  onClick={() => !isSelf && handleStartDM(member.id)}
+                  style={{
+                    background: "var(--color-bg-elevated)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "16px",
+                    padding: "12px 16px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    marginBottom: "8px",
+                    cursor: isSelf ? "default" : "pointer",
+                    transition: "background var(--dur-fast) ease, border-color var(--dur-fast) ease",
+                  }}
+                  className={isSelf ? "" : "member-row-clickable"}
+                >
+                  <Avatar
+                    displayName={member.displayName}
+                    username={member.username}
+                    avatarColor={member.avatarColor}
+                    avatarUrl={member.avatarUrl}
+                    size="sm"
+                    showOnline={true}
+                    isOnline={true}
+                    isSpeaking={isUserSpeaking(member.id)}
+                  />
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                    <span style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {member.displayName}
+                    </span>
+                    <span style={{ fontSize: "12px", color: "var(--color-online)" }}>
+                      {t('voice.inVoiceCall')}
+                    </span>
+                  </div>
+                  <Activity size={14} color="var(--color-online)" />
                 </div>
-                <Activity size={14} color="var(--color-online)" />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -96,30 +119,38 @@ export default function MemberPanel() {
             <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
               {t('members.onlineSection')} — {onlineUsersNotInCall.length}
             </div>
-            {onlineUsersNotInCall.map((member) => (
-              <div 
-                key={member.id} 
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "8px 0",
-                }}
-              >
-                <Avatar
-                  displayName={member.displayName}
-                  username={member.username}
-                  avatarColor={member.avatarColor}
-                  avatarUrl={member.avatarUrl}
-                  size="sm"
-                  showOnline={true}
-                  isOnline={true}
-                />
-                <span style={{ fontSize: "14px", color: "var(--color-text-primary)", fontWeight: 500 }}>
-                  {member.displayName}
-                </span>
-              </div>
-            ))}
+            {onlineUsersNotInCall.map((member) => {
+              const isSelf = currentUser && member.id === currentUser.id;
+              return (
+                <div 
+                  key={member.id} 
+                  onClick={() => !isSelf && handleStartDM(member.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "6px 8px",
+                    borderRadius: "12px",
+                    cursor: isSelf ? "default" : "pointer",
+                    transition: "background var(--dur-fast) ease",
+                  }}
+                  className={isSelf ? "" : "member-row-clickable"}
+                >
+                  <Avatar
+                    displayName={member.displayName}
+                    username={member.username}
+                    avatarColor={member.avatarColor}
+                    avatarUrl={member.avatarUrl}
+                    size="sm"
+                    showOnline={true}
+                    isOnline={true}
+                  />
+                  <span style={{ fontSize: "14px", color: "var(--color-text-primary)", fontWeight: 500 }}>
+                    {member.displayName}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -129,31 +160,39 @@ export default function MemberPanel() {
             <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
               {t('members.offlineSection')} — {offlineUsers.length}
             </div>
-            {offlineUsers.map((member) => (
-              <div 
-                key={member.id} 
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "8px 0",
-                  opacity: 0.5,
-                }}
-              >
-                <Avatar
-                  displayName={member.displayName}
-                  username={member.username}
-                  avatarColor={member.avatarColor}
-                  avatarUrl={member.avatarUrl}
-                  size="sm"
-                  showOnline={false}
-                  isOnline={false}
-                />
-                <span style={{ fontSize: "14px", color: "var(--color-text-secondary)", fontWeight: 500 }}>
-                  {member.displayName}
-                </span>
-              </div>
-            ))}
+            {offlineUsers.map((member) => {
+              const isSelf = currentUser && member.id === currentUser.id;
+              return (
+                <div 
+                  key={member.id} 
+                  onClick={() => !isSelf && handleStartDM(member.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "6px 8px",
+                    borderRadius: "12px",
+                    cursor: isSelf ? "default" : "pointer",
+                    transition: "background var(--dur-fast) ease",
+                    opacity: 0.6,
+                  }}
+                  className={isSelf ? "" : "member-row-clickable"}
+                >
+                  <Avatar
+                    displayName={member.displayName}
+                    username={member.username}
+                    avatarColor={member.avatarColor}
+                    avatarUrl={member.avatarUrl}
+                    size="sm"
+                    showOnline={false}
+                    isOnline={false}
+                  />
+                  <span style={{ fontSize: "14px", color: "var(--color-text-secondary)", fontWeight: 500 }}>
+                    {member.displayName}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
 

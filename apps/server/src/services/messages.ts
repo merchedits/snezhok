@@ -5,12 +5,14 @@ import { nanoid } from "nanoid";
 
 export async function createMessage({
   userId,
+  conversationId = "global",
   content,
   type = "text",
   fileId = null,
   replyToId = null,
 }: {
   userId: string;
+  conversationId?: string;
   content: string;
   type?: string;
   fileId?: string | null;
@@ -33,6 +35,7 @@ export async function createMessage({
 
   const newMsg = {
     id: messageId,
+    conversationId,
     userId,
     content: trimmedContent,
     type,
@@ -79,10 +82,10 @@ export async function getMessageById(messageId: string) {
   };
 }
 
-export async function getMessages(beforeTimestamp?: number, limit = 50) {
+export async function getMessages(conversationId: string, beforeTimestamp?: number, limit = 50) {
   const conditions = beforeTimestamp
-    ? lt(messages.createdAt, beforeTimestamp)
-    : undefined;
+    ? and(eq(messages.conversationId, conversationId), lt(messages.createdAt, beforeTimestamp))
+    : eq(messages.conversationId, conversationId);
 
   const rawMessages = await db.query.messages.findMany({
     where: conditions,

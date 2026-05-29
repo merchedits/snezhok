@@ -40,8 +40,11 @@ export default function LoginPage() {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <div>
-          <h1 className="auth-title">🌸 Snezhok</h1>
+        <div className="auth-header">
+          <div className="auth-title-row">
+            <span className="auth-logo">🌸</span>
+            <h1 className="auth-title">Snezhok</h1>
+          </div>
           <p className="auth-subtitle">Welcome back. Join the cozy room.</p>
         </div>
 
@@ -87,20 +90,9 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div style={{ textAlign: "center", fontSize: "var(--text-sm)" }}>
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            New here?{" "}
-          </span>
-          <a
-            href="#register"
-            style={{
-              color: "var(--color-text-primary)",
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
-          >
-            Register with Invite Code
-          </a>
+        <div className="auth-footer">
+          <span>New here? </span>
+          <a href="#register">Register with Invite Code</a>
         </div>
       </div>
     </div>

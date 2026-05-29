@@ -3,10 +3,13 @@ import { create } from "zustand";
 interface UIState {
   theme: "light" | "dark";
   memberPanelOpen: boolean;
+  channelsSidebarOpen: boolean;
   toggleTheme: () => void;
   setTheme: (theme: "light" | "dark") => void;
   setMemberPanelOpen: (open: boolean) => void;
   toggleMemberPanel: () => void;
+  toggleChannelsSidebar: () => void;
+  setChannelsSidebarOpen: (open: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => {
@@ -23,6 +26,7 @@ export const useUIStore = create<UIState>((set) => {
   return {
     theme: initialTheme,
     memberPanelOpen: true, // Desktop default open
+    channelsSidebarOpen: false, // Mobile default closed
     toggleTheme: () => set((state) => {
       const next = state.theme === "light" ? "dark" : "light";
       localStorage.setItem("theme", next);
@@ -36,5 +40,7 @@ export const useUIStore = create<UIState>((set) => {
     }),
     setMemberPanelOpen: (open) => set({ memberPanelOpen: open }),
     toggleMemberPanel: () => set((state) => ({ memberPanelOpen: !state.memberPanelOpen })),
+    toggleChannelsSidebar: () => set((state) => ({ channelsSidebarOpen: !state.channelsSidebarOpen })),
+    setChannelsSidebarOpen: (open) => set({ channelsSidebarOpen: open }),
   };
 });

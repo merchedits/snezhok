@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import Peer from "simple-peer";
 import { getSocket } from "../lib/socket.js";
 import { useVoiceStore, VoiceParticipant } from "../stores/voiceStore.js";
+import { useAuthStore } from "../stores/authStore.js";
 import { playJoinSound, playLeaveSound, playMuteSound, playUnmuteSound, playScreenshareSound } from "../lib/sounds.js";
 
 // Module-level singletons to ensure voice state is shared across all components calling useVoice()
@@ -16,6 +17,7 @@ export function useVoice() {
     isInCall, isMuted, isScreensharing, setIsInCall, setIsMuted, setIsScreensharing, setSpeaking,
     selectedInputDeviceId, selectedOutputDeviceId, volumes, setAvailableDevices 
   } = useVoiceStore();
+  const { user: currentUser } = useAuthStore();
 
   // Handle joining a voice call
   const joinCall = async () => {
@@ -49,7 +51,7 @@ export function useVoice() {
       socket.emit("voice:join");
 
       // Set up speaking detection for local user
-      setupSpeakingDetection(socket.id || "local", stream);
+      setupSpeakingDetection(currentUser?.id || socket.id || "local", stream);
       playJoinSound();
     } catch (err) {
       console.error("Failed to get microphone permissions:", err);
