@@ -16,6 +16,9 @@ COPY . .
 # Build frontend and backend
 RUN npm run build
 
+# Prune dev dependencies so that only compiled production node_modules remain
+RUN npm prune --omit=dev
+
 # Production image
 FROM node:20-slim AS runner
 
@@ -26,8 +29,8 @@ COPY --from=builder /app/package.json /app/package-lock.json ./
 COPY --from=builder /app/apps/server/package.json ./apps/server/
 COPY --from=builder /app/apps/web/package.json ./apps/web/
 
-# Install only production dependencies
-RUN npm config set progress=false && npm ci --omit=dev --no-audit --no-fund
+# Copy the pre-compiled, pruned production dependencies directly
+COPY --from=builder /app/node_modules ./node_modules
 
 # Copy compiled backend and frontend
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
