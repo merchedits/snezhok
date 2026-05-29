@@ -46,7 +46,7 @@ export default function App() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        height: "100vh",
+        height: "100dvh",
         background: "var(--color-bg-base)",
         color: "var(--color-text-primary)",
         fontFamily: "var(--font-display)",
