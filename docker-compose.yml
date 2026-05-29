@@ -13,6 +13,7 @@ services:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3000
+      - DATABASE_URL=file:/app/data/snezhok.db
     volumes:
       # Persist SQLite database and uploaded files securely via named volume
       - snezhok_data:/app/data
