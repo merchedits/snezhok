@@ -49,6 +49,15 @@ try {
         });
         console.log("🌸 Initialized global chat conversation in DB.");
       }
+
+      // Emergency fallback: If the 0002 migration failed but was marked as applied, forcefully add the column.
+      try {
+        const { sqlite } = await import("./db/index.js");
+        sqlite.exec("ALTER TABLE `messages` ADD `conversation_id` text DEFAULT 'global' NOT NULL;");
+        console.log("🌸 Emergency schema fix: manually added conversation_id to messages.");
+      } catch (colErr) {
+        // Ignored if column already exists
+      }
     } catch (bootstrapErr) {
       console.error("Failed to bootstrap global conversation:", bootstrapErr);
     }

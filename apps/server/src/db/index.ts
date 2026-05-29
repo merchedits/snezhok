@@ -15,7 +15,7 @@ if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-const sqlite = new Database(path.resolve(dbPath));
+export const sqlite = new Database(path.resolve(dbPath));
 // Enable WAL mode for performance
 sqlite.pragma("journal_mode = WAL");
 
