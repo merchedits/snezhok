@@ -76,6 +76,11 @@ export function useSocket() {
       clearMessages();
     };
 
+    const onError = (data: { message: string }) => {
+      console.error("Socket error from server:", data.message);
+      alert("Server error: " + data.message);
+    };
+
     const onVoiceUpdateParticipants = (list: any[]) => {
       setParticipants(list);
     };
@@ -113,6 +118,7 @@ export function useSocket() {
     socket.on("message:deleted", onMessageDeleted);
     socket.on("message:edited", onMessageEdited);
     socket.on("message:cleared_all", onMessageClearedAll);
+    socket.on("error", onError);
     socket.on("voice:update-participants", onVoiceUpdateParticipants);
     socket.on("voice:user-joined", onVoiceUserJoined);
     socket.on("voice:user-left", onVoiceUserLeft);
@@ -134,6 +140,7 @@ export function useSocket() {
       socket.off("message:deleted", onMessageDeleted);
       socket.off("message:edited", onMessageEdited);
       socket.off("message:cleared_all", onMessageClearedAll);
+      socket.off("error", onError);
       socket.off("voice:update-participants", onVoiceUpdateParticipants);
       socket.off("voice:user-joined", onVoiceUserJoined);
       socket.off("voice:user-left", onVoiceUserLeft);
