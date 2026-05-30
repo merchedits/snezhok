@@ -16,7 +16,7 @@ export default function VoiceVolumeMenu({ x, y, userId, displayName, socketId, o
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Keep menu within screen boundaries
-  const screenX = Math.max(10, Math.min(x, window.innerWidth - 220));
+  const screenX = Math.max(10, Math.min(x, window.innerWidth - 250));
   const screenY = Math.max(10, Math.min(y, window.innerHeight - 140));
 
   // Read volume percentage from store (default is 100)
@@ -66,7 +66,8 @@ export default function VoiceVolumeMenu({ x, y, userId, displayName, socketId, o
         padding: "16px",
         boxShadow: "var(--shadow-lg)",
         zIndex: 2000,
-        width: "200px",
+        width: "240px",
+        boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
         gap: "10px",

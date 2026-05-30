@@ -4,10 +4,12 @@ import { useVoiceStore } from "../../stores/voiceStore.js";
 import Avatar from "../Avatar.jsx";
 import { useTranslation } from "../../i18n/index.jsx";
 import VoiceVolumeMenu from "./VoiceVolumeMenu.jsx";
+import { useAuthStore } from "../../stores/authStore.js";
 
 export default function InCallCard() {
   const { participants, isInCall } = useVoiceStore();
   const [callDuration, setCallDuration] = useState(0);
+  const { user: currentUser } = useAuthStore();
   const { t } = useTranslation();
   
   const [contextMenu, setContextMenu] = useState<{
@@ -53,6 +55,7 @@ export default function InCallCard() {
     }}>
       <div 
         onContextMenu={(e) => {
+          if (activeParticipant.userId === currentUser?.id) return;
           e.preventDefault();
           setContextMenu({
             x: e.clientX,
@@ -62,7 +65,7 @@ export default function InCallCard() {
             socketId: activeParticipant.socketId
           });
         }}
-        title="Right click to adjust volume"
+        title={activeParticipant.userId === currentUser?.id ? undefined : "Right click to adjust volume"}
         style={{
           background: "var(--color-bg-elevated)",
           borderRadius: "24px",
@@ -74,7 +77,7 @@ export default function InCallCard() {
           minWidth: "160px",
           boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
           position: "relative",
-          cursor: "context-menu"
+          cursor: activeParticipant.userId === currentUser?.id ? "default" : "context-menu"
         }}
       >
         <Avatar 

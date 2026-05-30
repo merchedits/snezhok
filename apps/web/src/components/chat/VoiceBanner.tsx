@@ -7,11 +7,13 @@ import VoiceSettings from "./VoiceSettings.jsx";
 import Avatar from "../Avatar.jsx";
 import { useTranslation } from "../../i18n/index.jsx";
 import VoiceVolumeMenu from "./VoiceVolumeMenu.jsx";
+import { useAuthStore } from "../../stores/authStore.js";
 
 export default function VoiceBanner() {
   const { participants, isInCall, isMuted } = useVoiceStore();
   const { joinCall, leaveCall, toggleMute, startScreenshare, stopScreenshare, isScreensharing } = useVoice();
   const { t } = useTranslation();
+  const { user: currentUser } = useAuthStore();
   const [showSettings, setShowSettings] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [expanded, setExpanded] = useState(false);
@@ -117,6 +119,7 @@ export default function VoiceBanner() {
             <div 
               key={p.socketId} 
               onContextMenu={(e) => {
+                if (p.userId === currentUser?.id) return;
                 e.preventDefault();
                 setContextMenu({
                   x: e.clientX,
@@ -126,8 +129,13 @@ export default function VoiceBanner() {
                   socketId: p.socketId
                 });
               }}
-              title="Right click to adjust volume"
-              style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "context-menu" }}
+              title={p.userId === currentUser?.id ? undefined : "Right click to adjust volume"}
+              style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                gap: "12px", 
+                cursor: p.userId === currentUser?.id ? "default" : "context-menu" 
+              }}
             >
               <div style={{ position: "relative" }}>
                 <Avatar 
