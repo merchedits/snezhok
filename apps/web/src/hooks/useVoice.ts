@@ -452,6 +452,11 @@ export function useVoice() {
     document.body.appendChild(audio);
     audioElementsSingleton.set(socketId, audio);
 
+    // Explicitly play stream (crucial for mobile Chrome/Safari autoplay triggers)
+    audio.play().catch((err) => {
+      console.warn("Failed to play audio element directly, trying to play on user gesture:", err);
+    });
+
     // Set up speaking detection on remote streams (playAudio = false to prevent double playback)
     setupSpeakingDetection(socketId, stream, false);
   };
