@@ -170,3 +170,88 @@ export function playScreenshareSound() {
     console.warn("AudioContext failed to play sound", e);
   }
 }
+
+export function playNotificationSound(presetName: string) {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const t = ctx.currentTime;
+
+    const gainNode = ctx.createGain();
+    gainNode.connect(ctx.destination);
+
+    if (presetName === "sakura_pop") {
+      // Sweet, soft double-tone bell chime: E6 (1318.51Hz) then G#6 (1661.22Hz)
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      osc1.type = "sine";
+      osc2.type = "sine";
+
+      osc1.frequency.setValueAtTime(1318.51, t);
+      osc2.frequency.setValueAtTime(1661.22, t + 0.08);
+
+      gainNode.gain.setValueAtTime(0, t);
+      gainNode.gain.linearRampToValueAtTime(0.12, t + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.005, t + 0.4);
+
+      osc1.connect(gainNode);
+      osc2.connect(gainNode);
+
+      osc1.start(t);
+      osc1.stop(t + 0.4);
+      osc2.start(t + 0.08);
+      osc2.stop(t + 0.4);
+    } else if (presetName === "bubble_tap") {
+      // Watery bubble pop sound
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(400, t);
+      osc.frequency.exponentialRampToValueAtTime(1200, t + 0.08);
+
+      gainNode.gain.setValueAtTime(0, t);
+      gainNode.gain.linearRampToValueAtTime(0.15, t + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.005, t + 0.08);
+
+      osc.connect(gainNode);
+      osc.start(t);
+      osc.stop(t + 0.08);
+    } else if (presetName === "crystal_ring") {
+      // Pure, high-pitched crystal glass chime
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      osc1.type = "sine";
+      osc2.type = "triangle";
+
+      osc1.frequency.setValueAtTime(2000, t);
+      osc2.frequency.setValueAtTime(1000, t);
+
+      gainNode.gain.setValueAtTime(0, t);
+      gainNode.gain.linearRampToValueAtTime(0.06, t + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+
+      osc1.connect(gainNode);
+      osc2.connect(gainNode);
+
+      osc1.start(t);
+      osc1.stop(t + 0.6);
+      osc2.start(t);
+      osc2.stop(t + 0.6);
+    } else if (presetName === "digital_beep") {
+      // Low-key blip/beep
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, t);
+
+      gainNode.gain.setValueAtTime(0, t);
+      gainNode.gain.linearRampToValueAtTime(0.1, t + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.005, t + 0.12);
+
+      osc.connect(gainNode);
+      osc.start(t);
+      osc.stop(t + 0.12);
+    }
+  } catch (e) {
+    console.warn("AudioContext failed to play sound", e);
+  }
+}

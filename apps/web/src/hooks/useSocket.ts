@@ -4,6 +4,8 @@ import { useAuthStore } from "../stores/authStore.js";
 import { useMessageStore } from "../stores/messageStore.js";
 import { usePresenceStore } from "../stores/presenceStore.js";
 import { useVoiceStore } from "../stores/voiceStore.js";
+import { useUIStore } from "../stores/uiStore.js";
+import { playNotificationSound } from "../lib/sounds.js";
 
 export function useSocket() {
   const { isAuthenticated, user } = useAuthStore();
@@ -65,6 +67,35 @@ export function useSocket() {
 
     const onMessageNew = (msg: any) => {
       addMessage(msg);
+
+      // Play sound and trigger notification for other users' messages
+      if (msg.userId !== userId) {
+        const { notificationsMuted, notificationSound, desktopNotificationsEnabled } = useUIStore.getState();
+
+        // 1. Play sound if not muted
+        if (!notificationsMuted && notificationSound !== "none") {
+          playNotificationSound(notificationSound);
+        }
+
+        // 2. Trigger browser desktop notification if tab is in the background or out of focus
+        if (desktopNotificationsEnabled && (document.hidden || !document.hasFocus())) {
+          try {
+            const notification = new Notification(`🌸 ${msg.user?.displayName || "Someone"}`, {
+              body: msg.type === "file" ? "📁 Sent an attachment" : msg.content,
+              tag: msg.conversationId || "global",
+            });
+
+            notification.onclick = () => {
+              window.focus();
+              if (msg.conversationId) {
+                useMessageStore.getState().setActiveConversationId(msg.conversationId);
+              }
+            };
+          } catch (err) {
+            console.error("Failed to display desktop notification", err);
+          }
+        }
+      }
     };
 
     const onMessageReactionsUpdate = (data: { messageId: string; reactions: any[] }) => {

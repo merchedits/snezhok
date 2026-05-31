@@ -18,6 +18,7 @@ import Input from "../components/Input.jsx";
 import Button from "../components/Button.jsx";
 import { getSocket } from "../lib/socket.js";
 import { Loader2, Plus, Copy, Check, Upload } from "lucide-react";
+import { playNotificationSound } from "../lib/sounds.js";
 
 const AVATAR_COLORS = [
   "#FFCFB3", "#E8A882", "#F2B8C6", "#C5B8E8", "#B5CDB5",
@@ -41,11 +42,20 @@ export default function ChatPage() {
   const memberPanelOpen = useUIStore((state) => state.memberPanelOpen);
   const { isInCall, isScreensharing } = useVoiceStore();
   const { t, language, setLanguage } = useTranslation();
-  const { setTheme, theme } = useUIStore();
+  const { 
+    setTheme, 
+    theme, 
+    notificationsMuted, 
+    notificationSound, 
+    desktopNotificationsEnabled, 
+    setNotificationsMuted, 
+    setNotificationSound, 
+    setDesktopNotificationsEnabled 
+  } = useUIStore();
   const { logout } = useAuthStore();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<"profile" | "admin">("profile");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"profile" | "notifications" | "admin">("profile");
 
   // Profile Edit States
   const [displayName, setDisplayName] = useState(user?.displayName || "");
@@ -453,6 +463,22 @@ export default function ChatPage() {
           >
             {t('settings.myProfile')}
           </button>
+          <button
+            onClick={() => setActiveSettingsTab("notifications")}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "var(--text-base)",
+              fontWeight: 600,
+              fontFamily: "var(--font-display)",
+              color: activeSettingsTab === "notifications" ? "var(--color-text-primary)" : "var(--color-text-tertiary)",
+              borderBottom: activeSettingsTab === "notifications" ? "2px solid var(--color-peach)" : "none",
+              paddingBottom: "4px",
+            }}
+          >
+            {language === "ru" ? "Уведомления 🔔" : "Notifications 🔔"}
+          </button>
           {user?.isAdmin && (
             <button
               onClick={() => setActiveSettingsTab("admin")}
@@ -473,7 +499,106 @@ export default function ChatPage() {
           )}
         </div>
 
-        {activeSettingsTab === "profile" ? (
+        {activeSettingsTab === "notifications" ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            {/* 1. Mute toggle */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px", background: "var(--color-bg-subtle)", borderRadius: "12px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontWeight: 600, fontSize: "14px", color: "var(--color-text-primary)" }}>
+                  {language === "ru" ? "Без звука" : "Mute Sounds"}
+                </span>
+                <span style={{ fontSize: "12px", color: "var(--color-text-tertiary)" }}>
+                  {language === "ru" ? "Выключить все звуковые уведомления" : "Silence all notification chimes"}
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={notificationsMuted}
+                onChange={(e) => setNotificationsMuted(e.target.checked)}
+                style={{
+                  width: "18px",
+                  height: "18px",
+                  accentColor: "var(--color-peach)",
+                  cursor: "pointer",
+                }}
+              />
+            </div>
+
+            {/* 2. Sound Picker */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <label className="form-label" style={{ fontWeight: 600 }}>
+                {language === "ru" ? "Звук уведомления" : "Notification Sound"}
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                {[
+                  { id: "sakura_pop", label: language === "ru" ? "🌸 Сакура" : "🌸 Sakura Pop" },
+                  { id: "bubble_tap", label: language === "ru" ? "🫧 Пузырёк" : "🫧 Bubble Tap" },
+                  { id: "crystal_ring", label: language === "ru" ? "🔮 Хрусталь" : "🔮 Crystal Ring" },
+                  { id: "digital_beep", label: language === "ru" ? "📟 Цифровой" : "📟 Digital Beep" },
+                ].map((soundOpt) => (
+                  <button
+                    key={soundOpt.id}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setNotificationSound(soundOpt.id as any);
+                      // Play preview
+                      playNotificationSound(soundOpt.id);
+                    }}
+                    style={{
+                      padding: "10px 12px",
+                      background: notificationSound === soundOpt.id ? "var(--color-lavender-soft)" : "var(--color-bg-surface)",
+                      border: notificationSound === soundOpt.id ? "2px solid var(--color-lavender)" : "1px solid var(--color-border)",
+                      borderRadius: "12px",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      color: "var(--color-text-primary)",
+                      fontWeight: notificationSound === soundOpt.id ? 600 : 500,
+                      transition: "all 0.15s ease",
+                      textAlign: "left",
+                    }}
+                  >
+                    {soundOpt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. Desktop notifications toggle */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "16px", background: "var(--color-bg-surface)", border: "1px solid var(--color-border)", borderRadius: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                <span style={{ fontWeight: 600, fontSize: "14px", color: "var(--color-text-primary)" }}>
+                  {language === "ru" ? "Уведомления на рабочем столе" : "Browser Notifications"}
+                </span>
+                <button
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    await setDesktopNotificationsEnabled(!desktopNotificationsEnabled);
+                  }}
+                  style={{
+                    padding: "6px 12px",
+                    background: desktopNotificationsEnabled ? "var(--color-sage)" : "var(--color-peach)",
+                    border: "none",
+                    borderRadius: "8px",
+                    color: "#fff",
+                    fontWeight: 600,
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    transition: "background 0.15s ease",
+                  }}
+                >
+                  {desktopNotificationsEnabled 
+                    ? (language === "ru" ? "Включено" : "Enabled") 
+                    : (language === "ru" ? "Включить" : "Enable")}
+                </button>
+              </div>
+              <p style={{ fontSize: "12px", color: "var(--color-text-tertiary)", margin: 0, lineHeight: 1.4 }}>
+                {language === "ru"
+                  ? "Получайте всплывающие уведомления, когда Snezhok открыт во вкладке, но вы находитесь в другой программе."
+                  : "Receive popup notifications when Snezhok is in a background tab or you're using another app."}
+              </p>
+            </div>
+          </div>
+        ) : activeSettingsTab === "profile" ? (
           <form onSubmit={handleSaveProfile} className="auth-form">
             <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px" }}>
               <div
