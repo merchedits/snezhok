@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Avatar from "../Avatar.jsx";
 import FileCard from "../FileCard.jsx";
 import ImagePreview from "../ImagePreview.jsx";
@@ -18,7 +18,6 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
   const { user: currentUser } = useAuthStore();
   const setReplyingTo = useMessageStore((state) => state.setReplyingTo);
   const messages = useMessageStore((state) => state.messages);
-  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -118,30 +117,18 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
     );
   }
 
-  // Long press mobile touch event handlers
-  const handleTouchStart = () => {
-    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
-    touchTimerRef.current = setTimeout(() => {
-      setShowMobileMenu(true);
-      if (navigator.vibrate) {
-        try {
-          navigator.vibrate(40);
-        } catch (e) {}
-      }
-    }, 500);
-  };
-
-  const handleTouchEnd = () => {
-    if (touchTimerRef.current) {
-      clearTimeout(touchTimerRef.current);
-      touchTimerRef.current = null;
+  // Tap handler for mobile interactions
+  const handleBubbleClick = (e: React.MouseEvent) => {
+    // If they click a link or other interactive node inside the bubble, do not intercept
+    const target = e.target as HTMLElement;
+    if (target.tagName === "A" || target.closest("a") || target.closest("button") || target.closest(".reaction")) {
+      return;
     }
-  };
 
-  const handleTouchMove = () => {
-    if (touchTimerRef.current) {
-      clearTimeout(touchTimerRef.current);
-      touchTimerRef.current = null;
+    // Only trigger mobile actions modal on mobile viewport sizes (<= 768px)
+    if (window.innerWidth <= 768) {
+      e.preventDefault();
+      setShowMobileMenu(true);
     }
   };
 
@@ -173,9 +160,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
         {/* Message bubble container */}
         <div
           className={`bubble ${isOwn ? "own" : "other"}`}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-          onTouchMove={handleTouchMove}
+          onClick={handleBubbleClick}
           style={{
             // If it's a file, we want minimal padding or file card styling
             padding: message.fileId ? "4px" : undefined,

@@ -12,7 +12,7 @@ import { useAuthStore } from "../../stores/authStore.js";
 export default function VoiceBanner() {
   const { participants, isInCall, isMuted } = useVoiceStore();
   const { joinCall, leaveCall, toggleMute, startScreenshare, stopScreenshare, isScreensharing } = useVoice();
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const { user: currentUser } = useAuthStore();
   const [showSettings, setShowSettings] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
@@ -225,12 +225,12 @@ export default function VoiceBanner() {
             display: "flex",
             flexDirection: "row",
             flexWrap: "wrap",
-            gap: "12px",
-            justifyContent: "flex-start",
+            gap: "20px",
+            justifyContent: "center",
           }}
         >
           {participants.map((p) => (
-            <div
+            <div 
               key={p.socketId}
               onContextMenu={(e) => {
                 if (p.userId === currentUser?.id) return;
@@ -245,32 +245,44 @@ export default function VoiceBanner() {
               }}
               title={p.userId === currentUser?.id ? undefined : "Right click to adjust volume"}
               style={{
+                background: "var(--color-bg-elevated)",
+                borderRadius: "24px",
+                padding: "24px 32px",
                 display: "flex",
+                flexDirection: "column",
                 alignItems: "center",
-                gap: "10px",
-                background: "var(--color-bg-subtle)",
-                padding: "8px 16px",
-                borderRadius: "16px",
-                border: p.isSpeaking ? "1.5px solid var(--color-online)" : "1.5px solid var(--color-border)",
+                gap: "12px",
+                minWidth: "160px",
+                boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
+                position: "relative",
                 cursor: p.userId === currentUser?.id ? "default" : "context-menu",
-                transition: "all 0.15s ease",
+                border: p.isSpeaking ? "2px solid var(--color-online)" : "2px solid transparent",
+                transition: "border 0.2s ease"
               }}
             >
-              <Avatar
-                displayName={p.displayName}
-                username={p.displayName}
-                avatarColor={p.avatarColor}
+              <Avatar 
+                displayName={p.displayName} 
+                username={p.displayName} 
+                avatarColor={p.avatarColor} 
                 avatarUrl={p.avatarUrl || undefined}
-                size="sm"
+                size="lg" 
                 isSpeaking={p.isSpeaking}
               />
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--color-text-primary)" }}>
+              
+              <div style={{ position: "absolute", top: "32px", right: "24px" }}>
+                <Activity size={16} color={p.isSpeaking ? "var(--color-online)" : "var(--color-text-tertiary)"} />
+              </div>
+
+              <div style={{ textAlign: "center" }}>
+                <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "4px" }}>
                   {p.displayName}
-                </span>
-                <span style={{ fontSize: "11px", color: p.isSpeaking ? "var(--color-online)" : "var(--color-text-tertiary)" }}>
-                  {p.isSpeaking ? (language === "ru" ? "Говорит..." : "Speaking...") : (p.userId === currentUser?.id ? (language === "ru" ? "Вы" : "You") : t('voice.connected'))}
-                </span>
+                </h3>
+                <p style={{ fontSize: "13px", color: p.isSpeaking ? "var(--color-online)" : "var(--color-text-secondary)", marginBottom: "4px" }}>
+                  {t('voice.inVoiceCall')}
+                </p>
+                <p style={{ fontSize: "13px", color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
+                  {formatDuration(callDuration)}
+                </p>
               </div>
             </div>
           ))}

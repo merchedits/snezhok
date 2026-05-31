@@ -46,6 +46,17 @@ export function useVoice() {
       return;
     }
     try {
+      // Initialize/resume shared AudioContext directly inside user click gesture context
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        if (!sharedAudioContext) {
+          sharedAudioContext = new AudioContextClass();
+        }
+        if (sharedAudioContext.state === "suspended") {
+          await sharedAudioContext.resume().catch(console.error);
+        }
+      }
+
       const audioConstraints: MediaTrackConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
@@ -72,7 +83,7 @@ export function useVoice() {
       setIsInCall(true);
       socket.emit("voice:join");
 
-      // Set up speaking detection for local user
+      // Set up speaking detection for local user (do not connect to destination to prevent local feedback/echo)
       setupSpeakingDetection(currentUser?.id || socket.id || "local", stream, false);
       playJoinSound();
     } catch (err) {
@@ -436,14 +447,7 @@ export function useVoice() {
     audio.srcObject = stream;
     audio.autoplay = true;
     audio.setAttribute("playsinline", "true");
-    audio.muted = false; // CRITICAL: DO NOT MUTE! Let HTML5 audio play directly to bypass iOS/Android autoplay policy.
-
-    // Set initial volume from saved user volume preference
-    const participant = useVoiceStore.getState().participants.find(p => p.socketId === socketId);
-    const userId = participant?.userId;
-    const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
-    const userVolumePercent = userId ? (saved[userId] ?? 100) : 100;
-    audio.volume = userVolumePercent / 100;
+    audio.muted = true; // Mute to prevent double playback; AudioContext GainNode handles actual output and volume slider!
 
     if (selectedOutputDeviceId && typeof (audio as any).setSinkId === "function") {
       (audio as any).setSinkId(selectedOutputDeviceId).catch(console.error);
@@ -452,25 +456,18 @@ export function useVoice() {
     document.body.appendChild(audio);
     audioElementsSingleton.set(socketId, audio);
 
-    // Explicitly play stream (crucial for mobile Chrome/Safari autoplay triggers)
+    // Explicitly play stream (crucial for mobile Chrome/Safari autoplay triggers to start incoming track flow)
     audio.play().catch((err) => {
       console.warn("Failed to play audio element directly, trying to play on user gesture:", err);
     });
 
-    // Set up speaking detection on remote streams (playAudio = false to prevent double playback)
-    setupSpeakingDetection(socketId, stream, false);
+    // Set up speaking detection on remote streams (playAudio = true to route Web Audio API output to destination)
+    setupSpeakingDetection(socketId, stream, true);
   };
 
-  // Sync volumes to AudioElements and GainNodes when they change
+  // Sync volumes to GainNodes when they change
   useEffect(() => {
     Object.entries(volumes).forEach(([socketId, volumePercent]) => {
-      // 1. Sync HTML5 audio element volume (which handles actual playback)
-      const audio = audioElementsSingleton.get(socketId);
-      if (audio) {
-        audio.volume = volumePercent / 100;
-      }
-
-      // 2. Keep GainNode in sync (which handles speaking analysis)
       const gainNode = gainNodesSingleton.get(socketId);
       if (gainNode) {
         // Smoothly transition volume to avoid clicks/pops
