@@ -447,7 +447,14 @@ export function useVoice() {
     audio.srcObject = stream;
     audio.autoplay = true;
     audio.setAttribute("playsinline", "true");
-    audio.muted = true; // Mute to prevent double playback; AudioContext GainNode handles actual output and volume slider!
+    audio.muted = false; // CRITICAL: Keep unmuted so mobile browsers process audio tracks.
+
+    // Set initial volume from saved user volume preference
+    const participant = useVoiceStore.getState().participants.find(p => p.socketId === socketId);
+    const userId = participant?.userId;
+    const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
+    const userVolumePercent = userId ? (saved[userId] ?? 100) : 100;
+    audio.volume = userVolumePercent / 100;
 
     if (selectedOutputDeviceId && typeof (audio as any).setSinkId === "function") {
       (audio as any).setSinkId(selectedOutputDeviceId).catch(console.error);
@@ -456,21 +463,27 @@ export function useVoice() {
     document.body.appendChild(audio);
     audioElementsSingleton.set(socketId, audio);
 
-    // Explicitly play stream (crucial for mobile Chrome/Safari autoplay triggers to start incoming track flow)
+    // Explicitly play stream (crucial for mobile Chrome/Safari autoplay triggers)
     audio.play().catch((err) => {
       console.warn("Failed to play audio element directly, trying to play on user gesture:", err);
     });
 
-    // Set up speaking detection on remote streams (playAudio = true to route Web Audio API output to destination)
-    setupSpeakingDetection(socketId, stream, true);
+    // Set up speaking detection on remote streams (playAudio = false to prevent double-playback echo)
+    setupSpeakingDetection(socketId, stream, false);
   };
 
-  // Sync volumes to GainNodes when they change
+  // Sync volumes to both HTML5 AudioElements and Analyser GainNodes when they change
   useEffect(() => {
     Object.entries(volumes).forEach(([socketId, volumePercent]) => {
+      // 1. Sync actual audio playback volume on HTML5 audio element
+      const audio = audioElementsSingleton.get(socketId);
+      if (audio) {
+        audio.volume = volumePercent / 100;
+      }
+
+      // 2. Keep GainNode in sync for speaking analysis level
       const gainNode = gainNodesSingleton.get(socketId);
       if (gainNode) {
-        // Smoothly transition volume to avoid clicks/pops
         gainNode.gain.setTargetAtTime(volumePercent / 100, gainNode.context.currentTime, 0.01);
       }
     });

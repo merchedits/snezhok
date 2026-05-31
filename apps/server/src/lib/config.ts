@@ -51,15 +51,21 @@ export function isAllowedOrigin(origin?: string) {
 }
 
 export function getIceServers() {
+  const servers: Array<{ urls: string; username?: string; credential?: string }> = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
+  ];
+
   if (config.USE_TURN && config.TURN_URL) {
-    return [
-      {
-        urls: config.TURN_URL,
-        username: config.TURN_USERNAME,
-        credential: config.TURN_CREDENTIAL,
-      },
-    ];
+    servers.push({
+      urls: config.TURN_URL,
+      username: config.TURN_USERNAME,
+      credential: config.TURN_CREDENTIAL,
+    });
   }
 
-  return [];
+  return servers;
 }
