@@ -9,7 +9,7 @@ import { Server as SocketIOServer } from "socket.io";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { config } from "./lib/config.js";
+import { config, getIceServers, isAllowedOrigin } from "./lib/config.js";
 import { db } from "./db/index.js";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
@@ -19,6 +19,7 @@ import { messageRoutes } from "./routes/messages.js";
 import { fileRoutes } from "./routes/files.js";
 import { userRoutes } from "./routes/users.js";
 import { conversationRoutes } from "./routes/conversations.js";
+import { requireAuth } from "./lib/middleware.js";
 
 // Socket setup
 import { setupSocketIO } from "./socket/index.js";
@@ -82,7 +83,20 @@ const app = fastify({
 
 // Configure plugins
 await app.register(helmet, {
-  contentSecurityPolicy: false, // Don't break React app for now
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      fontSrc: ["'self'", "data:"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+      mediaSrc: ["'self'", "blob:"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      frameAncestors: ["'none'"],
+    },
+  },
 });
 
 await app.register(rateLimit, {
@@ -91,11 +105,15 @@ await app.register(rateLimit, {
 });
 
 await app.register(cors, {
-  origin: config.NODE_ENV === "development" ? "http://localhost:5173" : true,
+  origin: (origin, callback) => {
+    callback(null, isAllowedOrigin(origin));
+  },
   credentials: true,
 });
 
-await app.register(cookie);
+await app.register(cookie, {
+  secret: config.SESSION_SECRET,
+});
 
 await app.register(multipart, {
   limits: {
@@ -109,6 +127,10 @@ await app.register(messageRoutes);
 await app.register(fileRoutes);
 await app.register(userRoutes);
 await app.register(conversationRoutes);
+
+app.get("/api/rtc-config", { preHandler: [requireAuth] }, async () => {
+  return { iceServers: getIceServers() };
+});
 
 // Serve static frontend assets in production
 const frontendDistPath = path.resolve(__dirname, "../../web/dist");
@@ -140,7 +162,9 @@ const start = async () => {
     // Attach Socket.io to Fastify's underlying HTTP server
     const io = new SocketIOServer(app.server, {
       cors: {
-        origin: config.NODE_ENV === "development" ? "http://localhost:5173" : true,
+        origin: (origin, callback) => {
+          callback(null, isAllowedOrigin(origin));
+        },
         credentials: true,
       },
     });

@@ -22,7 +22,6 @@ export default function RegisterPage() {
           const data = await res.json();
           if (data.isFirst) {
             setIsFirstSetup(true);
-            setInviteCode("COZY_SNEZHOK"); // Fill bootstrap code automatically for convenience
           }
         }
       } catch (err) {
@@ -89,10 +88,10 @@ export default function RegisterPage() {
         <form className="auth-form" onSubmit={handleSubmit}>
           <Input
             label="Invite Code"
-            placeholder={isFirstSetup ? "COZY_SNEZHOK" : "Enter invite code..."}
+            placeholder={isFirstSetup ? "Enter bootstrap invite code..." : "Enter invite code..."}
             value={inviteCode}
             onChange={(e) => setInviteCode(e.target.value)}
-            disabled={loading || isFirstSetup} // Autofilled and disabled if first setup
+            disabled={loading}
             required
           />
 

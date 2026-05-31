@@ -11,6 +11,14 @@ export async function getOrCreateDM(userAId: string, userBId: string) {
     throw new Error("Cannot start a private conversation with yourself.");
   }
 
+  const targetUser = await db.query.users.findFirst({
+    where: eq(users.id, userBId),
+    columns: { id: true },
+  });
+  if (!targetUser) {
+    throw new Error("Target user does not exist.");
+  }
+
   // 1. Fetch conversations User A is a member of
   const aMemberships = await db.query.conversationMembers.findMany({
     where: eq(conversationMembers.userId, userAId),

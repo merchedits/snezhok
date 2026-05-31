@@ -1,8 +1,10 @@
 import { Server, Socket } from "socket.io";
 import { validateSession } from "../services/auth.js";
-import { setOnline, setOffline, setTyping, getTypers, getSocketsByUser } from "../services/presence.js";
+import { setOnline, setOffline, setTyping, getSocketsByUser, getOnlineUsers } from "../services/presence.js";
 import { createMessage, addReaction, removeReaction, getMessageById, deleteMessage, editMessage, clearAllMessages } from "../services/messages.js";
 import { getUserConversations, checkUserAccessToConversation } from "../services/conversations.js";
+import { resolveSessionCookie } from "../lib/session.js";
+import { getFileMetadata } from "../services/files.js";
 
 // In-memory set of voice call participants: socketId -> user details
 interface VoiceParticipant {
@@ -32,7 +34,7 @@ export function setupSocketIO(io: Server) {
         })
       );
 
-      const sessionId = parsedCookies["sessionId"];
+      const sessionId = resolveSessionCookie(parsedCookies["sessionId"]);
       if (!sessionId) {
         return next(new Error("Authentication error: No sessionId cookie"));
       }
@@ -66,6 +68,7 @@ export function setupSocketIO(io: Server) {
     // Send the current list of online users and active voice participants to the new socket
     socket.emit("room:state", {
       voiceParticipants: Array.from(voiceParticipants.values()),
+      onlineUserIds: getOnlineUsers(),
     });
 
     // 1b. Join socket rooms for conversations
@@ -81,9 +84,16 @@ export function setupSocketIO(io: Server) {
       });
 
     // Listen for joining new rooms dynamically (when DMs are started in real time)
-    socket.on("room:join", (data: { conversationId: string }) => {
-      if (data && data.conversationId) {
+    socket.on("room:join", async (data: { conversationId: string }) => {
+      try {
+        if (!data?.conversationId) return;
+        const hasAccess = await checkUserAccessToConversation(user.id, data.conversationId);
+        if (!hasAccess) {
+          throw new Error("You do not have permission to join this conversation.");
+        }
         socket.join(`room:${data.conversationId}`);
+      } catch (err: any) {
+        socket.emit("error", { message: err.message });
       }
     });
 
@@ -117,6 +127,28 @@ export function setupSocketIO(io: Server) {
           throw new Error("You do not have permission to post in this conversation.");
         }
 
+        const messageType = data.type || "text";
+        if (!["text", "file"].includes(messageType)) {
+          throw new Error("Invalid message type.");
+        }
+
+        if (messageType === "file") {
+          if (!data.fileId) {
+            throw new Error("File messages require a fileId.");
+          }
+          const file = await getFileMetadata(data.fileId);
+          if (!file || file.userId !== user.id) {
+            throw new Error("File not found or unauthorized.");
+          }
+        }
+
+        if (data.replyToId) {
+          const replyTo = await getMessageById(data.replyToId);
+          if (!replyTo || replyTo.conversationId !== conversationId) {
+            throw new Error("Reply target is not in this conversation.");
+          }
+        }
+
         // Dynamically ensure all online member sockets are joined to the conversation room
         if (conversationId !== "global") {
           try {
@@ -144,7 +176,7 @@ export function setupSocketIO(io: Server) {
           userId: user.id,
           conversationId,
           content: data.content,
-          type: data.type || "text",
+          type: messageType,
           fileId: data.fileId || null,
           replyToId: data.replyToId || null,
         });
@@ -269,18 +301,22 @@ export function setupSocketIO(io: Server) {
     });
 
     // 4. Typing indicators
-    socket.on("typing:start", () => {
+    socket.on("typing:start", async (data?: { conversationId?: string }) => {
       const now = Date.now();
       if (now - rateLimits.typing < 500) return;
       rateLimits.typing = now;
 
-      const typers = setTyping("global", user.id, true);
-      socket.broadcast.emit("typing:update", { typers });
+      const conversationId = data?.conversationId || "global";
+      if (!(await checkUserAccessToConversation(user.id, conversationId))) return;
+      const typers = setTyping(conversationId, user.id, true);
+      socket.to(`room:${conversationId}`).emit("typing:update", { conversationId, typers });
     });
 
-    socket.on("typing:stop", () => {
-      const typers = setTyping("global", user.id, false);
-      socket.broadcast.emit("typing:update", { typers });
+    socket.on("typing:stop", async (data?: { conversationId?: string }) => {
+      const conversationId = data?.conversationId || "global";
+      if (!(await checkUserAccessToConversation(user.id, conversationId))) return;
+      const typers = setTyping(conversationId, user.id, false);
+      socket.to(`room:${conversationId}`).emit("typing:update", { conversationId, typers });
     });
 
     // 5. Voice Call webRTC signaling
@@ -310,6 +346,7 @@ export function setupSocketIO(io: Server) {
 
     // WebRTC signaling exchange
     socket.on("voice:signal", (data: { to: string; signal: any }) => {
+      if (!data?.to || !voiceParticipants.has(data.to)) return;
       // Relay signal to target socketId
       io.to(data.to).emit("voice:signal", {
         from: socketId,
@@ -334,7 +371,7 @@ export function setupSocketIO(io: Server) {
 
       // Clean up typing
       const typers = setTyping("global", user.id, false);
-      socket.broadcast.emit("typing:update", { typers });
+      socket.to("room:global").emit("typing:update", { conversationId: "global", typers });
     });
   });
 

@@ -9,6 +9,7 @@ node_modules
 # Production / builds
 /dist
 /build
+apps/*/dist/
 .drizzle
 
 # Local data (persist sqlite and uploads here)

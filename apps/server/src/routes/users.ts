@@ -44,7 +44,19 @@ export async function userRoutes(fastify: FastifyInstance) {
   // Update profile
   fastify.put(
     "/api/users/me",
-    { preHandler: [requireAuth] },
+    {
+      preHandler: [requireAuth],
+      schema: {
+        body: {
+          type: "object",
+          required: ["displayName"],
+          properties: {
+            displayName: { type: "string", minLength: 1, maxLength: 50 },
+            avatarColor: { type: "string", pattern: "^#[0-9A-Fa-f]{6}$" },
+          },
+        },
+      },
+    },
     async (request: any, reply) => {
       const { displayName, avatarColor } = request.body || {};
       const trimmedName = displayName?.trim();
@@ -92,7 +104,11 @@ export async function userRoutes(fastify: FastifyInstance) {
           return;
         }
 
-        const ext = path.extname(data.filename) || ".png";
+        const ext = path.extname(path.basename(data.filename)).toLowerCase() || ".png";
+        if (![".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(ext)) {
+          reply.status(400).send({ error: "Avatar file type is not allowed." });
+          return;
+        }
         const filename = `${request.user.id}-${nanoid()}${ext}`;
         if (!fs.existsSync(avatarsDir)) {
           fs.mkdirSync(avatarsDir, { recursive: true });
@@ -118,7 +134,17 @@ export async function userRoutes(fastify: FastifyInstance) {
   // Admin: Generate invite code
   fastify.post(
     "/api/users/invite",
-    { preHandler: [requireAdmin] },
+    {
+      preHandler: [requireAdmin],
+      schema: {
+        body: {
+          type: "object",
+          properties: {
+            code: { type: "string", minLength: 3, maxLength: 64 },
+          },
+        },
+      },
+    },
     async (request: any, reply) => {
       const { code } = request.body || {};
       try {

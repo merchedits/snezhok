@@ -12,13 +12,21 @@ export async function messageRoutes(fastify: FastifyInstance) {
       const before = request.query.before
         ? parseInt(request.query.before as string, 10)
         : undefined;
-      const limit = request.query.limit
+      const requestedLimit = request.query.limit
         ? parseInt(request.query.limit as string, 10)
+        : 50;
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.max(1, Math.min(requestedLimit, 100))
         : 50;
 
       const userId = request.user.id;
 
       try {
+        if (before !== undefined && !Number.isFinite(before)) {
+          reply.status(400).send({ error: "Invalid before timestamp." });
+          return;
+        }
+
         const hasAccess = await checkUserAccessToConversation(userId, conversationId);
         if (!hasAccess) {
           reply.status(403).send({ error: "You are not authorized to view this conversation." });

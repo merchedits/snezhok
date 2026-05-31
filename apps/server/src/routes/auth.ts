@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { registerUser, loginUser, logoutUser, checkFirstUser } from "../services/auth.js";
 import { requireAuth } from "../lib/middleware.js";
+import { resolveSessionCookie } from "../lib/session.js";
 
 export async function authRoutes(fastify: FastifyInstance) {
   // Check if first user registration (bootstrap mode)
@@ -78,6 +79,7 @@ export async function authRoutes(fastify: FastifyInstance) {
           secure: process.env.NODE_ENV === "production",
           sameSite: "strict",
           maxAge: 30 * 24 * 60 * 60, // 30 days
+          signed: true,
         });
 
         return { success: true, user };
@@ -89,7 +91,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
   // Logout
   fastify.post("/api/auth/logout", async (request, reply) => {
-    const sessionId = request.cookies.sessionId;
+    const sessionId = resolveSessionCookie(request.cookies.sessionId);
     if (sessionId) {
       await logoutUser(sessionId);
     }

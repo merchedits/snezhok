@@ -1,5 +1,4 @@
-/* Fonts - Load with local names first, fall back to system UI */
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=DM+Sans:wght@400;500&family=DM+Mono&display=swap');
+/* Fonts use local installs first, then system fallbacks. */
 
 * {
   margin: 0;

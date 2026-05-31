@@ -21,7 +21,18 @@ export async function conversationRoutes(fastify: FastifyInstance) {
   // Start or get a private DM conversation with a user
   fastify.post(
     "/api/conversations/dm",
-    { preHandler: [requireAuth] },
+    {
+      preHandler: [requireAuth],
+      schema: {
+        body: {
+          type: "object",
+          required: ["targetUserId"],
+          properties: {
+            targetUserId: { type: "string", minLength: 1 },
+          },
+        },
+      },
+    },
     async (request: any, reply) => {
       const { targetUserId } = request.body || {};
       if (!targetUserId) {

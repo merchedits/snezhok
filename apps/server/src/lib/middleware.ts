@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import { validateSession } from "../services/auth.js";
+import { resolveSessionCookie } from "./session.js";
 
 // Extend Fastify types
 declare module "fastify" {
@@ -15,7 +16,7 @@ declare module "fastify" {
 }
 
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply) {
-  const sessionId = request.cookies.sessionId;
+  const sessionId = resolveSessionCookie(request.cookies.sessionId);
 
   if (!sessionId) {
     reply.status(401).send({ error: "Unauthorized. Session cookie missing." });

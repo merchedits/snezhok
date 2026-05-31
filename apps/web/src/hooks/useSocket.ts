@@ -12,6 +12,7 @@ export function useSocket() {
   const removeMessage = useMessageStore((state) => state.removeMessage);
   const editMessage = useMessageStore((state) => state.editMessage);
   const updateUserPresence = usePresenceStore((state) => state.updateUserPresence);
+  const setOnlineUsers = usePresenceStore((state) => state.setOnlineUsers);
   const setTypingUsers = usePresenceStore((state) => state.setTypingUsers);
   const fetchUsers = usePresenceStore((state) => state.fetchUsers);
   const setParticipants = useVoiceStore((state) => state.setParticipants);
@@ -44,15 +45,21 @@ export function useSocket() {
       setConnected(false);
     };
 
-    const onRoomState = (state: { voiceParticipants: any[] }) => {
+    const onRoomState = (state: { voiceParticipants: any[]; onlineUserIds?: string[] }) => {
       setParticipants(state.voiceParticipants);
+      if (state.onlineUserIds) {
+        setOnlineUsers(state.onlineUserIds);
+      }
     };
 
     const onPresenceUpdate = (data: { userId: string; status: "online" | "offline"; lastSeenAt: number }) => {
       updateUserPresence(data.userId, data.status === "online", data.lastSeenAt);
     };
 
-    const onTypingUpdate = (data: { typers: string[] }) => {
+    const onTypingUpdate = (data: { conversationId?: string; typers: string[] }) => {
+      if (data.conversationId && data.conversationId !== useMessageStore.getState().activeConversationId) {
+        return;
+      }
       setTypingUsers(data.typers.filter((id) => id !== userId));
     };
 
@@ -107,7 +114,6 @@ export function useSocket() {
     };
 
     socket.on("connect", onConnect);
-    socket.on("reconnect", onReconnect);
     socket.io.on("reconnect", onReconnect); // socket.io-client uses io for reconnection events
     socket.on("disconnect", onDisconnect);
     socket.on("room:state", onRoomState);

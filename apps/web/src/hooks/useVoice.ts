@@ -12,6 +12,25 @@ const peersSingleton = new Map<string, Peer.Instance>(); // socketId -> Peer ins
 const audioElementsSingleton = new Map<string, HTMLAudioElement>(); // socketId -> Audio element
 const audioContextsSingleton = new Map<string, { audioContext: AudioContext; analyser: AnalyserNode; cancelFrame: number }>(); // socketId -> Audio analysis nodes
 const gainNodesSingleton = new Map<string, GainNode>(); // socketId -> GainNode
+let peerConfigSingleton: { iceServers: RTCIceServer[] } | null = null;
+
+async function getPeerConfig() {
+  if (peerConfigSingleton) return peerConfigSingleton;
+
+  try {
+    const res = await fetch("/api/rtc-config");
+    if (res.ok) {
+      const data = await res.json();
+      peerConfigSingleton = { iceServers: Array.isArray(data.iceServers) ? data.iceServers : [] };
+      return peerConfigSingleton;
+    }
+  } catch (err) {
+    console.warn("Could not load RTC config:", err);
+  }
+
+  peerConfigSingleton = { iceServers: [] };
+  return peerConfigSingleton;
+}
 
 export function useVoice() {
   const { 
@@ -48,11 +67,12 @@ export function useVoice() {
       });
 
       const socket = getSocket();
+      await getPeerConfig();
       setIsInCall(true);
       socket.emit("voice:join");
 
       // Set up speaking detection for local user
-      setupSpeakingDetection(currentUser?.id || socket.id || "local", stream);
+      setupSpeakingDetection(currentUser?.id || socket.id || "local", stream, false);
       playJoinSound();
     } catch (err) {
       console.error("Failed to get microphone permissions:", err);
@@ -169,7 +189,7 @@ export function useVoice() {
   };
 
   // Speaking detection using Web Audio API (AnalyserNode with requestAnimationFrame)
-  const setupSpeakingDetection = (socketId: string, stream: MediaStream) => {
+  const setupSpeakingDetection = (socketId: string, stream: MediaStream, playAudio = true) => {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioContext = new AudioContextClass();
@@ -199,8 +219,10 @@ export function useVoice() {
       const userVolumePercent = userId ? (saved[userId] ?? 100) : 100;
       gainNode.gain.setValueAtTime(userVolumePercent / 100, audioContext.currentTime);
 
-      source.connect(gainNode);
-      gainNode.connect(audioContext.destination);
+      if (playAudio) {
+        source.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+      }
 
       // Apply output device if supported on AudioContext
       if (selectedOutputDeviceId && typeof (audioContext as any).setSinkId === "function") {
@@ -256,7 +278,7 @@ export function useVoice() {
     const socket = getSocket();
 
     // Triggered when a new user joins the voice channel
-    const onUserJoined = (participant: VoiceParticipant) => {
+    const onUserJoined = async (participant: VoiceParticipant) => {
       if (!localStreamSingleton) return;
 
       console.log("Creating initiator peer connection for user:", participant.displayName);
@@ -267,6 +289,7 @@ export function useVoice() {
         initiator: true,
         trickle: true,
         stream: localStreamSingleton,
+        config: await getPeerConfig(),
       });
 
       if (localScreenStreamSingleton) {
@@ -296,7 +319,7 @@ export function useVoice() {
     };
 
     // Relay WebRTC signals
-    const onSignal = (data: { from: string; signal: any }) => {
+    const onSignal = async (data: { from: string; signal: any }) => {
       let peer = peersSingleton.get(data.from);
 
       if (!peer) {
@@ -308,6 +331,7 @@ export function useVoice() {
           initiator: false,
           trickle: true,
           stream: localStreamSingleton,
+          config: await getPeerConfig(),
         });
 
         if (localScreenStreamSingleton) {

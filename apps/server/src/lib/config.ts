@@ -8,16 +8,58 @@ const __dirname = path.dirname(__filename);
 // Load dotenv from root Snezhok folder
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 
+const DEFAULT_SESSION_SECRET = "a_very_long_and_warm_cozy_secret_phrase_change_me_please";
+const DEFAULT_INITIAL_INVITE_CODE = "COZY_SNEZHOK";
+
+function readRequiredSecret(name: string, fallback: string) {
+  const value = process.env[name] || fallback;
+  if (process.env.NODE_ENV === "production" && value === fallback) {
+    throw new Error(`${name} must be changed before running in production.`);
+  }
+  return value;
+}
+
+function parseCsv(value?: string) {
+  return (value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export const config = {
   PORT: parseInt(process.env.PORT || "3000", 10),
   HOST: process.env.HOST || "0.0.0.0",
   NODE_ENV: process.env.NODE_ENV || "development",
-  SESSION_SECRET: process.env.SESSION_SECRET || "a_very_long_and_warm_cozy_secret_phrase_change_me_please",
-  INITIAL_INVITE_CODE: process.env.INITIAL_INVITE_CODE || "COZY_SNEZHOK",
-  MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || "10737418240", 10), // Default 10GB
+  SESSION_SECRET: readRequiredSecret("SESSION_SECRET", DEFAULT_SESSION_SECRET),
+  INITIAL_INVITE_CODE: readRequiredSecret("INITIAL_INVITE_CODE", DEFAULT_INITIAL_INVITE_CODE),
+  ALLOWED_ORIGINS: parseCsv(process.env.ALLOWED_ORIGINS || process.env.APP_ORIGIN),
+  MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || "104857600", 10), // Default 100MB
   DATABASE_URL: process.env.DATABASE_URL || "file:./data/app.db",
   USE_TURN: process.env.USE_TURN === "true",
   TURN_URL: process.env.TURN_URL || "",
   TURN_USERNAME: process.env.TURN_USERNAME || "",
   TURN_CREDENTIAL: process.env.TURN_CREDENTIAL || "",
 };
+
+export function isAllowedOrigin(origin?: string) {
+  if (config.NODE_ENV === "development") {
+    return !origin || origin === "http://localhost:5173";
+  }
+
+  if (!origin) return true;
+  return config.ALLOWED_ORIGINS.includes(origin);
+}
+
+export function getIceServers() {
+  if (config.USE_TURN && config.TURN_URL) {
+    return [
+      {
+        urls: config.TURN_URL,
+        username: config.TURN_USERNAME,
+        credential: config.TURN_CREDENTIAL,
+      },
+    ];
+  }
+
+  return [];
+}

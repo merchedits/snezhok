@@ -16,6 +16,7 @@ if (!fs.existsSync(dbDir)) {
 }
 
 export const sqlite = new Database(path.resolve(dbPath));
+sqlite.pragma("foreign_keys = ON");
 // Enable WAL mode for performance
 sqlite.pragma("journal_mode = WAL");
 

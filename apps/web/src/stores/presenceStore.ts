@@ -17,6 +17,7 @@ interface PresenceState {
   onlineUserIds: Set<string>;
   typingUserIds: string[];
   setUsersList: (users: PresenceUser[]) => void;
+  setOnlineUsers: (userIds: string[]) => void;
   updateUserPresence: (userId: string, isOnline: boolean, lastSeenAt?: number) => void;
   setTypingUsers: (userIds: string[]) => void;
   fetchUsers: () => Promise<void>;
@@ -33,6 +34,18 @@ export const usePresenceStore = create<PresenceState>((set) => ({
     );
     set({ usersList: users, onlineUserIds: onlineIds });
   },
+
+  setOnlineUsers: (userIds) =>
+    set((state) => {
+      const onlineIds = new Set(userIds);
+      return {
+        onlineUserIds: onlineIds,
+        usersList: state.usersList.map((u) => ({
+          ...u,
+          isOnline: onlineIds.has(u.id),
+        })),
+      };
+    }),
 
   updateUserPresence: (userId, isOnline, lastSeenAt) =>
     set((state) => {

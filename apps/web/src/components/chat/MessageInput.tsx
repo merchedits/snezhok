@@ -87,7 +87,7 @@ export default function MessageInput() {
     const socket = getSocket();
     if (!isTypingRef.current) {
       isTypingRef.current = true;
-      socket.emit("typing:start");
+      socket.emit("typing:start", { conversationId: activeConversationId });
     }
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -101,7 +101,7 @@ export default function MessageInput() {
     if (isTypingRef.current) {
       isTypingRef.current = false;
       const socket = getSocket();
-      socket.emit("typing:stop");
+      socket.emit("typing:stop", { conversationId: activeConversationId });
     }
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
@@ -179,7 +179,7 @@ export default function MessageInput() {
           try {
             const formData = new FormData();
             formData.append("fileId", fileId);
-            formData.append("chunkIndex", chunkIndex.toString());
+            formData.append("offset", start.toString());
             formData.append("chunk", chunk);
 
             const chunkRes = await fetch("/api/files/upload/chunk", {

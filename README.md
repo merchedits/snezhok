@@ -11,7 +11,7 @@ A private, self-hosted web messenger for a small group of friends (up to 10 user
 - **Presence & typing** — See who's online, who's typing, who's speaking
 - **Dark mode** — Warm, pastel-toned dark theme with smooth transitions
 - **Invite-only** — Closed registration with invite codes (first user becomes admin)
-- **Zero telemetry** — No external APIs, no CDNs, no tracking. Fully air-gapped capable.
+- **Zero telemetry** — No CDNs, no tracking. Voice can run with no external STUN/TURN servers when peers can reach each other directly.
 
 ## Architecture
 
@@ -132,6 +132,8 @@ Voice calls work peer-to-peer using WebRTC:
    TURN_CREDENTIAL=cozypassword
    ```
 4. Rebuild: `docker compose up --build -d`
+
+The browser receives TURN settings from the authenticated `/api/rtc-config` endpoint.
 
 ---
 

@@ -223,10 +223,6 @@ export default function ChatPage() {
       setProfileSuccess(true);
       fetchUsers(); // Refresh list to update display names
       
-      // Emit details update via socket
-      const socket = getSocket();
-      socket.emit("typing:stop"); // forces a dummy state ping or we rely on interval fetch
-      
       setTimeout(() => setProfileSuccess(false), 2000);
     }
   };
