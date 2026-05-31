@@ -40,71 +40,76 @@ export default function InCallCard() {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // Only show if there's someone in the call and we're not currently rendering a massive grid
+  // Only show if there's someone in the call
   if (participants.length === 0) return null;
 
-  // Render the primary speaker or first participant
-  const activeParticipant = participants.find(p => p.isSpeaking) || participants[0];
-
   return (
-    <div className="in-call-card" style={{
+    <div className="in-call-container" style={{
       display: "flex",
       justifyContent: "center",
+      flexWrap: "wrap",
+      gap: "20px",
       marginTop: "24px",
       marginBottom: "24px",
+      width: "100%",
     }}>
-      <div 
-        onContextMenu={(e) => {
-          if (activeParticipant.userId === currentUser?.id) return;
-          e.preventDefault();
-          setContextMenu({
-            x: e.clientX,
-            y: e.clientY,
-            userId: activeParticipant.userId,
-            displayName: activeParticipant.displayName,
-            socketId: activeParticipant.socketId
-          });
-        }}
-        title={activeParticipant.userId === currentUser?.id ? undefined : "Right click to adjust volume"}
-        style={{
-          background: "var(--color-bg-elevated)",
-          borderRadius: "24px",
-          padding: "24px 32px",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "12px",
-          minWidth: "160px",
-          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
-          position: "relative",
-          cursor: activeParticipant.userId === currentUser?.id ? "default" : "context-menu"
-        }}
-      >
-        <Avatar 
-          displayName={activeParticipant.displayName} 
-          username={activeParticipant.displayName} 
-          avatarColor={activeParticipant.avatarColor} 
-          avatarUrl={activeParticipant.avatarUrl || undefined}
-          size="lg" 
-          isSpeaking={activeParticipant.isSpeaking}
-        />
-        
-        <div style={{ position: "absolute", top: "32px", right: "24px" }}>
-          <Activity size={16} color="var(--color-online)" />
-        </div>
+      {participants.map((participant) => (
+        <div 
+          key={participant.socketId}
+          onContextMenu={(e) => {
+            if (participant.userId === currentUser?.id) return;
+            e.preventDefault();
+            setContextMenu({
+              x: e.clientX,
+              y: e.clientY,
+              userId: participant.userId,
+              displayName: participant.displayName,
+              socketId: participant.socketId
+            });
+          }}
+          title={participant.userId === currentUser?.id ? undefined : "Right click to adjust volume"}
+          style={{
+            background: "var(--color-bg-elevated)",
+            borderRadius: "24px",
+            padding: "24px 32px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+            minWidth: "160px",
+            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
+            position: "relative",
+            cursor: participant.userId === currentUser?.id ? "default" : "context-menu",
+            border: participant.isSpeaking ? "2px solid var(--color-online)" : "2px solid transparent",
+            transition: "border 0.2s ease"
+          }}
+        >
+          <Avatar 
+            displayName={participant.displayName} 
+            username={participant.displayName} 
+            avatarColor={participant.avatarColor} 
+            avatarUrl={participant.avatarUrl || undefined}
+            size="lg" 
+            isSpeaking={participant.isSpeaking}
+          />
+          
+          <div style={{ position: "absolute", top: "32px", right: "24px" }}>
+            <Activity size={16} color={participant.isSpeaking ? "var(--color-online)" : "var(--color-text-tertiary)"} />
+          </div>
 
-        <div style={{ textAlign: "center" }}>
-          <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "4px" }}>
-            {activeParticipant.displayName}
-          </h3>
-          <p style={{ fontSize: "13px", color: "var(--color-online)", marginBottom: "4px" }}>
-            {t('voice.inVoiceCall')}
-          </p>
-          <p style={{ fontSize: "13px", color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
-            {formatDuration(callDuration)}
-          </p>
+          <div style={{ textAlign: "center" }}>
+            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "var(--color-text-primary)", marginBottom: "4px" }}>
+              {participant.displayName}
+            </h3>
+            <p style={{ fontSize: "13px", color: participant.isSpeaking ? "var(--color-online)" : "var(--color-text-secondary)", marginBottom: "4px" }}>
+              {t('voice.inVoiceCall')}
+            </p>
+            <p style={{ fontSize: "13px", color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
+              {formatDuration(callDuration)}
+            </p>
+          </div>
         </div>
-      </div>
+      ))}
 
       {contextMenu && (
         <VoiceVolumeMenu

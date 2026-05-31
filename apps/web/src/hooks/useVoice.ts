@@ -13,6 +13,7 @@ const audioElementsSingleton = new Map<string, HTMLAudioElement>(); // socketId 
 const audioContextsSingleton = new Map<string, { audioContext: AudioContext; analyser: AnalyserNode; cancelFrame: number }>(); // socketId -> Audio analysis nodes
 const gainNodesSingleton = new Map<string, GainNode>(); // socketId -> GainNode
 let peerConfigSingleton: { iceServers: RTCIceServer[] } | null = null;
+let sharedAudioContext: AudioContext | null = null;
 
 async function getPeerConfig() {
   if (peerConfigSingleton) return peerConfigSingleton;
@@ -107,12 +108,20 @@ export function useVoice() {
     audioElementsSingleton.clear();
 
     // Clean up all audio contexts
-    audioContextsSingleton.forEach(({ audioContext, analyser, cancelFrame }) => {
+    audioContextsSingleton.forEach(({ analyser, cancelFrame }) => {
       cancelAnimationFrame(cancelFrame);
-      analyser.disconnect();
-      audioContext.close();
+      try {
+        analyser.disconnect();
+      } catch (e) {}
     });
     audioContextsSingleton.clear();
+
+    if (sharedAudioContext) {
+      try {
+        sharedAudioContext.close();
+      } catch (e) {}
+      sharedAudioContext = null;
+    }
 
     // Clean up all GainNodes
     gainNodesSingleton.forEach((gainNode) => {
@@ -192,15 +201,19 @@ export function useVoice() {
   const setupSpeakingDetection = (socketId: string, stream: MediaStream, playAudio = true) => {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioContext = new AudioContextClass();
+      if (!AudioContextClass) return;
+
+      if (!sharedAudioContext) {
+        sharedAudioContext = new AudioContextClass();
+      }
       
       // Explicitly resume audio context to ensure it runs immediately
-      if (audioContext.state === "suspended") {
-        audioContext.resume();
+      if (sharedAudioContext.state === "suspended") {
+        sharedAudioContext.resume().catch(console.error);
       }
 
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
+      const source = sharedAudioContext.createMediaStreamSource(stream);
+      const analyser = sharedAudioContext.createAnalyser();
       analyser.fftSize = 512;
       analyser.minDecibels = -90;
       analyser.maxDecibels = -10;
@@ -209,7 +222,7 @@ export function useVoice() {
       source.connect(analyser);
 
       // Create GainNode for volume adjustment (0% to 200%)
-      const gainNode = audioContext.createGain();
+      const gainNode = sharedAudioContext.createGain();
       
       // Look up participant to get their userId
       const participant = useVoiceStore.getState().participants.find(p => p.socketId === socketId);
@@ -217,16 +230,11 @@ export function useVoice() {
       
       const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
       const userVolumePercent = userId ? (saved[userId] ?? 100) : 100;
-      gainNode.gain.setValueAtTime(userVolumePercent / 100, audioContext.currentTime);
+      gainNode.gain.setValueAtTime(userVolumePercent / 100, sharedAudioContext.currentTime);
 
       if (playAudio) {
         source.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-      }
-
-      // Apply output device if supported on AudioContext
-      if (selectedOutputDeviceId && typeof (audioContext as any).setSinkId === "function") {
-        (audioContext as any).setSinkId(selectedOutputDeviceId).catch(console.error);
+        gainNode.connect(sharedAudioContext.destination);
       }
 
       gainNodesSingleton.set(socketId, gainNode);
@@ -266,7 +274,7 @@ export function useVoice() {
 
       frameId = requestAnimationFrame(update);
 
-      audioContextsSingleton.set(socketId, { audioContext, analyser, cancelFrame: frameId });
+      audioContextsSingleton.set(socketId, { audioContext: sharedAudioContext, analyser, cancelFrame: frameId });
     } catch (e) {
       console.warn("Could not set up speaking detection:", e);
     }
@@ -428,7 +436,14 @@ export function useVoice() {
     audio.srcObject = stream;
     audio.autoplay = true;
     audio.setAttribute("playsinline", "true");
-    audio.muted = true; // Mute element to prevent double playback; Web Audio API GainNode handles playback and volume!
+    audio.muted = false; // CRITICAL: DO NOT MUTE! Let HTML5 audio play directly to bypass iOS/Android autoplay policy.
+
+    // Set initial volume from saved user volume preference
+    const participant = useVoiceStore.getState().participants.find(p => p.socketId === socketId);
+    const userId = participant?.userId;
+    const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
+    const userVolumePercent = userId ? (saved[userId] ?? 100) : 100;
+    audio.volume = userVolumePercent / 100;
 
     if (selectedOutputDeviceId && typeof (audio as any).setSinkId === "function") {
       (audio as any).setSinkId(selectedOutputDeviceId).catch(console.error);
@@ -437,13 +452,20 @@ export function useVoice() {
     document.body.appendChild(audio);
     audioElementsSingleton.set(socketId, audio);
 
-    // Set up speaking detection on remote streams
-    setupSpeakingDetection(socketId, stream);
+    // Set up speaking detection on remote streams (playAudio = false to prevent double playback)
+    setupSpeakingDetection(socketId, stream, false);
   };
 
-  // Sync volumes to GainNodes when they change
+  // Sync volumes to AudioElements and GainNodes when they change
   useEffect(() => {
     Object.entries(volumes).forEach(([socketId, volumePercent]) => {
+      // 1. Sync HTML5 audio element volume (which handles actual playback)
+      const audio = audioElementsSingleton.get(socketId);
+      if (audio) {
+        audio.volume = volumePercent / 100;
+      }
+
+      // 2. Keep GainNode in sync (which handles speaking analysis)
       const gainNode = gainNodesSingleton.get(socketId);
       if (gainNode) {
         // Smoothly transition volume to avoid clicks/pops
@@ -499,8 +521,10 @@ export function useVoice() {
     const analysis = audioContextsSingleton.get(socketId);
     if (analysis) {
       cancelAnimationFrame(analysis.cancelFrame);
-      analysis.analyser.disconnect();
-      analysis.audioContext.close();
+      try {
+        analysis.analyser.disconnect();
+      } catch (e) {}
+      // DO NOT close analysis.audioContext because it is shared!
       audioContextsSingleton.delete(socketId);
     }
 
