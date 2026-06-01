@@ -12,7 +12,7 @@ const peersSingleton = new Map<string, Peer.Instance>(); // socketId -> Peer ins
 const audioElementsSingleton = new Map<string, HTMLAudioElement>(); // socketId -> Audio element
 const audioContextsSingleton = new Map<string, { audioContext: AudioContext; analyser: AnalyserNode; cancelFrame: number }>(); // socketId -> Audio analysis nodes
 const gainNodesSingleton = new Map<string, GainNode>(); // socketId -> GainNode
-let peerConfigSingleton: { iceServers: RTCIceServer[] } | null = null;
+let peerConfigSingleton: RTCConfiguration | null = null;
 let sharedAudioContext: AudioContext | null = null;
 
 async function getPeerConfig() {
@@ -22,15 +22,44 @@ async function getPeerConfig() {
     const res = await fetch("/api/rtc-config");
     if (res.ok) {
       const data = await res.json();
-      peerConfigSingleton = { iceServers: Array.isArray(data.iceServers) ? data.iceServers : [] };
+      peerConfigSingleton = {
+        iceServers: Array.isArray(data.iceServers) ? data.iceServers : [],
+        iceCandidatePoolSize: 4,
+      };
       return peerConfigSingleton;
     }
   } catch (err) {
     console.warn("Could not load RTC config:", err);
   }
 
-  peerConfigSingleton = { iceServers: [] };
+  peerConfigSingleton = { iceServers: [], iceCandidatePoolSize: 4 };
   return peerConfigSingleton;
+}
+
+function attachPeerDiagnostics(peer: Peer.Instance, socketId: string, label: string) {
+  const warnTimer = window.setTimeout(() => {
+    if (!peer.connected && !peer.destroyed) {
+      console.warn(
+        `[voice] Peer ${label} (${socketId}) has not connected after 12s. This usually means STUN/TURN/NAT traversal failed.`
+      );
+    }
+  }, 12000);
+
+  peer.on("connect", () => {
+    window.clearTimeout(warnTimer);
+    console.info(`[voice] Peer ${label} (${socketId}) connected.`);
+  });
+
+  peer.on("iceStateChange", (iceConnectionState, iceGatheringState) => {
+    console.info(`[voice] ICE ${label} (${socketId}):`, {
+      iceConnectionState,
+      iceGatheringState,
+    });
+  });
+
+  peer.on("close", () => {
+    window.clearTimeout(warnTimer);
+  });
 }
 
 export function useVoice() {
@@ -310,6 +339,7 @@ export function useVoice() {
         stream: localStreamSingleton,
         config: await getPeerConfig(),
       });
+      attachPeerDiagnostics(peer, participant.socketId, `to ${participant.displayName}`);
 
       if (localScreenStreamSingleton) {
         peer.addStream(localScreenStreamSingleton);
@@ -352,6 +382,7 @@ export function useVoice() {
           stream: localStreamSingleton,
           config: await getPeerConfig(),
         });
+        attachPeerDiagnostics(peer, data.from, "from remote offer");
 
         if (localScreenStreamSingleton) {
           peer.addStream(localScreenStreamSingleton);

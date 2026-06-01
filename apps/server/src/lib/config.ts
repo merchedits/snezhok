@@ -35,6 +35,10 @@ export const config = {
   ALLOWED_ORIGINS: parseCsv(process.env.ALLOWED_ORIGINS || process.env.APP_ORIGIN),
   MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || "104857600", 10), // Default 100MB
   DATABASE_URL: process.env.DATABASE_URL || "file:./data/app.db",
+  STUN_URLS: parseCsv(
+    process.env.STUN_URLS ||
+      "stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302,stun:stun2.l.google.com:19302,stun:stun3.l.google.com:19302,stun:stun4.l.google.com:19302"
+  ),
   USE_TURN: process.env.USE_TURN === "true",
   TURN_URL: process.env.TURN_URL || "",
   TURN_USERNAME: process.env.TURN_USERNAME || "",
@@ -51,13 +55,8 @@ export function isAllowedOrigin(origin?: string) {
 }
 
 export function getIceServers() {
-  const servers: Array<{ urls: string; username?: string; credential?: string }> = [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
-    { urls: "stun:stun3.l.google.com:19302" },
-    { urls: "stun:stun4.l.google.com:19302" },
-  ];
+  const servers: Array<{ urls: string; username?: string; credential?: string }> =
+    config.STUN_URLS.map((urls) => ({ urls }));
 
   if (config.USE_TURN && config.TURN_URL) {
     servers.push({

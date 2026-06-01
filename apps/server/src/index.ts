@@ -90,7 +90,7 @@ await app.register(helmet, {
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "blob:"],
       fontSrc: ["'self'", "data:"],
-      connectSrc: ["'self'", "ws:", "wss:"],
+      connectSrc: ["'self'", "ws:", "wss:", "stun:", "turn:", "turns:"],
       mediaSrc: ["'self'", "blob:"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
