@@ -35,16 +35,33 @@ export interface Message {
   reactions: MessageReaction[];
 }
 
+export interface ConversationUser {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarColor: string;
+  avatarUrl?: string;
+}
+
+export interface Conversation {
+  id: string;
+  type: "dm" | "group";
+  createdAt: number;
+  recipient?: ConversationUser;
+  members: ConversationUser[];
+}
+
 interface MessageState {
   messages: Message[];
   isLoading: boolean;
   hasMore: boolean;
   replyingTo: Message | null;
-  conversations: any[];
+  conversations: Conversation[];
   activeConversationId: string;
   setActiveConversationId: (id: string) => void;
   fetchConversations: () => Promise<void>;
   startDM: (targetUserId: string) => Promise<string>;
+  startGroup: (memberIds: string[]) => Promise<string>;
   addMessage: (msg: Message) => void;
   setMessages: (msgs: Message[]) => void;
   updateMessageReactions: (messageId: string, reactions: MessageReaction[]) => void;
@@ -64,7 +81,17 @@ export const useMessageStore = create<MessageState>((set) => ({
   conversations: [],
   activeConversationId: "global",
 
-  setActiveConversationId: (id) => set({ activeConversationId: id, messages: [], hasMore: true, replyingTo: null }),
+  setActiveConversationId: (id) => {
+    set({ activeConversationId: id, messages: [], hasMore: true, replyingTo: null });
+
+    try {
+      const socket = getSocket();
+      socket.emit("room:join", { conversationId: id });
+      socket.emit("voice:get-state", { conversationId: id });
+    } catch (e) {
+      console.warn("Socket not connected yet, skipping room switch.", e);
+    }
+  },
 
   fetchConversations: async () => {
     try {
@@ -97,11 +124,35 @@ export const useMessageStore = create<MessageState>((set) => ({
           console.warn("Socket not connected yet, skipping instant room join.", e);
         }
 
+        useMessageStore.getState().setActiveConversationId(data.conversationId);
         return data.conversationId;
       }
       throw new Error("Failed to start DM");
     } catch (err) {
       console.error("Failed to start DM", err);
+      throw err;
+    }
+  },
+
+  startGroup: async (memberIds) => {
+    try {
+      const uniqueMemberIds = Array.from(new Set(memberIds)).filter(Boolean);
+      const res = await fetch("/api/conversations/group", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberIds: uniqueMemberIds }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await useMessageStore.getState().fetchConversations();
+        useMessageStore.getState().setActiveConversationId(data.conversationId);
+        return data.conversationId;
+      }
+
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || "Failed to create group");
+    } catch (err) {
+      console.error("Failed to create group", err);
       throw err;
     }
   },

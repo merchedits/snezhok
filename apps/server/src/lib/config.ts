@@ -47,7 +47,11 @@ export const config = {
 
 export function isAllowedOrigin(origin?: string) {
   if (config.NODE_ENV === "development") {
-    return !origin || origin === "http://localhost:5173";
+    return (
+      !origin ||
+      origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:")
+    );
   }
 
   if (!origin) return true;

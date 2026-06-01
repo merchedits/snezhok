@@ -1,70 +1,154 @@
-import { X, Activity } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { Activity, Check, MessageCircle, UsersRound, X } from "lucide-react";
 import Avatar from "../Avatar.jsx";
 import Button from "../Button.jsx";
-import { usePresenceStore } from "../../stores/presenceStore.js";
+import Modal from "../Modal.jsx";
+import { useAuthStore } from "../../stores/authStore.js";
+import { usePresenceStore, PresenceUser } from "../../stores/presenceStore.js";
 import { useVoiceStore } from "../../stores/voiceStore.js";
+import { useMessageStore } from "../../stores/messageStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
 import { useTranslation } from "../../i18n/index.jsx";
 
+type MemberSection = {
+  id: string;
+  label: string;
+  members: PresenceUser[];
+  inCall?: boolean;
+  muted?: boolean;
+};
+
 export default function MemberPanel() {
+  const currentUser = useAuthStore((state) => state.user);
   const usersList = usePresenceStore((state) => state.usersList);
   const voiceParticipants = useVoiceStore((state) => state.participants);
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
+  const startDM = useMessageStore((state) => state.startDM);
+  const startGroup = useMessageStore((state) => state.startGroup);
   const { t } = useTranslation();
 
-  // Helper to check if a user is in a voice call
-  const isUserInVoice = (userId: string) => {
-    return voiceParticipants.some((p) => p.userId === userId);
+  const [contextUser, setContextUser] = useState<PresenceUser | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [groupError, setGroupError] = useState<string | null>(null);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const isUserInVoice = (userId: string) => voiceParticipants.some((p) => p.userId === userId);
+  const isUserSpeaking = (userId: string) => voiceParticipants.find((p) => p.userId === userId)?.isSpeaking || false;
+
+  const sections: MemberSection[] = useMemo(() => {
+    const inCallUsers = usersList.filter((u) => isUserInVoice(u.id));
+    const onlineUsersNotInCall = usersList.filter((u) => u.isOnline && !isUserInVoice(u.id));
+    const offlineUsers = usersList.filter((u) => !u.isOnline);
+
+    return [
+      { id: "call", label: t('members.inCallNow'), members: inCallUsers, inCall: true },
+      { id: "online", label: `${t('members.onlineSection')} - ${onlineUsersNotInCall.length}`, members: onlineUsersNotInCall },
+      { id: "offline", label: `${t('members.offlineSection')} - ${offlineUsers.length}`, members: offlineUsers, muted: true },
+    ].filter((section) => section.members.length > 0);
+  }, [usersList, voiceParticipants, t]);
+
+  useEffect(() => {
+    if (!contextUser) return;
+
+    const close = (event: globalThis.MouseEvent) => {
+      if (menuRef.current && menuRef.current.contains(event.target as Node)) return;
+      setContextUser(null);
+    };
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextUser(null);
+    };
+
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [contextUser]);
+
+  const openMemberMenu = (event: MouseEvent, member: PresenceUser) => {
+    if (member.id === currentUser?.id) return;
+
+    event.preventDefault();
+    const x = Math.min(event.clientX, window.innerWidth - 220);
+    const y = Math.min(event.clientY, window.innerHeight - 120);
+    setMenuPosition({ x: Math.max(8, x), y: Math.max(8, y) });
+    setContextUser(member);
   };
 
-  // Helper to check if a user is speaking in a voice call
-  const isUserSpeaking = (userId: string) => {
-    return voiceParticipants.find((p) => p.userId === userId)?.isSpeaking || false;
+  const handleTapMember = (event: MouseEvent, member: PresenceUser) => {
+    if (window.matchMedia("(max-width: 768px)").matches) {
+      openMemberMenu(event, member);
+    }
   };
 
-  // Lists
-  const inCallUsers = usersList.filter((u) => isUserInVoice(u.id));
-  const onlineUsersNotInCall = usersList.filter((u) => u.isOnline && !isUserInVoice(u.id));
-  const offlineUsers = usersList.filter((u) => !u.isOnline);
+  const handleStartDM = async () => {
+    if (!contextUser) return;
+    await startDM(contextUser.id);
+    setContextUser(null);
+  };
+
+  const openGroupModal = () => {
+    if (!contextUser) return;
+    setSelectedGroupIds([contextUser.id]);
+    setGroupError(null);
+    setGroupModalOpen(true);
+    setContextUser(null);
+  };
+
+  const toggleGroupUser = (userId: string) => {
+    setSelectedGroupIds((ids) =>
+      ids[0] === userId ? ids :
+      ids.includes(userId) ? ids.filter((id) => id !== userId) : [...ids, userId]
+    );
+  };
+
+  const handleCreateGroup = async () => {
+    setGroupError(null);
+    if (selectedGroupIds.length < 2) {
+      setGroupError("Pick at least two people for a group chat.");
+      return;
+    }
+
+    try {
+      setIsCreatingGroup(true);
+      await startGroup(selectedGroupIds);
+      setGroupModalOpen(false);
+      setSelectedGroupIds([]);
+    } catch (err: any) {
+      setGroupError(err?.message || "Could not create group chat.");
+    } finally {
+      setIsCreatingGroup(false);
+    }
+  };
+
+  const availableGroupUsers = usersList.filter((member) => member.id !== currentUser?.id);
+  const pinnedGroupUserId = selectedGroupIds[0];
 
   return (
     <aside className="member-panel" aria-label="Member List">
-      <div 
-        style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between", 
-          padding: "24px 24px 16px",
-          borderBottom: "1px solid var(--color-border)",
-        }}
-      >
-        <span style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: "16px" }}>{t('members.title')}</span>
-        <Button variant="ghost" onClick={toggleMemberPanel} style={{ padding: 0, width: "24px", height: "24px" }}>
+      <div className="member-panel-header">
+        <span>{t('members.title')}</span>
+        <Button variant="ghost" onClick={toggleMemberPanel} style={{ padding: 0, width: "28px", height: "28px" }}>
           <X size={18} />
         </Button>
       </div>
 
-      <div style={{ overflowY: "auto", flex: 1, padding: "16px 24px" }}>
-        
-        {/* IN CALL NOW */}
-        {inCallUsers.length > 0 && (
-          <div style={{ marginBottom: "24px" }}>
-            <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
-              {t('members.inCallNow')}
-            </div>
-            {inCallUsers.map((member) => (
-              <div 
-                key={member.id} 
-                style={{
-                  background: "var(--color-bg-elevated)",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "16px",
-                  padding: "12px 16px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  marginBottom: "8px",
-                }}
+      <div className="member-panel-body">
+        {sections.map((section) => (
+          <div className="member-section" key={section.id}>
+            <div className="member-section-label">{section.label}</div>
+            {section.members.map((member) => (
+              <button
+                key={member.id}
+                className={`member-item ${section.inCall ? "in-call" : ""} ${section.muted ? "muted" : ""}`}
+                onContextMenu={(event) => openMemberMenu(event, member)}
+                onClick={(event) => handleTapMember(event, member)}
+                title={member.id === currentUser?.id ? member.displayName : "Right click for actions"}
               >
                 <Avatar
                   displayName={member.displayName}
@@ -72,38 +156,48 @@ export default function MemberPanel() {
                   avatarColor={member.avatarColor}
                   avatarUrl={member.avatarUrl}
                   size="sm"
-                  showOnline={true}
-                  isOnline={true}
+                  showOnline={!section.muted}
+                  isOnline={member.isOnline}
                   isSpeaking={isUserSpeaking(member.id)}
                 />
-                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-                  <span style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {member.displayName}
-                  </span>
-                  <span style={{ fontSize: "12px", color: "var(--color-online)" }}>
-                    {t('voice.inVoiceCall')}
-                  </span>
-                </div>
-                <Activity size={14} color="var(--color-online)" />
-              </div>
+                <span className="member-name">{member.displayName}</span>
+                {section.inCall && <Activity size={14} color="var(--color-online)" />}
+              </button>
             ))}
           </div>
-        )}
+        ))}
+      </div>
 
-        {/* ONLINE */}
-        {onlineUsersNotInCall.length > 0 && (
-          <div style={{ marginBottom: "24px" }}>
-            <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
-              {t('members.onlineSection')} — {onlineUsersNotInCall.length}
-            </div>
-            {onlineUsersNotInCall.map((member) => (
-              <div 
-                key={member.id} 
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "8px 0",
+      {contextUser && (
+        <div
+          ref={menuRef}
+          className="member-context-menu"
+          style={{ left: `${menuPosition.x}px`, top: `${menuPosition.y}px` }}
+        >
+          <div className="member-context-title">{contextUser.displayName}</div>
+          <button className="member-context-action" onClick={handleStartDM}>
+            <MessageCircle size={15} />
+            Message
+          </button>
+          <button className="member-context-action" onClick={openGroupModal}>
+            <UsersRound size={15} />
+            Invite to group chat
+          </button>
+        </div>
+      )}
+
+      <Modal isOpen={groupModalOpen} onClose={() => setGroupModalOpen(false)} title="Create group chat" size="md">
+        <div className="group-invite-list">
+          {availableGroupUsers.map((member) => {
+            const checked = selectedGroupIds.includes(member.id);
+            const pinned = member.id === pinnedGroupUserId;
+            return (
+              <button
+                key={member.id}
+                className={`group-invite-row ${checked ? "selected" : ""}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (!pinned) toggleGroupUser(member.id);
                 }}
               >
                 <Avatar
@@ -113,51 +207,24 @@ export default function MemberPanel() {
                   avatarUrl={member.avatarUrl}
                   size="sm"
                   showOnline={true}
-                  isOnline={true}
+                  isOnline={member.isOnline}
                 />
-                <span style={{ fontSize: "14px", color: "var(--color-text-primary)", fontWeight: 500 }}>
-                  {member.displayName}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+                <span>{member.displayName}</span>
+                <span className="group-invite-check">{checked && <Check size={15} />}</span>
+              </button>
+            );
+          })}
+        </div>
 
-        {/* OFFLINE */}
-        {offlineUsers.length > 0 && (
-          <div style={{ marginBottom: "24px" }}>
-            <div className="member-section-label" style={{ padding: "0 0 12px 0", fontSize: "11px" }}>
-              {t('members.offlineSection')} — {offlineUsers.length}
-            </div>
-            {offlineUsers.map((member) => (
-              <div 
-                key={member.id} 
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "8px 0",
-                  opacity: 0.5,
-                }}
-              >
-                <Avatar
-                  displayName={member.displayName}
-                  username={member.username}
-                  avatarColor={member.avatarColor}
-                  avatarUrl={member.avatarUrl}
-                  size="sm"
-                  showOnline={false}
-                  isOnline={false}
-                />
-                <span style={{ fontSize: "14px", color: "var(--color-text-secondary)", fontWeight: 500 }}>
-                  {member.displayName}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        {groupError && <p className="form-error">{groupError}</p>}
 
-      </div>
+        <div className="group-invite-actions">
+          <Button variant="ghost" onClick={() => setGroupModalOpen(false)}>Cancel</Button>
+          <Button onClick={handleCreateGroup} disabled={isCreatingGroup || selectedGroupIds.length < 2}>
+            {isCreatingGroup ? "Creating..." : "Create group"}
+          </Button>
+        </div>
+      </Modal>
     </aside>
   );
 }

@@ -139,12 +139,18 @@ if (fs.existsSync(frontendDistPath)) {
   await app.register(fastifyStatic, {
     root: frontendDistPath,
     prefix: "/",
-    wildcard: false,
   });
 
   // SPA fallback: any non-API GET returns index.html
   app.setNotFoundHandler((request, reply) => {
-    if (request.method === "GET" && !request.url.startsWith("/api/") && !request.url.startsWith("/socket.io")) {
+    const isFrontendRoute =
+      request.method === "GET" &&
+      !request.url.startsWith("/api/") &&
+      !request.url.startsWith("/socket.io") &&
+      !request.url.startsWith("/assets/") &&
+      !path.extname(request.url.split("?")[0]);
+
+    if (isFrontendRoute) {
       return reply.sendFile("index.html");
     }
     reply.status(404).send({ error: "Not found" });

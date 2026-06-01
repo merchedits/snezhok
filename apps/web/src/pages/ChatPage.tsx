@@ -36,7 +36,7 @@ interface InviteCode {
 
 export default function ChatPage() {
   const { user } = useAuthStore();
-  const { messages, isLoading, hasMore, loadHistory } = useMessageStore();
+  const { messages, isLoading, hasMore, loadHistory, activeConversationId } = useMessageStore();
   const { fetchUsers, usersList } = usePresenceStore();
   const memberPanelOpen = useUIStore((state) => state.memberPanelOpen);
   const { isInCall, isScreensharing } = useVoiceStore();
@@ -81,7 +81,6 @@ export default function ChatPage() {
 
   // Load initial data
   useEffect(() => {
-    loadHistory();
     fetchUsers();
 
     // Poll users presence list occasionally
@@ -91,6 +90,19 @@ export default function ChatPage() {
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    loadHistory();
+    setShowUnreadBadge(false);
+
+    try {
+      const socket = getSocket();
+      socket.emit("room:join", { conversationId: activeConversationId });
+      socket.emit("voice:get-state", { conversationId: activeConversationId });
+    } catch (err) {
+      console.warn("Could not switch chat socket room yet.", err);
+    }
+  }, [activeConversationId, loadHistory]);
 
   // Handle screenshare video elements
   useEffect(() => {

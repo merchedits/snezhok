@@ -9,13 +9,25 @@ import { getFileMetadata } from "../services/files.js";
 // In-memory set of voice call participants: socketId -> user details
 interface VoiceParticipant {
   socketId: string;
+  conversationId: string;
   userId: string;
   username: string;
   displayName: string;
   avatarColor: string;
   avatarUrl?: string | null;
 }
-const voiceParticipants = new Map<string, VoiceParticipant>();
+const voiceParticipantsByConversation = new Map<string, Map<string, VoiceParticipant>>();
+
+function getVoiceRoomParticipants(conversationId: string) {
+  return Array.from(voiceParticipantsByConversation.get(conversationId)?.values() || []);
+}
+
+function findVoiceConversationBySocket(socketId: string) {
+  for (const [conversationId, participants] of voiceParticipantsByConversation.entries()) {
+    if (participants.has(socketId)) return conversationId;
+  }
+  return null;
+}
 
 export function setupSocketIO(io: Server) {
   // Authentication middleware
@@ -30,7 +42,14 @@ export function setupSocketIO(io: Server) {
       const parsedCookies = Object.fromEntries(
         cookieHeader.split(";").map((c) => {
           const parts = c.trim().split("=");
-          return [parts[0], parts.slice(1).join("=")];
+          const rawValue = parts.slice(1).join("=");
+          let value = rawValue;
+          try {
+            value = decodeURIComponent(rawValue);
+          } catch {
+            // Keep the raw value if a client sends a non-encoded cookie.
+          }
+          return [parts[0], value];
         })
       );
 
@@ -67,7 +86,7 @@ export function setupSocketIO(io: Server) {
 
     // Send the current list of online users and active voice participants to the new socket
     socket.emit("room:state", {
-      voiceParticipants: Array.from(voiceParticipants.values()),
+      voiceParticipants: getVoiceRoomParticipants("global"),
       onlineUserIds: getOnlineUsers(),
     });
 
@@ -92,6 +111,10 @@ export function setupSocketIO(io: Server) {
           throw new Error("You do not have permission to join this conversation.");
         }
         socket.join(`room:${data.conversationId}`);
+        socket.emit("voice:update-participants", {
+          conversationId: data.conversationId,
+          participants: getVoiceRoomParticipants(data.conversationId),
+        });
       } catch (err: any) {
         socket.emit("error", { message: err.message });
       }
@@ -320,9 +343,19 @@ export function setupSocketIO(io: Server) {
     });
 
     // 5. Voice Call webRTC signaling
-    socket.on("voice:join", () => {
+    socket.on("voice:join", async (data?: { conversationId?: string }) => {
+      const conversationId = data?.conversationId || "global";
+      const hasAccess = await checkUserAccessToConversation(user.id, conversationId);
+      if (!hasAccess) {
+        socket.emit("error", { message: "You do not have permission to join this voice call." });
+        return;
+      }
+
+      handleVoiceLeave(socketId, user);
+
       const participant: VoiceParticipant = {
         socketId,
+        conversationId,
         userId: user.id,
         username: user.username,
         displayName: user.displayName,
@@ -330,13 +363,18 @@ export function setupSocketIO(io: Server) {
         avatarUrl: user.avatarUrl,
       };
 
-      voiceParticipants.set(socketId, participant);
+      if (!voiceParticipantsByConversation.has(conversationId)) {
+        voiceParticipantsByConversation.set(conversationId, new Map());
+      }
+      voiceParticipantsByConversation.get(conversationId)!.set(socketId, participant);
 
       // Notify others in call about new participant
-      socket.broadcast.emit("voice:user-joined", participant);
+      socket.to(`room:${conversationId}`).emit("voice:user-joined", participant);
 
-      // Emit global update of active voice participants list
-      io.emit("voice:update-participants", Array.from(voiceParticipants.values()));
+      io.to(`room:${conversationId}`).emit("voice:update-participants", {
+        conversationId,
+        participants: getVoiceRoomParticipants(conversationId),
+      });
 
     });
 
@@ -344,12 +382,25 @@ export function setupSocketIO(io: Server) {
       handleVoiceLeave(socketId, user);
     });
 
+    socket.on("voice:get-state", async (data?: { conversationId?: string }) => {
+      const conversationId = data?.conversationId || "global";
+      if (!(await checkUserAccessToConversation(user.id, conversationId))) return;
+      socket.emit("voice:update-participants", {
+        conversationId,
+        participants: getVoiceRoomParticipants(conversationId),
+      });
+    });
+
     // WebRTC signaling exchange
     socket.on("voice:signal", (data: { to: string; signal: any }) => {
-      if (!data?.to || !voiceParticipants.has(data.to)) return;
+      const conversationId = findVoiceConversationBySocket(socketId);
+      if (!data?.to || !conversationId) return;
+      const participants = voiceParticipantsByConversation.get(conversationId);
+      if (!participants?.has(data.to)) return;
       // Relay signal to target socketId
       io.to(data.to).emit("voice:signal", {
         from: socketId,
+        conversationId,
         signal: data.signal,
       });
     });
@@ -376,17 +427,26 @@ export function setupSocketIO(io: Server) {
   });
 
   function handleVoiceLeave(socketId: string, user: any) {
-    if (voiceParticipants.has(socketId)) {
-      voiceParticipants.delete(socketId);
+    const conversationId = findVoiceConversationBySocket(socketId);
+    if (conversationId) {
+      const participants = voiceParticipantsByConversation.get(conversationId);
+      participants?.delete(socketId);
+      if (participants?.size === 0) {
+        voiceParticipantsByConversation.delete(conversationId);
+      }
 
       // Notify others
-      io.emit("voice:user-left", {
+      io.to(`room:${conversationId}`).emit("voice:user-left", {
+        conversationId,
         socketId,
         userId: user.id,
       });
 
       // Emit updated list of active voice participants
-      io.emit("voice:update-participants", Array.from(voiceParticipants.values()));
+      io.to(`room:${conversationId}`).emit("voice:update-participants", {
+        conversationId,
+        participants: getVoiceRoomParticipants(conversationId),
+      });
     }
   }
 }

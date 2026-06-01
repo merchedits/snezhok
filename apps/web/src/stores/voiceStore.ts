@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 export interface VoiceParticipant {
   socketId: string;
+  conversationId?: string;
   userId: string;
   username: string;
   displayName: string;
@@ -15,6 +16,7 @@ interface VoiceState {
   isInCall: boolean;
   isMuted: boolean;
   isScreensharing: boolean;
+  callConversationId: string | null;
   volumes: Record<string, number>;
   selectedInputDeviceId: string | null;
   selectedOutputDeviceId: string | null;
@@ -25,6 +27,7 @@ interface VoiceState {
   setIsInCall: (inCall: boolean) => void;
   setIsMuted: (muted: boolean) => void;
   setIsScreensharing: (isScreensharing: boolean) => void;
+  setCallConversationId: (conversationId: string | null) => void;
   setSpeaking: (socketId: string, isSpeaking: boolean) => void;
   setVolume: (socketId: string, volume: number) => void;
   setInputDevice: (deviceId: string | null) => void;
@@ -37,6 +40,7 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   isInCall: false,
   isMuted: false,
   isScreensharing: false,
+  callConversationId: null,
   volumes: {},
   selectedInputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedInputDeviceId") : null,
   selectedOutputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedOutputDeviceId") : null,
@@ -80,13 +84,14 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   setIsInCall: (isInCall) =>
     set((_state) => {
       if (!isInCall) {
-        return { isInCall, participants: [], isMuted: false, isScreensharing: false, volumes: {} };
+        return { isInCall, participants: [], isMuted: false, isScreensharing: false, callConversationId: null, volumes: {} };
       }
       return { isInCall };
     }),
 
   setIsMuted: (isMuted) => set({ isMuted }),
   setIsScreensharing: (isScreensharing) => set({ isScreensharing }),
+  setCallConversationId: (callConversationId) => set({ callConversationId }),
 
   setSpeaking: (socketIdOrUserId, isSpeaking) =>
     set((state) => ({

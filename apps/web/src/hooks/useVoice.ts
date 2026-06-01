@@ -3,6 +3,7 @@ import Peer from "simple-peer";
 import { getSocket } from "../lib/socket.js";
 import { useVoiceStore, VoiceParticipant } from "../stores/voiceStore.js";
 import { useAuthStore } from "../stores/authStore.js";
+import { useMessageStore } from "../stores/messageStore.js";
 import { playJoinSound, playLeaveSound, playMuteSound, playUnmuteSound, playScreenshareSound } from "../lib/sounds.js";
 
 // Module-level singletons to ensure voice state is shared across all components calling useVoice()
@@ -65,7 +66,7 @@ function attachPeerDiagnostics(peer: Peer.Instance, socketId: string, label: str
 export function useVoice() {
   const { 
     isInCall, isMuted, isScreensharing, setIsInCall, setIsMuted, setIsScreensharing, setSpeaking,
-    selectedInputDeviceId, selectedOutputDeviceId, volumes, setAvailableDevices 
+    setCallConversationId, selectedInputDeviceId, selectedOutputDeviceId, volumes, setAvailableDevices
   } = useVoiceStore();
   const { user: currentUser } = useAuthStore();
 
@@ -108,9 +109,11 @@ export function useVoice() {
       });
 
       const socket = getSocket();
+      const conversationId = useMessageStore.getState().activeConversationId || "global";
       await getPeerConfig();
       setIsInCall(true);
-      socket.emit("voice:join");
+      setCallConversationId(conversationId);
+      socket.emit("voice:join", { conversationId });
 
       // Set up speaking detection for local user (do not connect to destination to prevent local feedback/echo)
       setupSpeakingDetection(currentUser?.id || socket.id || "local", stream, false);
@@ -174,6 +177,7 @@ export function useVoice() {
     playLeaveSound();
     setIsInCall(false);
     setIsScreensharing(false);
+    setCallConversationId(null);
   };
 
   // Toggle mute
@@ -328,6 +332,8 @@ export function useVoice() {
     // Triggered when a new user joins the voice channel
     const onUserJoined = async (participant: VoiceParticipant) => {
       if (!localStreamSingleton) return;
+      const callConversationId = useVoiceStore.getState().callConversationId || "global";
+      if ((participant.conversationId || "global") !== callConversationId) return;
 
       console.log("Creating initiator peer connection for user:", participant.displayName);
       playJoinSound();
@@ -348,6 +354,7 @@ export function useVoice() {
       peer.on("signal", (signal) => {
         socket.emit("voice:signal", {
           to: participant.socketId,
+          conversationId: callConversationId,
           signal,
         });
       });
@@ -368,7 +375,10 @@ export function useVoice() {
     };
 
     // Relay WebRTC signals
-    const onSignal = async (data: { from: string; signal: any }) => {
+    const onSignal = async (data: { from: string; conversationId?: string; signal: any }) => {
+      const callConversationId = useVoiceStore.getState().callConversationId || "global";
+      if (data.conversationId && data.conversationId !== callConversationId) return;
+
       let peer = peersSingleton.get(data.from);
 
       if (!peer) {
@@ -391,6 +401,7 @@ export function useVoice() {
         peer.on("signal", (signal) => {
           socket.emit("voice:signal", {
             to: data.from,
+            conversationId: callConversationId,
             signal,
           });
         });
@@ -414,7 +425,10 @@ export function useVoice() {
     };
 
     // User left call
-    const onUserLeft = (data: { socketId: string; userId: string }) => {
+    const onUserLeft = (data: { conversationId?: string; socketId: string; userId: string }) => {
+      const callConversationId = useVoiceStore.getState().callConversationId || "global";
+      if (data.conversationId && data.conversationId !== callConversationId) return;
+
       handlePeerClose(data.socketId);
       playLeaveSound();
     };

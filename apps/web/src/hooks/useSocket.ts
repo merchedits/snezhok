@@ -48,7 +48,9 @@ export function useSocket() {
     };
 
     const onRoomState = (state: { voiceParticipants: any[]; onlineUserIds?: string[] }) => {
-      setParticipants(state.voiceParticipants);
+      if (useMessageStore.getState().activeConversationId === "global") {
+        setParticipants(state.voiceParticipants);
+      }
       if (state.onlineUserIds) {
         setOnlineUsers(state.onlineUserIds);
       }
@@ -119,16 +121,31 @@ export function useSocket() {
       alert("Server error: " + data.message);
     };
 
-    const onVoiceUpdateParticipants = (list: any[]) => {
-      setParticipants(list);
+    const isCurrentConversation = (conversationId?: string) => {
+      return (conversationId || "global") === useMessageStore.getState().activeConversationId;
+    };
+
+    const onVoiceUpdateParticipants = (data: { conversationId?: string; participants?: any[] } | any[]) => {
+      if (Array.isArray(data)) {
+        setParticipants(data);
+        return;
+      }
+
+      if (isCurrentConversation(data.conversationId)) {
+        setParticipants(data.participants || []);
+      }
     };
 
     const onVoiceUserJoined = (participant: any) => {
-      addParticipant(participant);
+      if (isCurrentConversation(participant.conversationId)) {
+        addParticipant(participant);
+      }
     };
 
-    const onVoiceUserLeft = (data: { socketId: string; userId: string }) => {
-      removeParticipant(data.socketId);
+    const onVoiceUserLeft = (data: { conversationId?: string; socketId: string; userId: string }) => {
+      if (isCurrentConversation(data.conversationId)) {
+        removeParticipant(data.socketId);
+      }
     };
 
     const onReconnect = () => {
@@ -139,8 +156,11 @@ export function useSocket() {
       setTypingUsers([]); // Clear stale typing indicators
       
       // Attempt to rejoin voice call if we were in one
-      if (useVoiceStore.getState().isInCall) {
-        socket.emit("voice:join");
+      const voiceState = useVoiceStore.getState();
+      if (voiceState.isInCall) {
+        socket.emit("voice:join", {
+          conversationId: voiceState.callConversationId || useMessageStore.getState().activeConversationId,
+        });
       }
     };
 

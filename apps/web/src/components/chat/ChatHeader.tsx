@@ -4,6 +4,8 @@ import Button from "../Button.jsx";
 import { usePresenceStore } from "../../stores/presenceStore.js";
 import { useUIStore } from "../../stores/uiStore.js";
 import { useVoiceStore } from "../../stores/voiceStore.js";
+import { useMessageStore } from "../../stores/messageStore.js";
+import { useAuthStore } from "../../stores/authStore.js";
 import { useVoice } from "../../hooks/useVoice.js";
 import { useTranslation } from "../../i18n/index.jsx";
 
@@ -13,8 +15,11 @@ interface ChatHeaderProps {
 }
 
 export default function ChatHeader({ onOpenSettings, onLogout }: ChatHeaderProps) {
+  const currentUser = useAuthStore((state) => state.user);
   const usersList = usePresenceStore((state) => state.usersList);
   const onlineUserIds = usePresenceStore((state) => state.onlineUserIds);
+  const conversations = useMessageStore((state) => state.conversations);
+  const activeConversationId = useMessageStore((state) => state.activeConversationId);
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
   const { theme, setTheme } = useUIStore();
   const { joinCall } = useVoice();
@@ -26,6 +31,20 @@ export default function ChatHeader({ onOpenSettings, onLogout }: ChatHeaderProps
 
   const onlineCount = onlineUserIds.size;
   const totalCount = usersList.length;
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
+  const otherMembers = activeConversation?.members.filter((member) => member.id !== currentUser?.id) || [];
+  const title =
+    activeConversationId === "global"
+      ? t('chat.title')
+      : activeConversation?.type === "dm"
+        ? activeConversation.recipient?.displayName || "Direct message"
+        : otherMembers.map((member) => member.displayName).slice(0, 3).join(", ") || "Group chat";
+  const subtitle =
+    activeConversationId === "global"
+      ? `${totalCount} ${t('chat.members')} / ${onlineCount} ${t('chat.online')}`
+      : activeConversation?.type === "dm"
+        ? (onlineUserIds.has(activeConversation.recipient?.id || "") ? t('chat.online') : "Offline")
+        : `${activeConversation?.members.length || 0} ${t('chat.members')}`;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -50,18 +69,18 @@ export default function ChatHeader({ onOpenSettings, onLogout }: ChatHeaderProps
   return (
     <header className="chat-header">
       <div className="chat-header-info">
-        <h2 style={{ fontSize: "20px", fontWeight: "700" }}>{t('chat.title')}</h2>
+        <h2 style={{ fontSize: "20px", fontWeight: "700" }}>{title}</h2>
         <p style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
-          {totalCount} {t('chat.members')}
-          <span>•</span>
-          <span style={{ 
-            display: "inline-block", 
-            width: "6px", 
-            height: "6px", 
-            borderRadius: "50%", 
-            background: "var(--color-online)" 
-          }} />
-          {onlineCount} {t('chat.online')}
+          {activeConversationId === "global" && (
+            <span style={{
+              display: "inline-block",
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              background: "var(--color-online)"
+            }} />
+          )}
+          {subtitle}
         </p>
       </div>
 

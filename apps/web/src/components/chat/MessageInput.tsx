@@ -26,6 +26,14 @@ export default function MessageInput() {
   const replyingTo = useMessageStore((state) => state.replyingTo);
   const clearReplyingTo = useMessageStore((state) => state.clearReplyingTo);
   const activeConversationId = useMessageStore((state) => state.activeConversationId);
+  const conversations = useMessageStore((state) => state.conversations);
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId);
+  const placeholder =
+    activeConversationId === "global"
+      ? t('chat.messagePlaceholder')
+      : activeConversation?.type === "dm"
+        ? `Message ${activeConversation.recipient?.displayName || "direct message"}`
+        : "Message group chat";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -457,7 +465,7 @@ export default function MessageInput() {
               rows={1}
               value={content}
               onChange={handleInputChange}
-              placeholder={t('chat.messagePlaceholder')}
+              placeholder={placeholder}
               onKeyDown={handleKeyDown}
               onBlur={stopTyping}
               aria-label="Message input"

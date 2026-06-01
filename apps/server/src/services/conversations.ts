@@ -1,6 +1,6 @@
 import { db } from "../db/index.js";
 import { conversations, conversationMembers, users } from "../db/schema.js";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 /**
@@ -72,6 +72,43 @@ export async function getOrCreateDM(userAId: string, userBId: string) {
   return convId;
 }
 
+export async function createGroupConversation(ownerId: string, memberIds: string[]) {
+  const uniqueMemberIds = Array.from(new Set([ownerId, ...memberIds])).filter(Boolean);
+  if (uniqueMemberIds.length < 3) {
+    throw new Error("Group chats need at least three members.");
+  }
+
+  const existingUsers = await db.query.users.findMany({
+    where: inArray(users.id, uniqueMemberIds),
+    columns: { id: true },
+  });
+  if (existingUsers.length !== uniqueMemberIds.length) {
+    throw new Error("One or more selected users do not exist.");
+  }
+
+  const convId = nanoid();
+  const now = Date.now();
+
+  await db.transaction(async (tx) => {
+    await tx.insert(conversations).values({
+      id: convId,
+      type: "group",
+      createdAt: now,
+    });
+
+    await tx.insert(conversationMembers).values(
+      uniqueMemberIds.map((userId) => ({
+        id: nanoid(),
+        conversationId: convId,
+        userId,
+        joinedAt: now,
+      }))
+    );
+  });
+
+  return convId;
+}
+
 /**
  * Returns all active DM conversations a user participates in,
  * including details about the recipient user.
@@ -85,18 +122,14 @@ export async function getUserConversations(userId: string) {
     },
   });
 
-  const activeDMs = [];
+  const activeConversations = [];
 
   for (const m of memberships) {
     const conv = m.conversation;
-    if (!conv || conv.type !== "dm") continue;
+    if (!conv || (conv.type !== "dm" && conv.type !== "group")) continue;
 
-    // Find the other member of this DM
-    const otherMember = await db.query.conversationMembers.findFirst({
-      where: and(
-        eq(conversationMembers.conversationId, conv.id),
-        ne(conversationMembers.userId, userId)
-      ),
+    const members = await db.query.conversationMembers.findMany({
+      where: eq(conversationMembers.conversationId, conv.id),
       with: {
         user: {
           columns: {
@@ -110,18 +143,32 @@ export async function getUserConversations(userId: string) {
       },
     });
 
-    if (otherMember?.user) {
-      activeDMs.push({
+    const memberUsers = members
+      .map((member) => member.user)
+      .filter(Boolean);
+
+    if (conv.type === "dm") {
+      const recipient = memberUsers.find((member) => member.id !== userId);
+      if (recipient) {
+        activeConversations.push({
+          id: conv.id,
+          type: conv.type,
+          createdAt: conv.createdAt,
+          recipient,
+          members: memberUsers,
+        });
+      }
+    } else {
+      activeConversations.push({
         id: conv.id,
         type: conv.type,
         createdAt: conv.createdAt,
-        recipient: otherMember.user,
+        members: memberUsers,
       });
     }
   }
 
-  // Sort DMs: newest DMs first
-  return activeDMs.sort((a, b) => b.createdAt - a.createdAt);
+  return activeConversations.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /**

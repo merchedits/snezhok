@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { getOrCreateDM, getUserConversations } from "../services/conversations.js";
+import { createGroupConversation, getOrCreateDM, getUserConversations } from "../services/conversations.js";
 import { requireAuth } from "../lib/middleware.js";
 
 export async function conversationRoutes(fastify: FastifyInstance) {
@@ -46,6 +46,35 @@ export async function conversationRoutes(fastify: FastifyInstance) {
         return { conversationId };
       } catch (err: any) {
         reply.status(500).send({ error: err.message });
+      }
+    }
+  );
+
+  fastify.post(
+    "/api/conversations/group",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        body: {
+          type: "object",
+          required: ["memberIds"],
+          properties: {
+            memberIds: {
+              type: "array",
+              minItems: 2,
+              items: { type: "string", minLength: 1 },
+            },
+          },
+        },
+      },
+    },
+    async (request: any, reply) => {
+      const { memberIds } = request.body || {};
+      try {
+        const conversationId = await createGroupConversation(request.user.id, memberIds || []);
+        return { conversationId };
+      } catch (err: any) {
+        reply.status(400).send({ error: err.message });
       }
     }
   );
