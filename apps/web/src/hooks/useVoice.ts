@@ -17,6 +17,8 @@ const relayGainNodesSingleton = new Map<string, GainNode>(); // socketId -> rela
 const relayAudioSourcesSingleton = new Map<string, Set<AudioBufferSourceNode>>(); // socketId -> scheduled relayed audio
 const relayPlaybackPositionsSingleton = new Map<string, number>(); // socketId -> next scheduled playback time
 const relaySpeakingTimersSingleton = new Map<string, number>(); // socketId -> timeout id
+const webRtcConnectedPeersSingleton = new Set<string>(); // socketIds with connected WebRTC peers
+const webRtcAudioPeersSingleton = new Set<string>(); // socketIds with an active WebRTC audio stream
 let peerConfigSingleton: RTCConfiguration | null = null;
 let sharedAudioContext: AudioContext | null = null;
 let relayCaptureContextSingleton: AudioContext | null = null;
@@ -81,6 +83,17 @@ function processInputFrame(input: Float32Array, level: { rms: number; peak: numb
 
 function emitRelayFrame(conversationId: string, chunk: ArrayBuffer, source: "mic" | "tone") {
   const socket = getSocket();
+  if (source === "mic" && !shouldSendRelayMic()) {
+    const state = useVoiceStore.getState().diagnostics;
+    updateDiagnostics({
+      relayMode: "standby",
+      webRtcConnectedPeers: webRtcConnectedPeersSingleton.size,
+      webRtcAudioPeers: webRtcAudioPeersSingleton.size,
+      framesCaptured: state.framesCaptured,
+    });
+    return;
+  }
+
   socket.emit("voice:audio-frame", {
     conversationId,
     sampleRate: RELAY_SAMPLE_RATE,
@@ -99,7 +112,41 @@ function emitRelayFrame(conversationId: string, chunk: ArrayBuffer, source: "mic
     framesSent: state.framesSent + 1,
     bytesSent: state.bytesSent + chunk.byteLength,
     lastSendAt: Date.now(),
+    relayMode: "active",
+    webRtcConnectedPeers: webRtcConnectedPeersSingleton.size,
+    webRtcAudioPeers: webRtcAudioPeersSingleton.size,
   });
+}
+
+function shouldSendRelayMic() {
+  const socket = getSocket();
+  const remoteParticipants = useVoiceStore
+    .getState()
+    .participants
+    .filter((participant) => participant.socketId !== socket.id);
+
+  if (remoteParticipants.length === 0) return false;
+  return remoteParticipants.some((participant) => !webRtcAudioPeersSingleton.has(participant.socketId));
+}
+
+function markWebRtcConnected(socketId: string) {
+  webRtcConnectedPeersSingleton.add(socketId);
+  updateDiagnostics({
+    webRtcConnectedPeers: webRtcConnectedPeersSingleton.size,
+    webRtcAudioPeers: webRtcAudioPeersSingleton.size,
+    relayMode: shouldSendRelayMic() ? "active" : "standby",
+  });
+}
+
+function markWebRtcAudioActive(socketId: string) {
+  webRtcAudioPeersSingleton.add(socketId);
+  closeRelayAudio(socketId);
+  updateDiagnostics({
+    webRtcConnectedPeers: webRtcConnectedPeersSingleton.size,
+    webRtcAudioPeers: webRtcAudioPeersSingleton.size,
+    relayMode: shouldSendRelayMic() ? "active" : "standby",
+  });
+  addDiagnosticEvent("info", `WebRTC audio active for ${socketId}; relay moved to fallback standby.`);
 }
 
 async function getPeerConfig() {
@@ -134,6 +181,7 @@ function attachPeerDiagnostics(peer: Peer.Instance, socketId: string, label: str
 
   peer.on("connect", () => {
     window.clearTimeout(warnTimer);
+    markWebRtcConnected(socketId);
     console.info(`[voice] Peer ${label} (${socketId}) connected.`);
   });
 
@@ -474,12 +522,17 @@ export function useVoice() {
 
       const socket = getSocket();
       const conversationId = useMessageStore.getState().activeConversationId || "global";
+      webRtcConnectedPeersSingleton.clear();
+      webRtcAudioPeersSingleton.clear();
       useVoiceStore.getState().resetDiagnostics(conversationId);
       updateDiagnostics({
         socketConnected: socket.connected,
         socketId: socket.id || null,
         socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
         conversationId,
+        webRtcConnectedPeers: 0,
+        webRtcAudioPeers: 0,
+        relayMode: "active",
         inputDeviceLabel: getAudioDeviceLabel(selectedInputDeviceId, "audioinput", "Default microphone"),
         outputDeviceLabel: getAudioDeviceLabel(selectedOutputDeviceId, "audiooutput", "Default output"),
       });
@@ -508,6 +561,8 @@ export function useVoice() {
     // Stop local media tracks
     stopRelayCapture();
     closeRelayAudio();
+    webRtcConnectedPeersSingleton.clear();
+    webRtcAudioPeersSingleton.clear();
 
     if (localStreamSingleton) {
       localStreamSingleton.getTracks().forEach((track) => track.stop());
@@ -795,6 +850,7 @@ export function useVoice() {
       const peer = new Peer({
         initiator: true,
         trickle: true,
+        stream: localStreamSingleton,
         config: await getPeerConfig(),
       });
       attachPeerDiagnostics(peer, participant.socketId, `to ${participant.displayName}`);
@@ -841,6 +897,7 @@ export function useVoice() {
         peer = new Peer({
           initiator: false,
           trickle: true,
+          stream: localStreamSingleton,
           config: await getPeerConfig(),
         });
         attachPeerDiagnostics(peer, data.from, "from remote offer");
@@ -894,6 +951,14 @@ export function useVoice() {
       const callConversationId = useVoiceStore.getState().callConversationId || "global";
       if (!data?.from || data.conversationId !== callConversationId) return;
       if (data.from === socket.id) return;
+      if (data.source === "mic" && webRtcAudioPeersSingleton.has(data.from)) {
+        updateDiagnostics({
+          relayMode: "standby",
+          webRtcConnectedPeers: webRtcConnectedPeersSingleton.size,
+          webRtcAudioPeers: webRtcAudioPeersSingleton.size,
+        });
+        return;
+      }
       if (data.source === "tone") {
         addDiagnosticEvent("info", `Received remote test tone frame from ${data.from}.`);
       }
@@ -1011,6 +1076,7 @@ export function useVoice() {
     }
 
     // Audio-only (microphone) stream processing
+    markWebRtcAudioActive(socketId);
     if (audioElementsSingleton.has(socketId)) {
       audioElementsSingleton.get(socketId)?.remove();
     }
@@ -1102,6 +1168,13 @@ export function useVoice() {
       peer.destroy();
       peersSingleton.delete(socketId);
     }
+    webRtcConnectedPeersSingleton.delete(socketId);
+    webRtcAudioPeersSingleton.delete(socketId);
+    updateDiagnostics({
+      webRtcConnectedPeers: webRtcConnectedPeersSingleton.size,
+      webRtcAudioPeers: webRtcAudioPeersSingleton.size,
+      relayMode: shouldSendRelayMic() ? "active" : "standby",
+    });
 
     const audio = audioElementsSingleton.get(socketId);
     if (audio) {

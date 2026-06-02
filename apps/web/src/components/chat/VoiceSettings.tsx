@@ -266,6 +266,8 @@ export default function VoiceSettings({
         <div style={{ padding: "10px", borderRadius: "10px", background: "var(--color-bg-base)", border: "1px solid var(--color-border)", display: "flex", flexDirection: "column", gap: "5px" }}>
           <Stat label="Socket" value={diagnostics.socketConnected ? `connected ${diagnostics.socketId || ""}` : "not connected"} />
           <Stat label="Transport" value={diagnostics.socketTransport} />
+          <Stat label="Voice path" value={diagnostics.relayMode === "standby" ? "WebRTC primary" : "Relay fallback"} />
+          <Stat label="WebRTC peers" value={`${diagnostics.webRtcAudioPeers}/${diagnostics.webRtcConnectedPeers}`} />
           <Stat label="Call" value={diagnostics.conversationId || "none"} />
           <Stat label="Capture" value={diagnostics.captureActive ? `${diagnostics.captureContextState} ${Math.round(diagnostics.localRms * 1000) / 1000}` : diagnostics.captureContextState} />
           <Stat label="Input" value={diagnostics.inputDeviceLabel} />

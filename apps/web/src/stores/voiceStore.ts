@@ -44,6 +44,9 @@ export interface VoiceDiagnostics {
   serverBytesReceived: number;
   serverRecipients: number;
   serverDroppedFrames: number;
+  webRtcConnectedPeers: number;
+  webRtcAudioPeers: number;
+  relayMode: "active" | "standby";
   pingMs: number | null;
   jitterBufferMs: number;
   playbackBufferedMs: number;
@@ -87,6 +90,9 @@ const createVoiceDiagnostics = (): VoiceDiagnostics => ({
   serverBytesReceived: 0,
   serverRecipients: 0,
   serverDroppedFrames: 0,
+  webRtcConnectedPeers: 0,
+  webRtcAudioPeers: 0,
+  relayMode: "active",
   pingMs: null,
   jitterBufferMs: 140,
   playbackBufferedMs: 0,
