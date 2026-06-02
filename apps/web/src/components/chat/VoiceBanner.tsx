@@ -10,7 +10,7 @@ import VoiceVolumeMenu from "./VoiceVolumeMenu.jsx";
 import { useAuthStore } from "../../stores/authStore.js";
 
 export default function VoiceBanner() {
-  const { participants, isInCall, isMuted } = useVoiceStore();
+  const { participants, isInCall, isMuted, diagnostics } = useVoiceStore();
   const {
     joinCall,
     leaveCall,
@@ -121,6 +121,7 @@ export default function VoiceBanner() {
             </div>
             <span style={{ fontSize: "13px", color: "var(--color-text-tertiary)" }}>
               {participants.length} {t('voice.inCall')} • {formatDuration(callDuration)}
+              {diagnostics.pingMs !== null ? ` • ${diagnostics.pingMs} ms` : ""}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", marginLeft: "8px" }}>
@@ -145,6 +146,7 @@ export default function VoiceBanner() {
               onPlayLocalTestTone={playLocalTestTone}
               onSendTestTone={sendTestTone}
               onRequestDiagnostics={requestVoiceDiagnostics}
+              isAdmin={!!currentUser?.isAdmin}
             />
           )}
           

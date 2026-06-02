@@ -429,6 +429,12 @@ export function setupSocketIO(io: Server) {
       });
     });
 
+    socket.on("voice:ping", (data: { sentAt?: number }, ack?: (response: { sentAt?: number; serverAt: number }) => void) => {
+      if (typeof ack === "function") {
+        ack({ sentAt: data?.sentAt, serverAt: Date.now() });
+      }
+    });
+
     socket.on("voice:diagnostics:get", async (data?: { conversationId?: string }) => {
       const requestedConversationId = data?.conversationId || findVoiceConversationBySocket(socketId) || "global";
       const hasAccess = await checkUserAccessToConversation(user.id, requestedConversationId);

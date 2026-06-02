@@ -26,7 +26,14 @@ let relayCaptureMutedGainSingleton: GainNode | null = null;
 let relaySequenceSingleton = 0;
 let lastCaptureDiagnosticsUpdateAt = 0;
 const RELAY_SAMPLE_RATE = 16000;
-const RELAY_BUFFER_SIZE = 4096;
+const RELAY_BUFFER_SIZE = 2048;
+
+function getJitterBufferSeconds() {
+  const mode = useVoiceStore.getState().latencyMode;
+  if (mode === "low") return 0.08;
+  if (mode === "stable") return 0.24;
+  return 0.14;
+}
 
 function updateDiagnostics(patch: Partial<VoiceDiagnostics>) {
   useVoiceStore.getState().updateDiagnostics(patch);
@@ -55,6 +62,21 @@ function getFrameLevel(input: Float32Array) {
     rms: Math.sqrt(sumSquares / input.length),
     peak,
   };
+}
+
+function processInputFrame(input: Float32Array, level: { rms: number; peak: number }) {
+  const { inputGain, noiseGateEnabled, noiseGateThreshold } = useVoiceStore.getState();
+  const gateGain = noiseGateEnabled && level.rms < noiseGateThreshold
+    ? Math.max(0, Math.min(1, level.rms / noiseGateThreshold)) * 0.35
+    : 1;
+
+  const processed = new Float32Array(input.length);
+  const gain = inputGain * gateGain;
+  for (let i = 0; i < input.length; i++) {
+    processed[i] = Math.max(-1, Math.min(1, input[i] * gain));
+  }
+
+  return processed;
 }
 
 function emitRelayFrame(conversationId: string, chunk: ArrayBuffer, source: "mic" | "tone") {
@@ -198,7 +220,8 @@ async function startRelayCapture(stream: MediaStream, conversationId: string) {
     if (useVoiceStore.getState().isMuted) return;
     const input = event.inputBuffer.getChannelData(0);
     const level = getFrameLevel(input);
-    const chunk = floatTo16BitPcm(input, relayCaptureContextSingleton!.sampleRate, RELAY_SAMPLE_RATE);
+    const processedInput = processInputFrame(input, level);
+    const chunk = floatTo16BitPcm(processedInput, relayCaptureContextSingleton!.sampleRate, RELAY_SAMPLE_RATE);
     emitRelayFrame(conversationId, chunk, "mic");
 
     const now = Date.now();
@@ -209,6 +232,7 @@ async function startRelayCapture(stream: MediaStream, conversationId: string) {
         captureContextState: relayCaptureContextSingleton?.state || "closed",
         localRms: level.rms,
         localPeak: level.peak,
+        jitterBufferMs: Math.round(getJitterBufferSeconds() * 1000),
         framesCaptured: current.framesCaptured + 1,
         lastCaptureAt: now,
       });
@@ -311,9 +335,22 @@ async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8A
   source.buffer = audioBuffer;
   source.connect(getRelayGainNode(socketId, context));
 
-  let nextTime = relayPlaybackPositionsSingleton.get(socketId) ?? context.currentTime + 0.08;
-  if (nextTime < context.currentTime + 0.03 || nextTime > context.currentTime + 1.2) {
-    nextTime = context.currentTime + 0.08;
+  const jitterBufferSeconds = getJitterBufferSeconds();
+  let nextTime = relayPlaybackPositionsSingleton.get(socketId) ?? context.currentTime + jitterBufferSeconds;
+  const currentBufferedSeconds = Math.max(0, nextTime - context.currentTime);
+  const currentDiagnostics = useVoiceStore.getState().diagnostics;
+
+  if (nextTime < context.currentTime + 0.015) {
+    nextTime = context.currentTime + jitterBufferSeconds;
+    updateDiagnostics({
+      lateFrames: currentDiagnostics.lateFrames + 1,
+      scheduleResets: currentDiagnostics.scheduleResets + 1,
+    });
+  } else if (currentBufferedSeconds > 1.2) {
+    nextTime = context.currentTime + jitterBufferSeconds;
+    updateDiagnostics({
+      scheduleResets: currentDiagnostics.scheduleResets + 1,
+    });
   }
 
   source.start(nextTime);
@@ -321,6 +358,8 @@ async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8A
   const current = useVoiceStore.getState().diagnostics;
   updateDiagnostics({
     playbackContextState: context.state,
+    jitterBufferMs: Math.round(jitterBufferSeconds * 1000),
+    playbackBufferedMs: Math.round(Math.max(0, nextTime - context.currentTime) * 1000),
     framesPlayed: current.framesPlayed + 1,
     lastPlaybackAt: Date.now(),
   });
@@ -413,8 +452,8 @@ export function useVoice() {
 
       const audioConstraints: MediaTrackConstraints = {
         echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        noiseSuppression: useVoiceStore.getState().noiseSuppressionMode === "browser",
+        autoGainControl: useVoiceStore.getState().noiseSuppressionMode === "browser",
       };
 
       if (selectedInputDeviceId) {
@@ -718,6 +757,19 @@ export function useVoice() {
     if (!isInCall) return;
 
     const socket = getSocket();
+    const measurePing = () => {
+      const sentAt = Date.now();
+      socket.emit("voice:ping", { sentAt }, (response?: { sentAt?: number; serverAt?: number }) => {
+        const echoSentAt = response?.sentAt || sentAt;
+        updateDiagnostics({
+          pingMs: Math.max(0, Date.now() - echoSentAt),
+          socketConnected: socket.connected,
+          socketId: socket.id || null,
+        });
+      });
+    };
+    measurePing();
+    const pingInterval = window.setInterval(measurePing, 5000);
 
     // Triggered when a new user joins the voice channel
     const onUserJoined = async (participant: VoiceParticipant) => {
@@ -895,6 +947,7 @@ export function useVoice() {
     socket.on("voice:diagnostics:snapshot", onDiagnosticsSnapshot);
 
     return () => {
+      window.clearInterval(pingInterval);
       socket.off("voice:user-joined", onUserJoined);
       socket.off("voice:signal", onSignal);
       socket.off("voice:user-left", onUserLeft);

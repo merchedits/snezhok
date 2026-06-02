@@ -9,6 +9,7 @@ interface VoiceSettingsProps {
   onPlayLocalTestTone: () => void;
   onSendTestTone: () => void;
   onRequestDiagnostics: () => void;
+  isAdmin: boolean;
 }
 
 export default function VoiceSettings({
@@ -16,6 +17,7 @@ export default function VoiceSettings({
   onPlayLocalTestTone,
   onSendTestTone,
   onRequestDiagnostics,
+  isAdmin,
 }: VoiceSettingsProps) {
   const { 
     availableDevices, 
@@ -24,7 +26,17 @@ export default function VoiceSettings({
     setInputDevice, 
     setOutputDevice,
     setAvailableDevices,
-    diagnostics
+    diagnostics,
+    inputGain,
+    noiseGateEnabled,
+    noiseGateThreshold,
+    latencyMode,
+    noiseSuppressionMode,
+    setInputGain,
+    setNoiseGateEnabled,
+    setNoiseGateThreshold,
+    setLatencyMode,
+    setNoiseSuppressionMode
   } = useVoiceStore();
 
   const audioInputs = availableDevices.filter((d) => d.kind === "audioinput");
@@ -143,6 +155,92 @@ export default function VoiceSettings({
 
       <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
         <h4 style={{ margin: 0, fontSize: "13px", fontWeight: 700, color: "var(--color-text-primary)", fontFamily: "var(--font-body)" }}>
+          Audio processing
+        </h4>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <label style={{ fontSize: "12px", color: "var(--color-text-secondary)", fontWeight: 600 }}>
+            Input gain: {(inputGain * 100).toFixed(0)}%
+          </label>
+          <input
+            type="range"
+            min="0.25"
+            max="4"
+            step="0.05"
+            value={inputGain}
+            onChange={(e) => setInputGain(Number(e.target.value))}
+          />
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", fontSize: "13px", color: "var(--color-text-secondary)" }}>
+          Browser noise suppression
+          <select
+            value={noiseSuppressionMode}
+            onChange={(e) => setNoiseSuppressionMode(e.target.value as any)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: "8px",
+              border: "1px solid var(--color-bg-subtle)",
+              background: "var(--color-bg-base)",
+              color: "var(--color-text-primary)",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            <option value="browser">On</option>
+            <option value="off">Off / raw</option>
+          </select>
+        </label>
+
+        <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", fontSize: "13px", color: "var(--color-text-secondary)" }}>
+          Soft noise gate
+          <input
+            type="checkbox"
+            checked={noiseGateEnabled}
+            onChange={(e) => setNoiseGateEnabled(e.target.checked)}
+            style={{ width: "18px", height: "18px", accentColor: "var(--color-lavender)" }}
+          />
+        </label>
+
+        {noiseGateEnabled && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <label style={{ fontSize: "12px", color: "var(--color-text-secondary)", fontWeight: 600 }}>
+              Gate threshold: {noiseGateThreshold.toFixed(4)}
+            </label>
+            <input
+              type="range"
+              min="0.0005"
+              max="0.08"
+              step="0.0005"
+              value={noiseGateThreshold}
+              onChange={(e) => setNoiseGateThreshold(Number(e.target.value))}
+            />
+          </div>
+        )}
+
+        <label style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", fontSize: "13px", color: "var(--color-text-secondary)" }}>
+          Latency mode
+          <select
+            value={latencyMode}
+            onChange={(e) => setLatencyMode(e.target.value as any)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: "8px",
+              border: "1px solid var(--color-bg-subtle)",
+              background: "var(--color-bg-base)",
+              color: "var(--color-text-primary)",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            <option value="low">Low</option>
+            <option value="balanced">Balanced</option>
+            <option value="stable">Stable</option>
+          </select>
+        </label>
+      </div>
+
+      {isAdmin && (
+      <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+        <h4 style={{ margin: 0, fontSize: "13px", fontWeight: 700, color: "var(--color-text-primary)", fontFamily: "var(--font-body)" }}>
           Voice diagnostics
         </h4>
 
@@ -174,6 +272,9 @@ export default function VoiceSettings({
           <Stat label="Server got" value={`${diagnostics.serverFramesReceived} frames / recipients ${diagnostics.serverRecipients}`} />
           <Stat label="Received" value={`${diagnostics.framesReceived} frames / ${diagnostics.bytesReceived} B`} />
           <Stat label="Played" value={`${diagnostics.framesPlayed} frames / ${diagnostics.playbackContextState}`} />
+          <Stat label="Ping" value={diagnostics.pingMs !== null ? `${diagnostics.pingMs} ms` : "unknown"} />
+          <Stat label="Buffer" value={`${diagnostics.playbackBufferedMs} ms / target ${diagnostics.jitterBufferMs} ms`} />
+          <Stat label="Late/resets" value={`${diagnostics.lateFrames} / ${diagnostics.scheduleResets}`} />
           <Stat label="Last send" value={formatTime(diagnostics.lastSendAt)} />
           <Stat label="Last server ack" value={formatTime(diagnostics.lastServerAckAt)} />
           <Stat label="Last receive" value={formatTime(diagnostics.lastReceiveAt)} />
@@ -197,6 +298,7 @@ export default function VoiceSettings({
           ))}
         </div>
       </div>
+      )}
 
       <Button variant="ghost" onClick={onClose} style={{ marginTop: '4px' }}>
         {t('voice.close')}

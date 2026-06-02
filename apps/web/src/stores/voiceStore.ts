@@ -43,6 +43,11 @@ export interface VoiceDiagnostics {
   serverBytesReceived: number;
   serverRecipients: number;
   serverDroppedFrames: number;
+  pingMs: number | null;
+  jitterBufferMs: number;
+  playbackBufferedMs: number;
+  lateFrames: number;
+  scheduleResets: number;
   lastCaptureAt: number | null;
   lastSendAt: number | null;
   lastServerAckAt: number | null;
@@ -51,6 +56,9 @@ export interface VoiceDiagnostics {
   lastError: string | null;
   events: VoiceDiagnosticEvent[];
 }
+
+export type VoiceLatencyMode = "low" | "balanced" | "stable";
+export type VoiceNoiseSuppressionMode = "browser" | "off";
 
 const createVoiceDiagnostics = (): VoiceDiagnostics => ({
   sessionId: null,
@@ -77,6 +85,11 @@ const createVoiceDiagnostics = (): VoiceDiagnostics => ({
   serverBytesReceived: 0,
   serverRecipients: 0,
   serverDroppedFrames: 0,
+  pingMs: null,
+  jitterBufferMs: 140,
+  playbackBufferedMs: 0,
+  lateFrames: 0,
+  scheduleResets: 0,
   lastCaptureAt: null,
   lastSendAt: null,
   lastServerAckAt: null,
@@ -97,6 +110,11 @@ interface VoiceState {
   selectedOutputDeviceId: string | null;
   availableDevices: MediaDeviceInfo[];
   diagnostics: VoiceDiagnostics;
+  inputGain: number;
+  noiseGateEnabled: boolean;
+  noiseGateThreshold: number;
+  latencyMode: VoiceLatencyMode;
+  noiseSuppressionMode: VoiceNoiseSuppressionMode;
   setParticipants: (participants: VoiceParticipant[]) => void;
   addParticipant: (participant: VoiceParticipant) => void;
   removeParticipant: (socketId: string) => void;
@@ -112,6 +130,11 @@ interface VoiceState {
   resetDiagnostics: (conversationId?: string | null) => void;
   updateDiagnostics: (patch: Partial<VoiceDiagnostics>) => void;
   addDiagnosticEvent: (level: VoiceDiagnosticEvent["level"], message: string) => void;
+  setInputGain: (gain: number) => void;
+  setNoiseGateEnabled: (enabled: boolean) => void;
+  setNoiseGateThreshold: (threshold: number) => void;
+  setLatencyMode: (mode: VoiceLatencyMode) => void;
+  setNoiseSuppressionMode: (mode: VoiceNoiseSuppressionMode) => void;
 }
 
 export const useVoiceStore = create<VoiceState>((set) => ({
@@ -125,6 +148,11 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   selectedOutputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedOutputDeviceId") : null,
   availableDevices: [],
   diagnostics: createVoiceDiagnostics(),
+  inputGain: typeof window !== "undefined" ? Number(localStorage.getItem("voiceInputGain") || "1") : 1,
+  noiseGateEnabled: typeof window !== "undefined" ? localStorage.getItem("voiceNoiseGateEnabled") === "true" : false,
+  noiseGateThreshold: typeof window !== "undefined" ? Number(localStorage.getItem("voiceNoiseGateThreshold") || "0.004") : 0.004,
+  latencyMode: typeof window !== "undefined" ? ((localStorage.getItem("voiceLatencyMode") as VoiceLatencyMode) || "balanced") : "balanced",
+  noiseSuppressionMode: typeof window !== "undefined" ? ((localStorage.getItem("voiceNoiseSuppressionMode") as VoiceNoiseSuppressionMode) || "browser") : "browser",
 
   setParticipants: (participants) =>
     set((state) => {
@@ -239,4 +267,31 @@ export const useVoiceStore = create<VoiceState>((set) => ({
         ].slice(0, 20),
       },
     })),
+
+  setInputGain: (inputGain) => {
+    const nextGain = Math.max(0.25, Math.min(4, inputGain));
+    localStorage.setItem("voiceInputGain", String(nextGain));
+    set({ inputGain: nextGain });
+  },
+
+  setNoiseGateEnabled: (noiseGateEnabled) => {
+    localStorage.setItem("voiceNoiseGateEnabled", String(noiseGateEnabled));
+    set({ noiseGateEnabled });
+  },
+
+  setNoiseGateThreshold: (noiseGateThreshold) => {
+    const nextThreshold = Math.max(0.0005, Math.min(0.08, noiseGateThreshold));
+    localStorage.setItem("voiceNoiseGateThreshold", String(nextThreshold));
+    set({ noiseGateThreshold: nextThreshold });
+  },
+
+  setLatencyMode: (latencyMode) => {
+    localStorage.setItem("voiceLatencyMode", latencyMode);
+    set({ latencyMode });
+  },
+
+  setNoiseSuppressionMode: (noiseSuppressionMode) => {
+    localStorage.setItem("voiceNoiseSuppressionMode", noiseSuppressionMode);
+    set({ noiseSuppressionMode });
+  },
 }));
