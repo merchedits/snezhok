@@ -19,8 +19,8 @@
   --space-12: 48px;
 
   /* Font Stack */
-  --font-display: 'Nunito', system-ui, -apple-system, sans-serif;
-  --font-body: 'DM Sans', 'Nunito', system-ui, -apple-system, sans-serif;
+  --font-display: 'Nunito', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Noto Sans', Arial, sans-serif;
+  --font-body: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, 'Noto Sans', Arial, sans-serif;
   --font-mono: 'DM Mono', monospace;
 
   /* Typography Scale */
@@ -671,17 +671,20 @@ body {
 
 .sidebar-section-title {
   padding: 6px 8px 2px;
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .sidebar-empty {
+  font-family: var(--font-body);
   padding: 6px 8px;
   color: var(--color-text-tertiary);
   font-size: 12px;
+  font-weight: 400;
   line-height: 1.35;
 }
 
@@ -718,12 +721,14 @@ body {
 }
 
 .conversation-nav-text {
+  font-family: var(--font-body);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .sidebar-spacer {
@@ -890,6 +895,15 @@ body {
   background: var(--color-lavender-soft);
   color: var(--color-text-primary);
   border-radius: 16px 16px 4px 16px;
+}
+
+.bubble.standalone-emoji {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  padding: 2px 6px !important;
+  font-size: 42px;
+  line-height: 1.1;
 }
 
 .bubble code {
@@ -1152,11 +1166,12 @@ body {
 
 .member-section-label {
   padding: var(--space-2) var(--space-3) var(--space-1);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .member-item {
@@ -1189,9 +1204,11 @@ body {
 }
 
 .member-name {
+  font-family: var(--font-body);
   font-size: var(--text-sm);
   color: var(--color-text-primary);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0;
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -1213,10 +1230,12 @@ body {
 }
 
 .member-context-title {
+  font-family: var(--font-body);
   padding: 6px 8px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--color-text-tertiary);
+  letter-spacing: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1232,14 +1251,24 @@ body {
   border-radius: 8px;
   background: transparent;
   color: var(--color-text-primary);
+  font-family: var(--font-body);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
+  letter-spacing: 0;
   cursor: pointer;
   text-align: left;
 }
 
 .member-context-action:hover {
   background: var(--color-bg-subtle);
+}
+
+.member-context-action.danger {
+  color: var(--color-destructive);
+}
+
+.member-context-action.danger:hover {
+  background: rgba(255, 107, 120, 0.1);
 }
 
 .group-invite-list {
@@ -1270,13 +1299,15 @@ body {
 }
 
 .group-invite-row span:nth-child(2) {
+  font-family: var(--font-body);
   flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .group-invite-check {
@@ -1774,6 +1805,11 @@ body {
 
   .bubble {
     max-width: 90%;
+  }
+
+  .bubble.standalone-emoji {
+    font-size: 34px;
+    max-width: 100%;
   }
   .bubble.other {
     margin-left: 0 !important;

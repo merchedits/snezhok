@@ -17,6 +17,10 @@ interface VoiceParticipant {
   avatarUrl?: string | null;
 }
 const voiceParticipantsByConversation = new Map<string, Map<string, VoiceParticipant>>();
+let activeSocketServer: Server | null = null;
+const MAX_VOICE_FRAME_BYTES = 24 * 1024;
+const MAX_VOICE_BYTES_PER_WINDOW = 384 * 1024;
+const VOICE_RATE_WINDOW_MS = 1000;
 
 function getVoiceRoomParticipants(conversationId: string) {
   return Array.from(voiceParticipantsByConversation.get(conversationId)?.values() || []);
@@ -29,7 +33,21 @@ function findVoiceConversationBySocket(socketId: string) {
   return null;
 }
 
+export function disconnectUserSockets(userId: string) {
+  if (!activeSocketServer) return;
+  const socketIds = getSocketsByUser(userId);
+  socketIds.forEach((id) => {
+    const socket = activeSocketServer?.sockets.sockets.get(id);
+    if (socket) {
+      socket.emit("auth:kicked");
+      socket.disconnect(true);
+    }
+  });
+}
+
 export function setupSocketIO(io: Server) {
+  activeSocketServer = io;
+
   // Authentication middleware
   io.use(async (socket, next) => {
     try {
@@ -125,6 +143,8 @@ export function setupSocketIO(io: Server) {
       message: 0,
       reaction: 0,
       typing: 0,
+      voiceAudioBytes: 0,
+      voiceAudioWindowStartedAt: Date.now(),
     };
 
     // 2. Chat messaging events
@@ -403,6 +423,59 @@ export function setupSocketIO(io: Server) {
         conversationId,
         signal: data.signal,
       });
+    });
+
+    // Server-relayed microphone frames. This is intentionally scoped to the
+    // active voice room so audio keeps working even when WebRTC ICE cannot form
+    // a direct peer path across mobile/home NATs.
+    socket.on("voice:audio-frame", (data: {
+      conversationId?: string;
+      sampleRate?: number;
+      channels?: number;
+      sequence?: number;
+      sentAt?: number;
+      chunk?: ArrayBuffer | Buffer;
+    }) => {
+      try {
+        const conversationId = findVoiceConversationBySocket(socketId);
+        if (!conversationId || (data?.conversationId && data.conversationId !== conversationId)) return;
+
+        const participants = voiceParticipantsByConversation.get(conversationId);
+        if (!participants?.has(socketId)) return;
+
+        const chunk = data?.chunk;
+        const byteLength =
+          Buffer.isBuffer(chunk) ? chunk.byteLength :
+          chunk instanceof ArrayBuffer ? chunk.byteLength :
+          ArrayBuffer.isView(chunk as any) ? (chunk as any).byteLength :
+          0;
+
+        if (!chunk || byteLength <= 0 || byteLength > MAX_VOICE_FRAME_BYTES) return;
+
+        const sampleRate = Number(data.sampleRate) || 16000;
+        const channels = Number(data.channels) || 1;
+        if (sampleRate < 8000 || sampleRate > 48000 || channels !== 1) return;
+
+        const now = Date.now();
+        if (now - rateLimits.voiceAudioWindowStartedAt > VOICE_RATE_WINDOW_MS) {
+          rateLimits.voiceAudioWindowStartedAt = now;
+          rateLimits.voiceAudioBytes = 0;
+        }
+        rateLimits.voiceAudioBytes += byteLength;
+        if (rateLimits.voiceAudioBytes > MAX_VOICE_BYTES_PER_WINDOW) return;
+
+        socket.to(`room:${conversationId}`).emit("voice:audio-frame", {
+          from: socketId,
+          conversationId,
+          sampleRate,
+          channels,
+          sequence: data.sequence,
+          sentAt: data.sentAt,
+          chunk,
+        });
+      } catch (err) {
+        console.warn("Failed to relay voice frame:", err);
+      }
     });
 
     // 6. Handle Disconnect

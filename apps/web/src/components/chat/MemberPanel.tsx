@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { Activity, Check, MessageCircle, UsersRound, X } from "lucide-react";
+import { Activity, Check, MessageCircle, UserX, UsersRound, X } from "lucide-react";
 import Avatar from "../Avatar.jsx";
 import Button from "../Button.jsx";
 import Modal from "../Modal.jsx";
@@ -21,6 +21,7 @@ type MemberSection = {
 export default function MemberPanel() {
   const currentUser = useAuthStore((state) => state.user);
   const usersList = usePresenceStore((state) => state.usersList);
+  const fetchUsers = usePresenceStore((state) => state.fetchUsers);
   const voiceParticipants = useVoiceStore((state) => state.participants);
   const toggleMemberPanel = useUIStore((state) => state.toggleMemberPanel);
   const startDM = useMessageStore((state) => state.startDM);
@@ -126,6 +127,27 @@ export default function MemberPanel() {
     }
   };
 
+  const handleKickMember = async () => {
+    if (!contextUser || !currentUser?.isAdmin) return;
+
+    const confirmed = confirm(`Kick ${contextUser.displayName}? Their account will be removed from this server.`);
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(contextUser.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Could not kick member.");
+      }
+      await fetchUsers();
+      setContextUser(null);
+    } catch (err: any) {
+      alert(err?.message || "Could not kick member.");
+    }
+  };
+
   const availableGroupUsers = usersList.filter((member) => member.id !== currentUser?.id);
   const pinnedGroupUserId = selectedGroupIds[0];
 
@@ -183,6 +205,12 @@ export default function MemberPanel() {
             <UsersRound size={15} />
             Invite to group chat
           </button>
+          {currentUser?.isAdmin && (
+            <button className="member-context-action danger" onClick={handleKickMember}>
+              <UserX size={15} />
+              Kick member
+            </button>
+          )}
         </div>
       )}
 

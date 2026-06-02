@@ -8,7 +8,7 @@ import { useUIStore } from "../stores/uiStore.js";
 import { playNotificationSound } from "../lib/sounds.js";
 
 export function useSocket() {
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, logout } = useAuthStore();
   const addMessage = useMessageStore((state) => state.addMessage);
   const updateMessageReactions = useMessageStore((state) => state.updateMessageReactions);
   const removeMessage = useMessageStore((state) => state.removeMessage);
@@ -121,6 +121,11 @@ export function useSocket() {
       alert("Server error: " + data.message);
     };
 
+    const onKicked = async () => {
+      await logout();
+      alert("You were removed from this server.");
+    };
+
     const isCurrentConversation = (conversationId?: string) => {
       return (conversationId || "global") === useMessageStore.getState().activeConversationId;
     };
@@ -176,6 +181,7 @@ export function useSocket() {
     socket.on("message:edited", onMessageEdited);
     socket.on("message:cleared_all", onMessageClearedAll);
     socket.on("error", onError);
+    socket.on("auth:kicked", onKicked);
     socket.on("voice:update-participants", onVoiceUpdateParticipants);
     socket.on("voice:user-joined", onVoiceUserJoined);
     socket.on("voice:user-left", onVoiceUserLeft);
@@ -198,11 +204,12 @@ export function useSocket() {
       socket.off("message:edited", onMessageEdited);
       socket.off("message:cleared_all", onMessageClearedAll);
       socket.off("error", onError);
+      socket.off("auth:kicked", onKicked);
       socket.off("voice:update-participants", onVoiceUpdateParticipants);
       socket.off("voice:user-joined", onVoiceUserJoined);
       socket.off("voice:user-left", onVoiceUserLeft);
     };
-  }, [isAuthenticated, userId]);
+  }, [isAuthenticated, userId, logout]);
 
   return connected;
 }

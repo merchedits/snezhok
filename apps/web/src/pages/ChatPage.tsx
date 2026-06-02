@@ -709,16 +709,6 @@ export default function ChatPage() {
               </Button>
             </div>
 
-            {/* Danger Zone: Logout */}
-            <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px dashed var(--color-destructive)", display: "flex", flexDirection: "column", gap: "8px" }}>
-              <h4 style={{ fontWeight: 600, fontSize: "var(--text-sm)", color: "var(--color-destructive)", fontFamily: "var(--font-display)" }}>
-                Danger Zone
-              </h4>
-              <Button variant="danger" onClick={(e) => { e.preventDefault(); if (confirm(t('settings.logoutConfirm'))) logout(); }}>
-                {t('settings.logout')}
-              </Button>
-            </div>
-
             {profileSuccess && (
               <p style={{ color: "var(--color-sage)", fontSize: "var(--text-sm)", fontWeight: 500, marginTop: "16px" }}>
                 {t('settings.profileUpdated')}
@@ -728,6 +718,16 @@ export default function ChatPage() {
             <Button type="submit" disabled={isSavingProfile} style={{ marginTop: "16px" }}>
               {isSavingProfile ? t('settings.saving') : t('settings.saveChanges')}
             </Button>
+
+            {/* Danger Zone: Logout */}
+            <div style={{ marginTop: "4px", paddingTop: "16px", borderTop: "1px dashed var(--color-destructive)", display: "flex", flexDirection: "column", gap: "8px" }}>
+              <h4 style={{ fontWeight: 600, fontSize: "var(--text-sm)", color: "var(--color-destructive)", fontFamily: "var(--font-body)" }}>
+                Danger Zone
+              </h4>
+              <Button variant="danger" onClick={(e) => { e.preventDefault(); if (confirm(t('settings.logoutConfirm'))) logout(); }}>
+                {t('settings.logout')}
+              </Button>
+            </div>
           </form>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>

@@ -14,6 +14,20 @@ interface MessageBubbleProps {
   isGroupStart: boolean;
 }
 
+function isStandaloneEmojiMessage(content: string) {
+  const trimmed = content.trim();
+  if (!trimmed) return false;
+
+  const allowedEmojiText = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\uFE0F\u200D\s]+$/u;
+  if (!allowedEmojiText.test(trimmed)) return false;
+
+  const emojiCount = Array.from(trimmed).filter((char) =>
+    /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(char)
+  ).length;
+
+  return emojiCount > 0 && emojiCount <= 6 && trimmed.length <= 32;
+}
+
 export default function MessageBubble({ message, isGroupStart }: MessageBubbleProps) {
   const { user: currentUser } = useAuthStore();
   const setReplyingTo = useMessageStore((state) => state.setReplyingTo);
@@ -25,6 +39,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
 
   const isOwn = message.userId === currentUser?.id;
   const isAdmin = currentUser?.isAdmin || false;
+  const isStandaloneEmoji = message.type === "text" && !message.fileId && isStandaloneEmojiMessage(message.content);
 
   // Heart reaction logic
   const heartReaction = message.reactions.find((r) => r.emoji === "❤️");
@@ -159,7 +174,7 @@ export default function MessageBubble({ message, isGroupStart }: MessageBubblePr
       >
         {/* Message bubble container */}
         <div
-          className={`bubble ${isOwn ? "own" : "other"}`}
+          className={`bubble ${isOwn ? "own" : "other"} ${isStandaloneEmoji ? "standalone-emoji" : ""}`}
           onClick={handleBubbleClick}
           style={{
             // If it's a file, we want minimal padding or file card styling

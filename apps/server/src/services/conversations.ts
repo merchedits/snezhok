@@ -177,7 +177,11 @@ export async function getUserConversations(userId: string) {
 export async function checkUserAccessToConversation(userId: string, conversationId: string): Promise<boolean> {
   // Global channel is accessible to all registered users
   if (conversationId === "global") {
-    return true;
+    const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { id: true },
+    });
+    return !!user;
   }
 
   const membership = await db.query.conversationMembers.findFirst({

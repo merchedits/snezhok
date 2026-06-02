@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq, desc } from "drizzle-orm";
 import { createInviteCode, getInviteCodes } from "../services/auth.js";
+import { disconnectUserSockets } from "../socket/index.js";
 import fs from "fs";
 import path from "path";
 import { pipeline } from "stream/promises";
@@ -125,6 +126,43 @@ export async function userRoutes(fastify: FastifyInstance) {
           .where(eq(users.id, request.user.id));
 
         return { success: true, avatarUrl };
+      } catch (error: any) {
+        reply.status(500).send({ error: error.message });
+      }
+    }
+  );
+
+  // Admin: Kick a member by removing their account
+  fastify.delete(
+    "/api/users/:userId",
+    { preHandler: [requireAdmin] },
+    async (request: any, reply) => {
+      const targetUserId = request.params?.userId;
+
+      if (!targetUserId) {
+        reply.status(400).send({ error: "Missing user id." });
+        return;
+      }
+
+      if (targetUserId === request.user.id) {
+        reply.status(400).send({ error: "You cannot kick yourself." });
+        return;
+      }
+
+      try {
+        const targetUser = await db.query.users.findFirst({
+          where: eq(users.id, targetUserId),
+          columns: { id: true },
+        });
+
+        if (!targetUser) {
+          reply.status(404).send({ error: "User not found." });
+          return;
+        }
+
+        await db.delete(users).where(eq(users.id, targetUserId));
+        disconnectUserSockets(targetUserId);
+        return { success: true };
       } catch (error: any) {
         reply.status(500).send({ error: error.message });
       }

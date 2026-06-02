@@ -13,8 +13,19 @@ const peersSingleton = new Map<string, Peer.Instance>(); // socketId -> Peer ins
 const audioElementsSingleton = new Map<string, HTMLAudioElement>(); // socketId -> Audio element
 const audioContextsSingleton = new Map<string, { audioContext: AudioContext; analyser: AnalyserNode; cancelFrame: number }>(); // socketId -> Audio analysis nodes
 const gainNodesSingleton = new Map<string, GainNode>(); // socketId -> GainNode
+const relayGainNodesSingleton = new Map<string, GainNode>(); // socketId -> relayed audio gain
+const relayAudioSourcesSingleton = new Map<string, Set<AudioBufferSourceNode>>(); // socketId -> scheduled relayed audio
+const relayPlaybackPositionsSingleton = new Map<string, number>(); // socketId -> next scheduled playback time
+const relaySpeakingTimersSingleton = new Map<string, number>(); // socketId -> timeout id
 let peerConfigSingleton: RTCConfiguration | null = null;
 let sharedAudioContext: AudioContext | null = null;
+let relayCaptureContextSingleton: AudioContext | null = null;
+let relayCaptureProcessorSingleton: ScriptProcessorNode | null = null;
+let relayCaptureSourceSingleton: MediaStreamAudioSourceNode | null = null;
+let relayCaptureMutedGainSingleton: GainNode | null = null;
+let relaySequenceSingleton = 0;
+const RELAY_SAMPLE_RATE = 16000;
+const RELAY_BUFFER_SIZE = 4096;
 
 async function getPeerConfig() {
   if (peerConfigSingleton) return peerConfigSingleton;
@@ -60,6 +71,212 @@ function attachPeerDiagnostics(peer: Peer.Instance, socketId: string, label: str
 
   peer.on("close", () => {
     window.clearTimeout(warnTimer);
+  });
+}
+
+async function getSharedAudioContext() {
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!sharedAudioContext) {
+    sharedAudioContext = new AudioContextClass();
+  }
+  if (sharedAudioContext.state === "suspended") {
+    await sharedAudioContext.resume().catch(console.error);
+  }
+  return sharedAudioContext;
+}
+
+function floatTo16BitPcm(input: Float32Array, inputSampleRate: number, outputSampleRate: number) {
+  const sampleRateRatio = inputSampleRate / outputSampleRate;
+  const outputLength = Math.max(1, Math.round(input.length / sampleRateRatio));
+  const output = new Int16Array(outputLength);
+
+  let inputOffset = 0;
+  for (let outputOffset = 0; outputOffset < outputLength; outputOffset++) {
+    const nextInputOffset = Math.min(input.length, Math.round((outputOffset + 1) * sampleRateRatio));
+    let accum = 0;
+    let count = 0;
+
+    for (let i = inputOffset; i < nextInputOffset; i++) {
+      accum += input[i];
+      count++;
+    }
+
+    const sample = Math.max(-1, Math.min(1, count > 0 ? accum / count : 0));
+    output[outputOffset] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    inputOffset = nextInputOffset;
+  }
+
+  return output.buffer;
+}
+
+async function startRelayCapture(stream: MediaStream, conversationId: string) {
+  stopRelayCapture();
+
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) {
+    console.warn("[voice] Web Audio is unavailable; falling back to WebRTC only.");
+    return;
+  }
+
+  const socket = getSocket();
+  relayCaptureContextSingleton = new AudioContextClass();
+  if (relayCaptureContextSingleton.state === "suspended") {
+    await relayCaptureContextSingleton.resume().catch(console.error);
+  }
+
+  relayCaptureSourceSingleton = relayCaptureContextSingleton.createMediaStreamSource(stream);
+  relayCaptureProcessorSingleton = relayCaptureContextSingleton.createScriptProcessor(RELAY_BUFFER_SIZE, 1, 1);
+  relayCaptureMutedGainSingleton = relayCaptureContextSingleton.createGain();
+  relayCaptureMutedGainSingleton.gain.value = 0;
+
+  relayCaptureProcessorSingleton.onaudioprocess = (event) => {
+    if (useVoiceStore.getState().isMuted) return;
+    const input = event.inputBuffer.getChannelData(0);
+    const chunk = floatTo16BitPcm(input, relayCaptureContextSingleton!.sampleRate, RELAY_SAMPLE_RATE);
+    socket.emit("voice:audio-frame", {
+      conversationId,
+      sampleRate: RELAY_SAMPLE_RATE,
+      channels: 1,
+      sequence: relaySequenceSingleton++,
+      sentAt: Date.now(),
+      chunk,
+    });
+  };
+
+  relayCaptureSourceSingleton.connect(relayCaptureProcessorSingleton);
+  relayCaptureProcessorSingleton.connect(relayCaptureMutedGainSingleton);
+  relayCaptureMutedGainSingleton.connect(relayCaptureContextSingleton.destination);
+  console.info("[voice] Started server-relayed PCM audio.");
+}
+
+function stopRelayCapture() {
+  if (relayCaptureProcessorSingleton) {
+    relayCaptureProcessorSingleton.onaudioprocess = null;
+    try {
+      relayCaptureProcessorSingleton.disconnect();
+    } catch (e) {}
+    relayCaptureProcessorSingleton = null;
+  }
+
+  if (relayCaptureSourceSingleton) {
+    try {
+      relayCaptureSourceSingleton.disconnect();
+    } catch (e) {}
+    relayCaptureSourceSingleton = null;
+  }
+
+  if (relayCaptureMutedGainSingleton) {
+    try {
+      relayCaptureMutedGainSingleton.disconnect();
+    } catch (e) {}
+    relayCaptureMutedGainSingleton = null;
+  }
+
+  if (relayCaptureContextSingleton) {
+    try {
+      relayCaptureContextSingleton.close();
+    } catch (e) {}
+    relayCaptureContextSingleton = null;
+  }
+}
+
+function getRelayGainNode(socketId: string, context: AudioContext) {
+  const existing = relayGainNodesSingleton.get(socketId);
+  if (existing && existing.context === context) return existing;
+
+  const gainNode = context.createGain();
+  const participant = useVoiceStore.getState().participants.find((p) => p.socketId === socketId);
+  const saved = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("cozy_voice_user_volumes") || "{}") : {};
+  const volume = participant?.userId ? (saved[participant.userId] ?? 100) : 100;
+  gainNode.gain.value = volume / 100;
+  gainNode.connect(context.destination);
+  relayGainNodesSingleton.set(socketId, gainNode);
+  return gainNode;
+}
+
+function toArrayBuffer(chunk: ArrayBuffer | Uint8Array) {
+  if (chunk instanceof ArrayBuffer) return chunk;
+  return chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+}
+
+async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8Array, sampleRate: number) {
+  const context = await getSharedAudioContext();
+  if (!context) return;
+
+  if (typeof (context as any).setSinkId === "function") {
+    const outputId = useVoiceStore.getState().selectedOutputDeviceId;
+    if (outputId) {
+      (context as any).setSinkId(outputId).catch(console.error);
+    }
+  }
+
+  const pcm = new Int16Array(toArrayBuffer(chunk));
+  if (pcm.length === 0) return;
+
+  const audioBuffer = context.createBuffer(1, pcm.length, sampleRate || RELAY_SAMPLE_RATE);
+  const channel = audioBuffer.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) {
+    channel[i] = Math.max(-1, Math.min(1, pcm[i] / 32768));
+  }
+
+  const source = context.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(getRelayGainNode(socketId, context));
+
+  let nextTime = relayPlaybackPositionsSingleton.get(socketId) ?? context.currentTime + 0.08;
+  if (nextTime < context.currentTime + 0.03 || nextTime > context.currentTime + 1.2) {
+    nextTime = context.currentTime + 0.08;
+  }
+
+  source.start(nextTime);
+  relayPlaybackPositionsSingleton.set(socketId, nextTime + audioBuffer.duration);
+
+  const sources = relayAudioSourcesSingleton.get(socketId) || new Set<AudioBufferSourceNode>();
+  sources.add(source);
+  relayAudioSourcesSingleton.set(socketId, sources);
+  source.onended = () => sources.delete(source);
+
+  useVoiceStore.getState().setSpeaking(socketId, true);
+  const previousTimer = relaySpeakingTimersSingleton.get(socketId);
+  if (previousTimer) window.clearTimeout(previousTimer);
+  relaySpeakingTimersSingleton.set(socketId, window.setTimeout(() => {
+    useVoiceStore.getState().setSpeaking(socketId, false);
+    relaySpeakingTimersSingleton.delete(socketId);
+  }, 350));
+}
+
+function closeRelayAudio(socketId?: string) {
+  const ids = socketId ? [socketId] : Array.from(new Set([
+    ...relayAudioSourcesSingleton.keys(),
+    ...relayGainNodesSingleton.keys(),
+    ...relaySpeakingTimersSingleton.keys(),
+  ]));
+
+  ids.forEach((id) => {
+    relayAudioSourcesSingleton.get(id)?.forEach((source) => {
+      try {
+        source.stop();
+      } catch (e) {}
+      try {
+        source.disconnect();
+      } catch (e) {}
+    });
+    relayAudioSourcesSingleton.delete(id);
+
+    const gainNode = relayGainNodesSingleton.get(id);
+    if (gainNode) {
+      try {
+        gainNode.disconnect();
+      } catch (e) {}
+      relayGainNodesSingleton.delete(id);
+    }
+
+    const timer = relaySpeakingTimersSingleton.get(id);
+    if (timer) window.clearTimeout(timer);
+    relaySpeakingTimersSingleton.delete(id);
+    relayPlaybackPositionsSingleton.delete(id);
+    useVoiceStore.getState().setSpeaking(id, false);
   });
 }
 
@@ -114,6 +331,7 @@ export function useVoice() {
       setIsInCall(true);
       setCallConversationId(conversationId);
       socket.emit("voice:join", { conversationId });
+      await startRelayCapture(stream, conversationId);
 
       // Set up speaking detection for local user (do not connect to destination to prevent local feedback/echo)
       setupSpeakingDetection(currentUser?.id || socket.id || "local", stream, false);
@@ -130,6 +348,9 @@ export function useVoice() {
     socket.emit("voice:leave");
 
     // Stop local media tracks
+    stopRelayCapture();
+    closeRelayAudio();
+
     if (localStreamSingleton) {
       localStreamSingleton.getTracks().forEach((track) => track.stop());
       localStreamSingleton = null;
@@ -342,7 +563,6 @@ export function useVoice() {
       const peer = new Peer({
         initiator: true,
         trickle: true,
-        stream: localStreamSingleton,
         config: await getPeerConfig(),
       });
       attachPeerDiagnostics(peer, participant.socketId, `to ${participant.displayName}`);
@@ -389,7 +609,6 @@ export function useVoice() {
         peer = new Peer({
           initiator: false,
           trickle: true,
-          stream: localStreamSingleton,
           config: await getPeerConfig(),
         });
         attachPeerDiagnostics(peer, data.from, "from remote offer");
@@ -433,14 +652,30 @@ export function useVoice() {
       playLeaveSound();
     };
 
+    const onAudioFrame = (data: {
+      from: string;
+      conversationId?: string;
+      sampleRate?: number;
+      chunk: ArrayBuffer | Uint8Array;
+    }) => {
+      const callConversationId = useVoiceStore.getState().callConversationId || "global";
+      if (!data?.from || data.conversationId !== callConversationId) return;
+      if (data.from === socket.id) return;
+      playRelayAudioFrame(data.from, data.chunk, data.sampleRate || RELAY_SAMPLE_RATE).catch((err) => {
+        console.warn("[voice] Failed to play relayed audio frame:", err);
+      });
+    };
+
     socket.on("voice:user-joined", onUserJoined);
     socket.on("voice:signal", onSignal);
     socket.on("voice:user-left", onUserLeft);
+    socket.on("voice:audio-frame", onAudioFrame);
 
     return () => {
       socket.off("voice:user-joined", onUserJoined);
       socket.off("voice:signal", onSignal);
       socket.off("voice:user-left", onUserLeft);
+      socket.off("voice:audio-frame", onAudioFrame);
     };
   }, [isInCall]);
 
@@ -531,6 +766,11 @@ export function useVoice() {
       if (gainNode) {
         gainNode.gain.setTargetAtTime(volumePercent / 100, gainNode.context.currentTime, 0.01);
       }
+
+      const relayGainNode = relayGainNodesSingleton.get(socketId);
+      if (relayGainNode) {
+        relayGainNode.gain.setTargetAtTime(volumePercent / 100, relayGainNode.context.currentTime, 0.01);
+      }
     });
   }, [volumes]);
 
@@ -596,6 +836,7 @@ export function useVoice() {
       gainNodesSingleton.delete(socketId);
     }
 
+    closeRelayAudio(socketId);
     setSpeaking(socketId, false);
   };
 
