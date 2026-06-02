@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import Peer from "simple-peer";
 import { getSocket } from "../lib/socket.js";
-import { useVoiceStore, VoiceParticipant } from "../stores/voiceStore.js";
+import { useVoiceStore, VoiceParticipant, type VoiceDiagnostics } from "../stores/voiceStore.js";
 import { useAuthStore } from "../stores/authStore.js";
 import { useMessageStore } from "../stores/messageStore.js";
 import { playJoinSound, playLeaveSound, playMuteSound, playUnmuteSound, playScreenshareSound } from "../lib/sounds.js";
@@ -24,8 +24,60 @@ let relayCaptureProcessorSingleton: ScriptProcessorNode | null = null;
 let relayCaptureSourceSingleton: MediaStreamAudioSourceNode | null = null;
 let relayCaptureMutedGainSingleton: GainNode | null = null;
 let relaySequenceSingleton = 0;
+let lastCaptureDiagnosticsUpdateAt = 0;
 const RELAY_SAMPLE_RATE = 16000;
 const RELAY_BUFFER_SIZE = 4096;
+
+function updateDiagnostics(patch: Partial<VoiceDiagnostics>) {
+  useVoiceStore.getState().updateDiagnostics(patch);
+}
+
+function addDiagnosticEvent(level: "info" | "warn" | "error", message: string) {
+  console[level === "error" ? "error" : level === "warn" ? "warn" : "info"](`[voice] ${message}`);
+  useVoiceStore.getState().addDiagnosticEvent(level, message);
+}
+
+function getAudioDeviceLabel(deviceId: string | null, kind: MediaDeviceKind, fallback: string) {
+  const devices = useVoiceStore.getState().availableDevices;
+  const device = deviceId ? devices.find((d) => d.deviceId === deviceId && d.kind === kind) : null;
+  return device?.label || fallback;
+}
+
+function getFrameLevel(input: Float32Array) {
+  let sumSquares = 0;
+  let peak = 0;
+  for (let i = 0; i < input.length; i++) {
+    const value = Math.abs(input[i]);
+    sumSquares += value * value;
+    if (value > peak) peak = value;
+  }
+  return {
+    rms: Math.sqrt(sumSquares / input.length),
+    peak,
+  };
+}
+
+function emitRelayFrame(conversationId: string, chunk: ArrayBuffer, source: "mic" | "tone") {
+  const socket = getSocket();
+  socket.emit("voice:audio-frame", {
+    conversationId,
+    sampleRate: RELAY_SAMPLE_RATE,
+    channels: 1,
+    sequence: relaySequenceSingleton++,
+    sentAt: Date.now(),
+    source,
+    chunk,
+  });
+
+  const state = useVoiceStore.getState().diagnostics;
+  useVoiceStore.getState().updateDiagnostics({
+    socketConnected: socket.connected,
+    socketId: socket.id || null,
+    framesSent: state.framesSent + 1,
+    bytesSent: state.bytesSent + chunk.byteLength,
+    lastSendAt: Date.now(),
+  });
+}
 
 async function getPeerConfig() {
   if (peerConfigSingleton) return peerConfigSingleton;
@@ -83,6 +135,7 @@ async function getSharedAudioContext() {
   if (sharedAudioContext.state === "suspended") {
     await sharedAudioContext.resume().catch(console.error);
   }
+  updateDiagnostics({ playbackContextState: sharedAudioContext.state });
   return sharedAudioContext;
 }
 
@@ -115,11 +168,11 @@ async function startRelayCapture(stream: MediaStream, conversationId: string) {
 
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioContextClass) {
-    console.warn("[voice] Web Audio is unavailable; falling back to WebRTC only.");
+    addDiagnosticEvent("error", "Web Audio is unavailable in this browser; relayed audio cannot capture/play.");
+    updateDiagnostics({ relaySupported: false, captureActive: false, captureContextState: "unsupported" });
     return;
   }
 
-  const socket = getSocket();
   relayCaptureContextSingleton = new AudioContextClass();
   if (relayCaptureContextSingleton.state === "suspended") {
     await relayCaptureContextSingleton.resume().catch(console.error);
@@ -130,24 +183,46 @@ async function startRelayCapture(stream: MediaStream, conversationId: string) {
   relayCaptureMutedGainSingleton = relayCaptureContextSingleton.createGain();
   relayCaptureMutedGainSingleton.gain.value = 0;
 
+  updateDiagnostics({
+    relaySupported: true,
+    captureActive: true,
+    captureContextState: relayCaptureContextSingleton.state,
+    inputDeviceLabel: getAudioDeviceLabel(useVoiceStore.getState().selectedInputDeviceId, "audioinput", "Default microphone"),
+    outputDeviceLabel: getAudioDeviceLabel(useVoiceStore.getState().selectedOutputDeviceId, "audiooutput", "Default output"),
+    localSampleRate: relayCaptureContextSingleton.sampleRate,
+    relaySampleRate: RELAY_SAMPLE_RATE,
+  });
+  addDiagnosticEvent("info", `Started audio capture at ${relayCaptureContextSingleton.sampleRate} Hz, relaying at ${RELAY_SAMPLE_RATE} Hz.`);
+
   relayCaptureProcessorSingleton.onaudioprocess = (event) => {
     if (useVoiceStore.getState().isMuted) return;
     const input = event.inputBuffer.getChannelData(0);
+    const level = getFrameLevel(input);
     const chunk = floatTo16BitPcm(input, relayCaptureContextSingleton!.sampleRate, RELAY_SAMPLE_RATE);
-    socket.emit("voice:audio-frame", {
-      conversationId,
-      sampleRate: RELAY_SAMPLE_RATE,
-      channels: 1,
-      sequence: relaySequenceSingleton++,
-      sentAt: Date.now(),
-      chunk,
-    });
+    emitRelayFrame(conversationId, chunk, "mic");
+
+    const now = Date.now();
+    const current = useVoiceStore.getState().diagnostics;
+    if (now - lastCaptureDiagnosticsUpdateAt > 180) {
+      lastCaptureDiagnosticsUpdateAt = now;
+      updateDiagnostics({
+        captureContextState: relayCaptureContextSingleton?.state || "closed",
+        localRms: level.rms,
+        localPeak: level.peak,
+        framesCaptured: current.framesCaptured + 1,
+        lastCaptureAt: now,
+      });
+    } else {
+      updateDiagnostics({
+        framesCaptured: current.framesCaptured + 1,
+        lastCaptureAt: now,
+      });
+    }
   };
 
   relayCaptureSourceSingleton.connect(relayCaptureProcessorSingleton);
   relayCaptureProcessorSingleton.connect(relayCaptureMutedGainSingleton);
   relayCaptureMutedGainSingleton.connect(relayCaptureContextSingleton.destination);
-  console.info("[voice] Started server-relayed PCM audio.");
 }
 
 function stopRelayCapture() {
@@ -179,6 +254,8 @@ function stopRelayCapture() {
     } catch (e) {}
     relayCaptureContextSingleton = null;
   }
+
+  updateDiagnostics({ captureActive: false, captureContextState: "closed" });
 }
 
 function getRelayGainNode(socketId: string, context: AudioContext) {
@@ -202,7 +279,10 @@ function toArrayBuffer(chunk: ArrayBuffer | Uint8Array) {
 
 async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8Array, sampleRate: number) {
   const context = await getSharedAudioContext();
-  if (!context) return;
+  if (!context) {
+    addDiagnosticEvent("error", "Cannot play incoming audio because Web Audio is unavailable.");
+    return;
+  }
 
   if (typeof (context as any).setSinkId === "function") {
     const outputId = useVoiceStore.getState().selectedOutputDeviceId;
@@ -213,6 +293,13 @@ async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8A
 
   const pcm = new Int16Array(toArrayBuffer(chunk));
   if (pcm.length === 0) return;
+
+  const before = useVoiceStore.getState().diagnostics;
+  updateDiagnostics({
+    framesReceived: before.framesReceived + 1,
+    bytesReceived: before.bytesReceived + pcm.byteLength,
+    lastReceiveAt: Date.now(),
+  });
 
   const audioBuffer = context.createBuffer(1, pcm.length, sampleRate || RELAY_SAMPLE_RATE);
   const channel = audioBuffer.getChannelData(0);
@@ -231,6 +318,12 @@ async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8A
 
   source.start(nextTime);
   relayPlaybackPositionsSingleton.set(socketId, nextTime + audioBuffer.duration);
+  const current = useVoiceStore.getState().diagnostics;
+  updateDiagnostics({
+    playbackContextState: context.state,
+    framesPlayed: current.framesPlayed + 1,
+    lastPlaybackAt: Date.now(),
+  });
 
   const sources = relayAudioSourcesSingleton.get(socketId) || new Set<AudioBufferSourceNode>();
   sources.add(source);
@@ -280,6 +373,20 @@ function closeRelayAudio(socketId?: string) {
   });
 }
 
+function createTonePcmFrame(frequency: number, durationMs: number, frameIndex: number) {
+  const sampleCount = Math.floor((RELAY_SAMPLE_RATE * durationMs) / 1000);
+  const pcm = new Int16Array(sampleCount);
+  const startSample = frameIndex * sampleCount;
+
+  for (let i = 0; i < sampleCount; i++) {
+    const t = (startSample + i) / RELAY_SAMPLE_RATE;
+    const envelope = Math.min(1, i / 120) * Math.min(1, (sampleCount - i) / 120);
+    pcm[i] = Math.sin(2 * Math.PI * frequency * t) * 0x4fff * envelope;
+  }
+
+  return pcm.buffer;
+}
+
 export function useVoice() {
   const { 
     isInCall, isMuted, isScreensharing, setIsInCall, setIsMuted, setIsScreensharing, setSpeaking,
@@ -327,6 +434,15 @@ export function useVoice() {
 
       const socket = getSocket();
       const conversationId = useMessageStore.getState().activeConversationId || "global";
+      useVoiceStore.getState().resetDiagnostics(conversationId);
+      updateDiagnostics({
+        socketConnected: socket.connected,
+        socketId: socket.id || null,
+        conversationId,
+        inputDeviceLabel: getAudioDeviceLabel(selectedInputDeviceId, "audioinput", "Default microphone"),
+        outputDeviceLabel: getAudioDeviceLabel(selectedOutputDeviceId, "audiooutput", "Default output"),
+      });
+      addDiagnosticEvent("info", `Joining voice call for ${conversationId}. Socket ${socket.connected ? "connected" : "not connected yet"}.`);
       await getPeerConfig();
       setIsInCall(true);
       setCallConversationId(conversationId);
@@ -338,6 +454,7 @@ export function useVoice() {
       playJoinSound();
     } catch (err) {
       console.error("Failed to get microphone permissions:", err);
+      useVoiceStore.getState().addDiagnosticEvent("error", err instanceof Error ? err.message : "Failed to get microphone permissions.");
       alert("Could not access microphone. Please check permissions.");
     }
   };
@@ -460,6 +577,58 @@ export function useVoice() {
       localScreenStreamSingleton = null;
     }
     setIsScreensharing(false);
+  };
+
+  const playLocalTestTone = async () => {
+    const context = await getSharedAudioContext();
+    if (!context) {
+      addDiagnosticEvent("error", "Cannot play local test tone because Web Audio is unavailable.");
+      return;
+    }
+
+    const duration = 0.7;
+    const buffer = context.createBuffer(1, Math.floor(context.sampleRate * duration), context.sampleRate);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < channel.length; i++) {
+      const t = i / context.sampleRate;
+      const envelope = Math.min(1, i / 600) * Math.min(1, (channel.length - i) / 600);
+      channel[i] = Math.sin(2 * Math.PI * 660 * t) * 0.35 * envelope;
+    }
+
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    source.start();
+    updateDiagnostics({ playbackContextState: context.state, lastPlaybackAt: Date.now() });
+    addDiagnosticEvent("info", "Played local output test tone.");
+  };
+
+  const sendTestTone = () => {
+    const socket = getSocket();
+    const conversationId = useVoiceStore.getState().callConversationId || useMessageStore.getState().activeConversationId || "global";
+    if (!useVoiceStore.getState().isInCall) {
+      addDiagnosticEvent("warn", "Join a voice call before sending a remote test tone.");
+      return;
+    }
+
+    addDiagnosticEvent("info", "Sending 1 second remote test tone through the voice relay.");
+    updateDiagnostics({ socketConnected: socket.connected, socketId: socket.id || null });
+
+    const frameDurationMs = 50;
+    const frameCount = 20;
+    for (let i = 0; i < frameCount; i++) {
+      window.setTimeout(() => {
+        emitRelayFrame(conversationId, createTonePcmFrame(880, frameDurationMs, i), "tone");
+      }, i * frameDurationMs);
+    }
+  };
+
+  const requestVoiceDiagnostics = () => {
+    const socket = getSocket();
+    const conversationId = useVoiceStore.getState().callConversationId || useMessageStore.getState().activeConversationId || "global";
+    socket.emit("voice:diagnostics:get", { conversationId });
+    updateDiagnostics({ socketConnected: socket.connected, socketId: socket.id || null });
+    addDiagnosticEvent("info", "Requested server voice diagnostics snapshot.");
   };
 
   // Speaking detection using Web Audio API (AnalyserNode with requestAnimationFrame)
@@ -656,26 +825,84 @@ export function useVoice() {
       from: string;
       conversationId?: string;
       sampleRate?: number;
+      source?: "mic" | "tone";
       chunk: ArrayBuffer | Uint8Array;
     }) => {
       const callConversationId = useVoiceStore.getState().callConversationId || "global";
       if (!data?.from || data.conversationId !== callConversationId) return;
       if (data.from === socket.id) return;
+      if (data.source === "tone") {
+        addDiagnosticEvent("info", `Received remote test tone frame from ${data.from}.`);
+      }
       playRelayAudioFrame(data.from, data.chunk, data.sampleRate || RELAY_SAMPLE_RATE).catch((err) => {
-        console.warn("[voice] Failed to play relayed audio frame:", err);
+        addDiagnosticEvent("error", `Failed to play relayed audio frame: ${err instanceof Error ? err.message : String(err)}`);
       });
+    };
+
+    const onVoiceJoined = (data: { conversationId?: string; socketId?: string; participants?: VoiceParticipant[]; rooms?: string[] }) => {
+      const callConversationId = useVoiceStore.getState().callConversationId || "global";
+      if (data.conversationId && data.conversationId !== callConversationId) return;
+      updateDiagnostics({
+        socketId: data.socketId || socket.id || null,
+        socketConnected: socket.connected,
+        conversationId: data.conversationId || callConversationId,
+      });
+      addDiagnosticEvent("info", `Server accepted voice join. Participants: ${data.participants?.length ?? "unknown"}. Rooms: ${(data.rooms || []).join(", ") || "unknown"}.`);
+    };
+
+    const onRelayStats = (data: {
+      conversationId?: string;
+      framesReceived?: number;
+      bytesReceived?: number;
+      recipients?: number;
+      droppedFrames?: number;
+      reason?: string;
+    }) => {
+      const callConversationId = useVoiceStore.getState().callConversationId || "global";
+      if (data.conversationId && data.conversationId !== callConversationId) return;
+      updateDiagnostics({
+        serverFramesReceived: data.framesReceived || 0,
+        serverBytesReceived: data.bytesReceived || 0,
+        serverRecipients: data.recipients || 0,
+        serverDroppedFrames: data.droppedFrames || 0,
+        lastServerAckAt: Date.now(),
+      });
+      if (data.reason) {
+        addDiagnosticEvent("warn", `Server dropped an audio frame: ${data.reason}.`);
+      }
+    };
+
+    const onDiagnosticEvent = (data: { level?: "info" | "warn" | "error"; message?: string }) => {
+      if (data?.message) {
+        addDiagnosticEvent(data.level || "info", data.message);
+      }
+    };
+
+    const onDiagnosticsSnapshot = (data: any) => {
+      addDiagnosticEvent(
+        "info",
+        `Server snapshot: active=${data.activeVoiceConversationId || "none"}, rooms=${(data.socketRooms || []).join(", ") || "none"}, participants=${data.participants?.length ?? 0}.`
+      );
     };
 
     socket.on("voice:user-joined", onUserJoined);
     socket.on("voice:signal", onSignal);
     socket.on("voice:user-left", onUserLeft);
     socket.on("voice:audio-frame", onAudioFrame);
+    socket.on("voice:joined", onVoiceJoined);
+    socket.on("voice:relay-stats", onRelayStats);
+    socket.on("voice:diagnostic-event", onDiagnosticEvent);
+    socket.on("voice:diagnostics:snapshot", onDiagnosticsSnapshot);
 
     return () => {
       socket.off("voice:user-joined", onUserJoined);
       socket.off("voice:signal", onSignal);
       socket.off("voice:user-left", onUserLeft);
       socket.off("voice:audio-frame", onAudioFrame);
+      socket.off("voice:joined", onVoiceJoined);
+      socket.off("voice:relay-stats", onRelayStats);
+      socket.off("voice:diagnostic-event", onDiagnosticEvent);
+      socket.off("voice:diagnostics:snapshot", onDiagnosticsSnapshot);
     };
   }, [isInCall]);
 
@@ -846,6 +1073,9 @@ export function useVoice() {
     toggleMute,
     startScreenshare,
     stopScreenshare,
+    playLocalTestTone,
+    sendTestTone,
+    requestVoiceDiagnostics,
     isInCall,
     isMuted,
     isScreensharing,

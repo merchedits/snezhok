@@ -20,6 +20,7 @@ export function useSocket() {
   const setParticipants = useVoiceStore((state) => state.setParticipants);
   const addParticipant = useVoiceStore((state) => state.addParticipant);
   const removeParticipant = useVoiceStore((state) => state.removeParticipant);
+  const updateVoiceDiagnostics = useVoiceStore((state) => state.updateDiagnostics);
 
   const loadHistory = useMessageStore((state) => state.loadHistory);
   const clearMessages = useMessageStore((state) => state.clearMessages);
@@ -41,10 +42,12 @@ export function useSocket() {
 
     const onConnect = () => {
       setConnected(true);
+      updateVoiceDiagnostics({ socketConnected: true, socketId: socket.id || null });
     };
 
     const onDisconnect = () => {
       setConnected(false);
+      updateVoiceDiagnostics({ socketConnected: false, socketId: socket.id || null });
     };
 
     const onRoomState = (state: { voiceParticipants: any[]; onlineUserIds?: string[] }) => {
@@ -209,7 +212,7 @@ export function useSocket() {
       socket.off("voice:user-joined", onVoiceUserJoined);
       socket.off("voice:user-left", onVoiceUserLeft);
     };
-  }, [isAuthenticated, userId, logout]);
+  }, [isAuthenticated, userId, logout, updateVoiceDiagnostics]);
 
   return connected;
 }

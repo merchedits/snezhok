@@ -145,6 +145,10 @@ export function setupSocketIO(io: Server) {
       typing: 0,
       voiceAudioBytes: 0,
       voiceAudioWindowStartedAt: Date.now(),
+      voiceFramesReceived: 0,
+      voiceBytesReceived: 0,
+      voiceDroppedFrames: 0,
+      voiceLastStatsAt: 0,
     };
 
     // 2. Chat messaging events
@@ -368,6 +372,12 @@ export function setupSocketIO(io: Server) {
       const hasAccess = await checkUserAccessToConversation(user.id, conversationId);
       if (!hasAccess) {
         socket.emit("error", { message: "You do not have permission to join this voice call." });
+        socket.emit("voice:diagnostic-event", {
+          level: "error",
+          message: "Server rejected voice join: no access to this conversation.",
+          conversationId,
+          at: Date.now(),
+        });
         return;
       }
 
@@ -396,6 +406,14 @@ export function setupSocketIO(io: Server) {
         participants: getVoiceRoomParticipants(conversationId),
       });
 
+      socket.emit("voice:joined", {
+        conversationId,
+        socketId,
+        participants: getVoiceRoomParticipants(conversationId),
+        rooms: Array.from(socket.rooms),
+        at: Date.now(),
+      });
+
     });
 
     socket.on("voice:leave", () => {
@@ -408,6 +426,27 @@ export function setupSocketIO(io: Server) {
       socket.emit("voice:update-participants", {
         conversationId,
         participants: getVoiceRoomParticipants(conversationId),
+      });
+    });
+
+    socket.on("voice:diagnostics:get", async (data?: { conversationId?: string }) => {
+      const requestedConversationId = data?.conversationId || findVoiceConversationBySocket(socketId) || "global";
+      const hasAccess = await checkUserAccessToConversation(user.id, requestedConversationId);
+      if (!hasAccess) return;
+
+      socket.emit("voice:diagnostics:snapshot", {
+        socketId,
+        userId: user.id,
+        requestedConversationId,
+        activeVoiceConversationId: findVoiceConversationBySocket(socketId),
+        socketRooms: Array.from(socket.rooms),
+        participants: getVoiceRoomParticipants(requestedConversationId),
+        allVoiceRooms: Array.from(voiceParticipantsByConversation.entries()).map(([conversationId, participants]) => ({
+          conversationId,
+          participantCount: participants.size,
+          socketIds: Array.from(participants.keys()),
+        })),
+        at: Date.now(),
       });
     });
 
@@ -434,14 +473,44 @@ export function setupSocketIO(io: Server) {
       channels?: number;
       sequence?: number;
       sentAt?: number;
+      source?: "mic" | "tone";
       chunk?: ArrayBuffer | Buffer;
     }) => {
       try {
         const conversationId = findVoiceConversationBySocket(socketId);
-        if (!conversationId || (data?.conversationId && data.conversationId !== conversationId)) return;
+        const emitStats = (participantsCount: number, reason?: string) => {
+          const now = Date.now();
+          if (reason || now - rateLimits.voiceLastStatsAt > 1000) {
+            rateLimits.voiceLastStatsAt = now;
+            socket.emit("voice:relay-stats", {
+              conversationId,
+              framesReceived: rateLimits.voiceFramesReceived,
+              bytesReceived: rateLimits.voiceBytesReceived,
+              droppedFrames: rateLimits.voiceDroppedFrames,
+              recipients: Math.max(0, participantsCount - 1),
+              reason,
+              at: now,
+            });
+          }
+        };
+
+        if (!conversationId || (data?.conversationId && data.conversationId !== conversationId)) {
+          rateLimits.voiceDroppedFrames++;
+          socket.emit("voice:diagnostic-event", {
+            level: "warn",
+            message: "Server dropped audio frame because socket is not joined to that voice call.",
+            conversationId: data?.conversationId,
+            at: Date.now(),
+          });
+          return;
+        }
 
         const participants = voiceParticipantsByConversation.get(conversationId);
-        if (!participants?.has(socketId)) return;
+        if (!participants?.has(socketId)) {
+          rateLimits.voiceDroppedFrames++;
+          emitStats(0, "not-a-participant");
+          return;
+        }
 
         const chunk = data?.chunk;
         const byteLength =
@@ -450,11 +519,19 @@ export function setupSocketIO(io: Server) {
           ArrayBuffer.isView(chunk as any) ? (chunk as any).byteLength :
           0;
 
-        if (!chunk || byteLength <= 0 || byteLength > MAX_VOICE_FRAME_BYTES) return;
+        if (!chunk || byteLength <= 0 || byteLength > MAX_VOICE_FRAME_BYTES) {
+          rateLimits.voiceDroppedFrames++;
+          emitStats(participants.size, "invalid-frame-size");
+          return;
+        }
 
         const sampleRate = Number(data.sampleRate) || 16000;
         const channels = Number(data.channels) || 1;
-        if (sampleRate < 8000 || sampleRate > 48000 || channels !== 1) return;
+        if (sampleRate < 8000 || sampleRate > 48000 || channels !== 1) {
+          rateLimits.voiceDroppedFrames++;
+          emitStats(participants.size, "invalid-audio-format");
+          return;
+        }
 
         const now = Date.now();
         if (now - rateLimits.voiceAudioWindowStartedAt > VOICE_RATE_WINDOW_MS) {
@@ -462,7 +539,14 @@ export function setupSocketIO(io: Server) {
           rateLimits.voiceAudioBytes = 0;
         }
         rateLimits.voiceAudioBytes += byteLength;
-        if (rateLimits.voiceAudioBytes > MAX_VOICE_BYTES_PER_WINDOW) return;
+        if (rateLimits.voiceAudioBytes > MAX_VOICE_BYTES_PER_WINDOW) {
+          rateLimits.voiceDroppedFrames++;
+          emitStats(participants.size, "rate-limited");
+          return;
+        }
+
+        rateLimits.voiceFramesReceived++;
+        rateLimits.voiceBytesReceived += byteLength;
 
         socket.to(`room:${conversationId}`).emit("voice:audio-frame", {
           from: socketId,
@@ -471,10 +555,17 @@ export function setupSocketIO(io: Server) {
           channels,
           sequence: data.sequence,
           sentAt: data.sentAt,
+          source: data.source,
           chunk,
         });
+        emitStats(participants.size);
       } catch (err) {
         console.warn("Failed to relay voice frame:", err);
+        socket.emit("voice:diagnostic-event", {
+          level: "error",
+          message: "Server threw while relaying an audio frame.",
+          at: Date.now(),
+        });
       }
     });
 

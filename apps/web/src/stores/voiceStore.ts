@@ -11,6 +11,81 @@ export interface VoiceParticipant {
   isSpeaking?: boolean;
 }
 
+export interface VoiceDiagnosticEvent {
+  id: string;
+  at: number;
+  level: "info" | "warn" | "error";
+  message: string;
+}
+
+export interface VoiceDiagnostics {
+  sessionId: string | null;
+  conversationId: string | null;
+  socketConnected: boolean;
+  socketId: string | null;
+  relaySupported: boolean;
+  captureActive: boolean;
+  captureContextState: string;
+  playbackContextState: string;
+  inputDeviceLabel: string;
+  outputDeviceLabel: string;
+  localSampleRate: number | null;
+  relaySampleRate: number;
+  localRms: number;
+  localPeak: number;
+  framesCaptured: number;
+  framesSent: number;
+  bytesSent: number;
+  framesReceived: number;
+  bytesReceived: number;
+  framesPlayed: number;
+  serverFramesReceived: number;
+  serverBytesReceived: number;
+  serverRecipients: number;
+  serverDroppedFrames: number;
+  lastCaptureAt: number | null;
+  lastSendAt: number | null;
+  lastServerAckAt: number | null;
+  lastReceiveAt: number | null;
+  lastPlaybackAt: number | null;
+  lastError: string | null;
+  events: VoiceDiagnosticEvent[];
+}
+
+const createVoiceDiagnostics = (): VoiceDiagnostics => ({
+  sessionId: null,
+  conversationId: null,
+  socketConnected: false,
+  socketId: null,
+  relaySupported: typeof window !== "undefined" && !!(window.AudioContext || (window as any).webkitAudioContext),
+  captureActive: false,
+  captureContextState: "idle",
+  playbackContextState: "idle",
+  inputDeviceLabel: "Default microphone",
+  outputDeviceLabel: "Default output",
+  localSampleRate: null,
+  relaySampleRate: 16000,
+  localRms: 0,
+  localPeak: 0,
+  framesCaptured: 0,
+  framesSent: 0,
+  bytesSent: 0,
+  framesReceived: 0,
+  bytesReceived: 0,
+  framesPlayed: 0,
+  serverFramesReceived: 0,
+  serverBytesReceived: 0,
+  serverRecipients: 0,
+  serverDroppedFrames: 0,
+  lastCaptureAt: null,
+  lastSendAt: null,
+  lastServerAckAt: null,
+  lastReceiveAt: null,
+  lastPlaybackAt: null,
+  lastError: null,
+  events: [],
+});
+
 interface VoiceState {
   participants: VoiceParticipant[];
   isInCall: boolean;
@@ -21,6 +96,7 @@ interface VoiceState {
   selectedInputDeviceId: string | null;
   selectedOutputDeviceId: string | null;
   availableDevices: MediaDeviceInfo[];
+  diagnostics: VoiceDiagnostics;
   setParticipants: (participants: VoiceParticipant[]) => void;
   addParticipant: (participant: VoiceParticipant) => void;
   removeParticipant: (socketId: string) => void;
@@ -33,6 +109,9 @@ interface VoiceState {
   setInputDevice: (deviceId: string | null) => void;
   setOutputDevice: (deviceId: string | null) => void;
   setAvailableDevices: (devices: MediaDeviceInfo[]) => void;
+  resetDiagnostics: (conversationId?: string | null) => void;
+  updateDiagnostics: (patch: Partial<VoiceDiagnostics>) => void;
+  addDiagnosticEvent: (level: VoiceDiagnosticEvent["level"], message: string) => void;
 }
 
 export const useVoiceStore = create<VoiceState>((set) => ({
@@ -45,6 +124,7 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   selectedInputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedInputDeviceId") : null,
   selectedOutputDeviceId: typeof window !== "undefined" ? localStorage.getItem("selectedOutputDeviceId") : null,
   availableDevices: [],
+  diagnostics: createVoiceDiagnostics(),
 
   setParticipants: (participants) =>
     set((state) => {
@@ -84,7 +164,18 @@ export const useVoiceStore = create<VoiceState>((set) => ({
   setIsInCall: (isInCall) =>
     set((_state) => {
       if (!isInCall) {
-        return { isInCall, participants: [], isMuted: false, isScreensharing: false, callConversationId: null, volumes: {} };
+        return {
+          isInCall,
+          participants: [],
+          isMuted: false,
+          isScreensharing: false,
+          callConversationId: null,
+          volumes: {},
+          diagnostics: {
+            ...createVoiceDiagnostics(),
+            events: _state.diagnostics.events.slice(0, 12),
+          },
+        };
       }
       return { isInCall };
     }),
@@ -122,4 +213,30 @@ export const useVoiceStore = create<VoiceState>((set) => ({
     set({ selectedOutputDeviceId });
   },
   setAvailableDevices: (availableDevices) => set({ availableDevices }),
+
+  resetDiagnostics: (conversationId = null) =>
+    set({
+      diagnostics: {
+        ...createVoiceDiagnostics(),
+        sessionId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        conversationId,
+      },
+    }),
+
+  updateDiagnostics: (patch) =>
+    set((state) => ({
+      diagnostics: { ...state.diagnostics, ...patch },
+    })),
+
+  addDiagnosticEvent: (level, message) =>
+    set((state) => ({
+      diagnostics: {
+        ...state.diagnostics,
+        lastError: level === "error" ? message : state.diagnostics.lastError,
+        events: [
+          { id: `${Date.now()}-${Math.random()}`, at: Date.now(), level, message },
+          ...state.diagnostics.events,
+        ].slice(0, 20),
+      },
+    })),
 }));

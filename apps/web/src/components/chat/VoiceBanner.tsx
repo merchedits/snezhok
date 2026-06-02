@@ -11,7 +11,17 @@ import { useAuthStore } from "../../stores/authStore.js";
 
 export default function VoiceBanner() {
   const { participants, isInCall, isMuted } = useVoiceStore();
-  const { joinCall, leaveCall, toggleMute, startScreenshare, stopScreenshare, isScreensharing } = useVoice();
+  const {
+    joinCall,
+    leaveCall,
+    toggleMute,
+    startScreenshare,
+    stopScreenshare,
+    playLocalTestTone,
+    sendTestTone,
+    requestVoiceDiagnostics,
+    isScreensharing,
+  } = useVoice();
   const { t } = useTranslation();
   const { user: currentUser } = useAuthStore();
   const [showSettings, setShowSettings] = useState(false);
@@ -129,7 +139,14 @@ export default function VoiceBanner() {
             justifyContent: isMobile ? "flex-end" : "flex-start",
           }}
         >
-          {showSettings && <VoiceSettings onClose={() => setShowSettings(false)} />}
+          {showSettings && (
+            <VoiceSettings
+              onClose={() => setShowSettings(false)}
+              onPlayLocalTestTone={playLocalTestTone}
+              onSendTestTone={sendTestTone}
+              onRequestDiagnostics={requestVoiceDiagnostics}
+            />
+          )}
           
           {!isInCall ? (
             <Button
