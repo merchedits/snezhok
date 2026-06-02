@@ -95,6 +95,7 @@ function emitRelayFrame(conversationId: string, chunk: ArrayBuffer, source: "mic
   useVoiceStore.getState().updateDiagnostics({
     socketConnected: socket.connected,
     socketId: socket.id || null,
+    socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
     framesSent: state.framesSent + 1,
     bytesSent: state.bytesSent + chunk.byteLength,
     lastSendAt: Date.now(),
@@ -477,6 +478,7 @@ export function useVoice() {
       updateDiagnostics({
         socketConnected: socket.connected,
         socketId: socket.id || null,
+        socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
         conversationId,
         inputDeviceLabel: getAudioDeviceLabel(selectedInputDeviceId, "audioinput", "Default microphone"),
         outputDeviceLabel: getAudioDeviceLabel(selectedOutputDeviceId, "audiooutput", "Default output"),
@@ -651,7 +653,11 @@ export function useVoice() {
     }
 
     addDiagnosticEvent("info", "Sending 1 second remote test tone through the voice relay.");
-    updateDiagnostics({ socketConnected: socket.connected, socketId: socket.id || null });
+    updateDiagnostics({
+      socketConnected: socket.connected,
+      socketId: socket.id || null,
+      socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
+    });
 
     const frameDurationMs = 50;
     const frameCount = 20;
@@ -666,7 +672,11 @@ export function useVoice() {
     const socket = getSocket();
     const conversationId = useVoiceStore.getState().callConversationId || useMessageStore.getState().activeConversationId || "global";
     socket.emit("voice:diagnostics:get", { conversationId });
-    updateDiagnostics({ socketConnected: socket.connected, socketId: socket.id || null });
+    updateDiagnostics({
+      socketConnected: socket.connected,
+      socketId: socket.id || null,
+      socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
+    });
     addDiagnosticEvent("info", "Requested server voice diagnostics snapshot.");
   };
 
@@ -765,6 +775,7 @@ export function useVoice() {
           pingMs: Math.max(0, Date.now() - echoSentAt),
           socketConnected: socket.connected,
           socketId: socket.id || null,
+          socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
         });
       });
     };
@@ -897,6 +908,7 @@ export function useVoice() {
       updateDiagnostics({
         socketId: data.socketId || socket.id || null,
         socketConnected: socket.connected,
+        socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
         conversationId: data.conversationId || callConversationId,
       });
       addDiagnosticEvent("info", `Server accepted voice join. Participants: ${data.participants?.length ?? "unknown"}. Rooms: ${(data.rooms || []).join(", ") || "unknown"}.`);

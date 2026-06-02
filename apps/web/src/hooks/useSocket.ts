@@ -40,14 +40,18 @@ export function useSocket() {
     connectSocket();
     fetchConversations(); // Load DMs on startup
 
+    const getTransportName = () => {
+      return (socket.io.engine as any)?.transport?.name || "unknown";
+    };
+
     const onConnect = () => {
       setConnected(true);
-      updateVoiceDiagnostics({ socketConnected: true, socketId: socket.id || null });
+      updateVoiceDiagnostics({ socketConnected: true, socketId: socket.id || null, socketTransport: getTransportName() });
     };
 
     const onDisconnect = () => {
       setConnected(false);
-      updateVoiceDiagnostics({ socketConnected: false, socketId: socket.id || null });
+      updateVoiceDiagnostics({ socketConnected: false, socketId: socket.id || null, socketTransport: getTransportName() });
     };
 
     const onRoomState = (state: { voiceParticipants: any[]; onlineUserIds?: string[] }) => {
@@ -158,6 +162,7 @@ export function useSocket() {
 
     const onReconnect = () => {
       setConnected(true);
+      updateVoiceDiagnostics({ socketConnected: true, socketId: socket.id || null, socketTransport: getTransportName() });
       loadHistory(); // Refetch missed messages
       fetchConversations(); // Refetch conversations list
       fetchUsers(); // Refresh user list

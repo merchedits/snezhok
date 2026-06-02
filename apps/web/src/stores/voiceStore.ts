@@ -23,6 +23,7 @@ export interface VoiceDiagnostics {
   conversationId: string | null;
   socketConnected: boolean;
   socketId: string | null;
+  socketTransport: string;
   relaySupported: boolean;
   captureActive: boolean;
   captureContextState: string;
@@ -65,6 +66,7 @@ const createVoiceDiagnostics = (): VoiceDiagnostics => ({
   conversationId: null,
   socketConnected: false,
   socketId: null,
+  socketTransport: "unknown",
   relaySupported: typeof window !== "undefined" && !!(window.AudioContext || (window as any).webkitAudioContext),
   captureActive: false,
   captureContextState: "idle",

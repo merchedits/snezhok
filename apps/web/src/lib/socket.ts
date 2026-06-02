@@ -6,6 +6,8 @@ export function getSocket(): Socket {
   if (!socket) {
     socket = io({
       autoConnect: false,
+      transports: ["websocket"],
+      upgrade: false,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 30000,
