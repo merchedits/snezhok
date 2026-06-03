@@ -48,6 +48,9 @@ export interface VoiceDiagnostics {
   webRtcAudioPeers: number;
   relayMode: "active" | "standby";
   pingMs: number | null;
+  socketPingMs: number | null;
+  webRtcRttMs: number | null;
+  relayFrameAgeMs: number | null;
   jitterBufferMs: number;
   playbackBufferedMs: number;
   lateFrames: number;
@@ -94,6 +97,9 @@ const createVoiceDiagnostics = (): VoiceDiagnostics => ({
   webRtcAudioPeers: 0,
   relayMode: "active",
   pingMs: null,
+  socketPingMs: null,
+  webRtcRttMs: null,
+  relayFrameAgeMs: null,
   jitterBufferMs: 140,
   playbackBufferedMs: 0,
   lateFrames: 0,

@@ -28,13 +28,20 @@ let relayCaptureMutedGainSingleton: GainNode | null = null;
 let relaySequenceSingleton = 0;
 let lastCaptureDiagnosticsUpdateAt = 0;
 const RELAY_SAMPLE_RATE = 16000;
-const RELAY_BUFFER_SIZE = 2048;
+const RELAY_BUFFER_SIZE = 1024;
 
 function getJitterBufferSeconds() {
   const mode = useVoiceStore.getState().latencyMode;
   if (mode === "low") return 0.08;
   if (mode === "stable") return 0.24;
   return 0.14;
+}
+
+function getMaxRelayBacklogSeconds() {
+  const mode = useVoiceStore.getState().latencyMode;
+  if (mode === "low") return 0.22;
+  if (mode === "stable") return 0.65;
+  return 0.38;
 }
 
 function updateDiagnostics(patch: Partial<VoiceDiagnostics>) {
@@ -94,7 +101,7 @@ function emitRelayFrame(conversationId: string, chunk: ArrayBuffer, source: "mic
     return;
   }
 
-  socket.emit("voice:audio-frame", {
+  const frame = {
     conversationId,
     sampleRate: RELAY_SAMPLE_RATE,
     channels: 1,
@@ -102,7 +109,13 @@ function emitRelayFrame(conversationId: string, chunk: ArrayBuffer, source: "mic
     sentAt: Date.now(),
     source,
     chunk,
-  });
+  };
+
+  if (source === "mic") {
+    socket.volatile.emit("voice:audio-frame", frame);
+  } else {
+    socket.emit("voice:audio-frame", frame);
+  }
 
   const state = useVoiceStore.getState().diagnostics;
   useVoiceStore.getState().updateDiagnostics({
@@ -350,7 +363,20 @@ function toArrayBuffer(chunk: ArrayBuffer | Uint8Array) {
   return chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
 }
 
-async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8Array, sampleRate: number) {
+function clearRelayQueuedAudio(socketId: string) {
+  relayAudioSourcesSingleton.get(socketId)?.forEach((source) => {
+    try {
+      source.stop();
+    } catch (e) {}
+    try {
+      source.disconnect();
+    } catch (e) {}
+  });
+  relayAudioSourcesSingleton.delete(socketId);
+  relayPlaybackPositionsSingleton.delete(socketId);
+}
+
+async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8Array, sampleRate: number, serverSentAt?: number) {
   const context = await getSharedAudioContext();
   if (!context) {
     addDiagnosticEvent("error", "Cannot play incoming audio because Web Audio is unavailable.");
@@ -372,6 +398,7 @@ async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8A
     framesReceived: before.framesReceived + 1,
     bytesReceived: before.bytesReceived + pcm.byteLength,
     lastReceiveAt: Date.now(),
+    relayFrameAgeMs: typeof serverSentAt === "number" ? Math.max(0, Date.now() - serverSentAt) : before.relayFrameAgeMs,
   });
 
   const audioBuffer = context.createBuffer(1, pcm.length, sampleRate || RELAY_SAMPLE_RATE);
@@ -385,6 +412,7 @@ async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8A
   source.connect(getRelayGainNode(socketId, context));
 
   const jitterBufferSeconds = getJitterBufferSeconds();
+  const maxBacklogSeconds = getMaxRelayBacklogSeconds();
   let nextTime = relayPlaybackPositionsSingleton.get(socketId) ?? context.currentTime + jitterBufferSeconds;
   const currentBufferedSeconds = Math.max(0, nextTime - context.currentTime);
   const currentDiagnostics = useVoiceStore.getState().diagnostics;
@@ -395,7 +423,8 @@ async function playRelayAudioFrame(socketId: string, chunk: ArrayBuffer | Uint8A
       lateFrames: currentDiagnostics.lateFrames + 1,
       scheduleResets: currentDiagnostics.scheduleResets + 1,
     });
-  } else if (currentBufferedSeconds > 1.2) {
+  } else if (currentBufferedSeconds > maxBacklogSeconds) {
+    clearRelayQueuedAudio(socketId);
     nextTime = context.currentTime + jitterBufferSeconds;
     updateDiagnostics({
       scheduleResets: currentDiagnostics.scheduleResets + 1,
@@ -827,15 +856,68 @@ export function useVoice() {
       socket.emit("voice:ping", { sentAt }, (response?: { sentAt?: number; serverAt?: number }) => {
         const echoSentAt = response?.sentAt || sentAt;
         updateDiagnostics({
-          pingMs: Math.max(0, Date.now() - echoSentAt),
+          socketPingMs: Math.max(0, Date.now() - echoSentAt),
           socketConnected: socket.connected,
           socketId: socket.id || null,
           socketTransport: (socket.io.engine as any)?.transport?.name || "unknown",
         });
       });
     };
+    const measureHttpPing = async () => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 2500);
+      const startedAt = performance.now();
+      try {
+        const response = await fetch(`/api/ping?t=${Date.now()}`, {
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        await response.json();
+        updateDiagnostics({ pingMs: Math.round(performance.now() - startedAt) });
+      } catch (err) {
+        updateDiagnostics({ pingMs: null });
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    };
+    const measureWebRtcStats = async () => {
+      const roundTrips: number[] = [];
+      for (const peer of peersSingleton.values()) {
+        const pc = (peer as any)._pc as RTCPeerConnection | undefined;
+        if (!pc || pc.connectionState === "closed") continue;
+        try {
+          const stats = await pc.getStats();
+          stats.forEach((report: any) => {
+            if (
+              report.type === "candidate-pair" &&
+              (report.nominated || report.selected) &&
+              report.state === "succeeded" &&
+              typeof report.currentRoundTripTime === "number"
+            ) {
+              roundTrips.push(report.currentRoundTripTime * 1000);
+            }
+            if (report.type === "remote-inbound-rtp" && typeof report.roundTripTime === "number") {
+              roundTrips.push(report.roundTripTime * 1000);
+            }
+          });
+        } catch (err) {
+          console.warn("Could not read WebRTC stats:", err);
+        }
+      }
+      if (roundTrips.length > 0) {
+        updateDiagnostics({ webRtcRttMs: Math.round(Math.min(...roundTrips)) });
+      } else {
+        updateDiagnostics({ webRtcRttMs: null });
+      }
+    };
     measurePing();
+    measureHttpPing();
+    measureWebRtcStats();
     const pingInterval = window.setInterval(measurePing, 5000);
+    const httpPingInterval = window.setInterval(measureHttpPing, 5000);
+    const webRtcStatsInterval = window.setInterval(measureWebRtcStats, 5000);
 
     // Triggered when a new user joins the voice channel
     const onUserJoined = async (participant: VoiceParticipant) => {
@@ -945,6 +1027,7 @@ export function useVoice() {
       from: string;
       conversationId?: string;
       sampleRate?: number;
+      serverSentAt?: number;
       source?: "mic" | "tone";
       chunk: ArrayBuffer | Uint8Array;
     }) => {
@@ -962,7 +1045,7 @@ export function useVoice() {
       if (data.source === "tone") {
         addDiagnosticEvent("info", `Received remote test tone frame from ${data.from}.`);
       }
-      playRelayAudioFrame(data.from, data.chunk, data.sampleRate || RELAY_SAMPLE_RATE).catch((err) => {
+      playRelayAudioFrame(data.from, data.chunk, data.sampleRate || RELAY_SAMPLE_RATE, data.serverSentAt).catch((err) => {
         addDiagnosticEvent("error", `Failed to play relayed audio frame: ${err instanceof Error ? err.message : String(err)}`);
       });
     };
@@ -1025,6 +1108,8 @@ export function useVoice() {
 
     return () => {
       window.clearInterval(pingInterval);
+      window.clearInterval(httpPingInterval);
+      window.clearInterval(webRtcStatsInterval);
       socket.off("voice:user-joined", onUserJoined);
       socket.off("voice:signal", onSignal);
       socket.off("voice:user-left", onUserLeft);

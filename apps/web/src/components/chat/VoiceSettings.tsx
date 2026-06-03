@@ -275,7 +275,10 @@ export default function VoiceSettings({
           <Stat label="Server got" value={`${diagnostics.serverFramesReceived} frames / recipients ${diagnostics.serverRecipients}`} />
           <Stat label="Received" value={`${diagnostics.framesReceived} frames / ${diagnostics.bytesReceived} B`} />
           <Stat label="Played" value={`${diagnostics.framesPlayed} frames / ${diagnostics.playbackContextState}`} />
-          <Stat label="Ping" value={diagnostics.pingMs !== null ? `${diagnostics.pingMs} ms` : "unknown"} />
+          <Stat label="HTTP ping" value={diagnostics.pingMs !== null ? `${diagnostics.pingMs} ms` : "unknown"} />
+          <Stat label="Socket ping" value={diagnostics.socketPingMs !== null ? `${diagnostics.socketPingMs} ms` : "unknown"} />
+          <Stat label="WebRTC RTT" value={diagnostics.webRtcRttMs !== null ? `${diagnostics.webRtcRttMs} ms` : "inactive"} />
+          <Stat label="Relay frame age" value={diagnostics.relayFrameAgeMs !== null ? `${diagnostics.relayFrameAgeMs} ms` : "unknown"} />
           <Stat label="Buffer" value={`${diagnostics.playbackBufferedMs} ms / target ${diagnostics.jitterBufferMs} ms`} />
           <Stat label="Late/resets" value={`${diagnostics.lateFrames} / ${diagnostics.scheduleResets}`} />
           <Stat label="Last send" value={formatTime(diagnostics.lastSendAt)} />

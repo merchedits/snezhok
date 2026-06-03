@@ -554,16 +554,22 @@ export function setupSocketIO(io: Server) {
         rateLimits.voiceFramesReceived++;
         rateLimits.voiceBytesReceived += byteLength;
 
-        socket.to(`room:${conversationId}`).emit("voice:audio-frame", {
+        const frame = {
           from: socketId,
           conversationId,
           sampleRate,
           channels,
           sequence: data.sequence,
           sentAt: data.sentAt,
+          serverSentAt: Date.now(),
           source: data.source,
           chunk,
-        });
+        };
+        if (data.source === "mic") {
+          socket.to(`room:${conversationId}`).volatile.emit("voice:audio-frame", frame);
+        } else {
+          socket.to(`room:${conversationId}`).emit("voice:audio-frame", frame);
+        }
         emitStats(participants.size);
       } catch (err) {
         console.warn("Failed to relay voice frame:", err);

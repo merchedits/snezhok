@@ -132,6 +132,10 @@ app.get("/api/rtc-config", { preHandler: [requireAuth] }, async () => {
   return { iceServers: getIceServers() };
 });
 
+app.get("/api/ping", { preHandler: [requireAuth] }, async () => {
+  return { at: Date.now() };
+});
+
 // Serve static frontend assets in production
 const frontendDistPath = path.resolve(__dirname, "../../web/dist");
 if (fs.existsSync(frontendDistPath)) {
