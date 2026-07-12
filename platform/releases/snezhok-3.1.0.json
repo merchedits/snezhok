@@ -1,0 +1,21 @@
+{
+  "applicationId": "xyz.merchedits.snezhok",
+  "version": "3.1.0",
+  "versionCode": 2,
+  "minimumVersionCode": 1,
+  "mandatory": false,
+  "bytes": 44077336,
+  "sha256": "519ad67ac1421ca81640a4042618bd4def982cbfdf8dc531d210d519c48e7e87",
+  "signingCertificateSha256": "e59aeda3df11d6c877d6a3b77e6e062c7f7273116a23f2380091e5feaa4fdd75",
+  "publishedAt": "2026-07-12T23:54:54.483Z",
+  "sourceRevision": "b06a83d6ee8d",
+  "architectures": ["arm64-v8a"],
+  "minSdk": 24,
+  "targetSdk": 36,
+  "releaseNotes": [
+    "Introduces the self-hosted Android update channel.",
+    "Downloads updates automatically on Wi-Fi with visible progress.",
+    "Verifies APK size and SHA-256 before opening Android's installer.",
+    "Adds update controls and release notes to Settings."
+  ]
+}
