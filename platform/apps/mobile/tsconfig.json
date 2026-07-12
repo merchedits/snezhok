@@ -1,0 +1,14 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@snezhok/contracts": ["../../packages/contracts/src/index.ts"]
+    }
+  },
+  "include": ["App.tsx", "index.ts", "src/**/*.ts", "src/**/*.tsx", "app.config.ts"]
+}

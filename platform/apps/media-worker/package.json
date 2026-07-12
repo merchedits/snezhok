@@ -1,0 +1,28 @@
+{
+  "name": "@snezhok/media-worker",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "file-type": "^21.0.0",
+    "pg": "^8.16.3",
+    "sharp": "^0.34.5",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "@types/node": "^24.10.1",
+    "@types/pg": "^8.15.6",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": { "node": ">=22.0.0" }
+}

@@ -1,0 +1,6 @@
+import { migrate } from "../db/migrate.js";
+import { pool } from "../db/pool.js";
+
+await migrate();
+await pool.end();
+console.log("Database migrations are current");

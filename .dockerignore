@@ -16,3 +16,9 @@ DESIGN_SYSTEM.md
 STANDARDS.md
 apps/server/dist
 apps/web/dist
+platform/**/node_modules
+platform/**/dist
+platform/**/.expo
+platform/**/android/app/build
+platform/**/*.jks
+platform/**/*.keystore

@@ -1,0 +1,33 @@
+{
+  "name": "snezhok-platform",
+  "private": true,
+  "version": "3.0.0",
+  "workspaces": [
+    "apps/api",
+    "apps/media-worker",
+    "apps/mobile",
+    "apps/web",
+    "packages/contracts"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,blue \"npm run dev --workspace=@snezhok/api\" \"npm run dev --workspace=@snezhok/web\"",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "dependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

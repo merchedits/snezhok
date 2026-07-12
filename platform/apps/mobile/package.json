@@ -1,0 +1,62 @@
+{
+  "name": "@snezhok/mobile",
+  "version": "3.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild --platform android",
+    "typecheck": "tsc --noEmit",
+    "doctor": "expo-doctor",
+    "build:apk": "npx eas-cli@20.5.1 build --platform android --profile preview",
+    "build:production": "npx eas-cli@20.5.1 build --platform android --profile production"
+  },
+  "dependencies": {
+    "@config-plugins/react-native-webrtc": "15.0.1",
+    "@expo/config-plugins": "56.0.12",
+    "@expo/vector-icons": "15.1.1",
+    "@livekit/react-native": "2.11.1",
+    "@livekit/react-native-expo-plugin": "1.0.2",
+    "@livekit/react-native-webrtc": "144.1.1",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "12.0.1",
+    "@react-navigation/native": "7.3.8",
+    "@react-navigation/native-stack": "7.17.10",
+    "@shopify/flash-list": "2.0.2",
+    "@snezhok/contracts": "file:../../packages/contracts",
+    "expo": "~56.0.15",
+    "expo-asset": "~56.0.19",
+    "expo-audio": "~56.0.12",
+    "expo-build-properties": "~56.0.22",
+    "expo-constants": "~56.0.20",
+    "expo-crypto": "~56.0.4",
+    "expo-dev-client": "~56.0.22",
+    "expo-document-picker": "~56.0.4",
+    "expo-font": "~56.0.7",
+    "expo-haptics": "~56.0.3",
+    "expo-image-picker": "~56.0.20",
+    "expo-secure-store": "~56.0.4",
+    "expo-status-bar": "~56.0.4",
+    "expo-system-ui": "~56.0.5",
+    "expo-video": "~56.1.4",
+    "livekit-client": "2.20.1",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-gesture-handler": "~2.31.1",
+    "react-native-reanimated": "4.3.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
+    "react-native-worklets": "0.8.3",
+    "socket.io-client": "4.8.3",
+    "zustand": "5.0.14"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "expo-doctor": "1.20.0",
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

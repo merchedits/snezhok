@@ -11,9 +11,19 @@ node_modules
 /build
 apps/*/dist/
 .drizzle
+platform/**/dist/
+platform/**/.expo/
+platform/**/.gradle/
+platform/**/android/.cxx/
+platform/**/android/app/build/
+platform/**/android/local.properties
+platform/**/*.jks
+platform/**/*.keystore
+platform/releases/*.apk
 
 # Local data (persist sqlite and uploads here)
 data/
+platform/data/
 /*.db
 /*.db-journal
 /*.db-shm

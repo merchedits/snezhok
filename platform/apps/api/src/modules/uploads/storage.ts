@@ -1,0 +1,61 @@
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { constants } from "node:fs";
+import { copyFile, mkdir, open, rename, rm, stat } from "node:fs/promises";
+import path from "node:path";
+import { fileTypeFromFile } from "file-type";
+import { config } from "../../config.js";
+
+export const uploadRoot = path.resolve(config.STORAGE_ROOT);
+export const temporaryRoot = path.join(uploadRoot, "tmp");
+export const objectRoot = path.join(uploadRoot, "objects");
+
+export async function ensureStorage() {
+  await Promise.all([mkdir(temporaryRoot, { recursive: true }), mkdir(objectRoot, { recursive: true })]);
+}
+
+export async function initializeTemporary(key: string) {
+  const handle = await open(tempPath(key), "wx");
+  await handle.close();
+}
+
+export function tempPath(key: string) { return path.join(temporaryRoot, safeKey(key)); }
+export function objectPath(key: string) { return path.join(uploadRoot, ...key.split("/").map(safeKey)); }
+
+export async function appendChunk(key: string, offset: number, data: Buffer) {
+  const target = tempPath(key);
+  const handle = await open(target, "r+").catch(() => open(target, "w+"));
+  try { await handle.write(data, 0, data.length, offset); } finally { await handle.close(); }
+}
+
+export async function finalizeObject(key: string) {
+  const object = await stageObject(key);
+  await rm(tempPath(key), { force: true });
+  return object;
+}
+
+export async function stageObject(key: string) {
+  const source = tempPath(key);
+  const info = await stat(source);
+  const hash = createHash("sha256");
+  await new Promise<void>((resolve, reject) => createReadStream(source).on("data", (chunk) => hash.update(chunk)).on("end", resolve).on("error", reject));
+  const checksum = hash.digest("hex");
+  const storageKey = `objects/${checksum.slice(0, 2)}/${checksum}`;
+  const target = objectPath(storageKey);
+  await mkdir(path.dirname(target), { recursive: true });
+  try { await copyFile(source, target, constants.COPYFILE_EXCL); } catch (error) {
+    const exists = await stat(target).then(() => true).catch(() => false);
+    if (!exists) throw error;
+  }
+  const targetInfo = await stat(target);
+  if (!targetInfo.isFile() || targetInfo.size !== info.size) throw new Error("Existing content-addressed object does not match the staged upload");
+  const detected = await fileTypeFromFile(target);
+  return { checksum, storageKey, bytes: info.size, detectedMimeType: detected?.mime ?? "application/octet-stream" };
+}
+
+export async function removeTemporary(key: string) { await rm(tempPath(key), { force: true }); }
+
+function safeKey(value: string) {
+  if (value === "." || value === ".." || !/^[a-zA-Z0-9._-]+$/.test(value)) throw new Error("Unsafe storage key");
+  return value;
+}

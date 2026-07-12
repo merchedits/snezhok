@@ -1,0 +1,38 @@
+port: 7880
+log_level: info
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: true
+  advertise_internal_ip: true
+  skip_external_ip_validation: true
+  use_ice_lite: false
+
+turn:
+  enabled: true
+  udp_port: 3478
+  relay_range_start: 40000
+  relay_range_end: 40100
+
+room:
+  empty_timeout: 300
+  departure_timeout: 20
+  auto_create: true
+  enabled_codecs:
+    - mime: audio/opus
+    - mime: video/VP8
+    - mime: video/H264
+
+audio:
+  active_level: 30
+  min_percentile: 40
+  update_interval: 500
+  smooth_intervals: 4
+  active_red_encoding: true
+
+logging:
+  level: info
+  pion_level: warn
+  json: true
+  sample: false

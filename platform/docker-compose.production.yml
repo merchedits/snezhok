@@ -1,0 +1,143 @@
+name: snezhok-v3
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: snezhok
+      POSTGRES_USER: snezhok
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=192MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=40
+    volumes:
+      - snezhok_v3_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snezhok -d snezhok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 384m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_BASE_PATH: /chat/
+    image: snezhok-v3-app:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      PUBLIC_API_PREFIX: /api/v1
+      APP_ORIGINS: https://merchedits.xyz
+      DATABASE_URL: postgresql://snezhok:${POSTGRES_PASSWORD}@postgres:5432/snezhok
+      STORAGE_ROOT: /app/data
+      INTERNAL_MEDIA_PREFIX: /chat/_media/
+      USE_X_ACCEL: "true"
+      LIVEKIT_URL: wss://merchedits.xyz/chat/livekit
+      ANDROID_APK_PATH: /app/releases/snezhok-3.0.0.apk
+    volumes:
+      - ./data-v3/storage:/app/data
+      - ./releases:/app/releases:ro
+    ports:
+      - 127.0.0.1:3003:3000
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    read_only: true
+    mem_limit: 768m
+    cpus: 2.0
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - backend
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: apps/media-worker/Dockerfile
+    image: snezhok-v3-media-worker:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://snezhok:${POSTGRES_PASSWORD}@postgres:5432/snezhok
+      STORAGE_ROOT: /app/data
+      WORKER_ID: production-media-1
+      FFMPEG_THREADS: 2
+      PROCESS_NICENESS: 10
+      PAUSE_DURING_CALLS: "true"
+      MIN_FREE_MEMORY_MB: 512
+      MAX_LOAD_PER_CPU: 0.75
+    volumes:
+      - ./data-v3/storage:/app/data
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    read_only: true
+    mem_limit: 768m
+    cpus: 1.25
+    stop_grace_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - backend
+
+  livekit:
+    image: livekit/livekit-server:v1.13.3
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml"]
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}"
+    volumes:
+      - ./infra/livekit.yaml:/etc/livekit.yaml:ro
+    mem_limit: 512m
+    cpus: 2.0
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  snezhok_v3_postgres:
+    external: true
+
+networks:
+  backend:
+    driver: bridge

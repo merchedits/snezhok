@@ -1,0 +1,121 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import sharp from "sharp";
+import { config } from "./config.js";
+import { runMediaCommand } from "./subprocess.js";
+import type { MediaJob, OutputVariant, Quality } from "./types.js";
+
+export interface ProcessContext {
+  signal: AbortSignal;
+  heartbeat: () => Promise<void>;
+}
+
+const imageProfiles: Record<Exclude<Quality, "original">, { size: number; quality: number }> = {
+  "data-saver": { size: 1280, quality: 72 }, auto: { size: 2560, quality: 82 }, high: { size: 3840, quality: 90 },
+};
+const videoProfiles: Record<Exclude<Quality, "original">, { height: number; crf: number; audio: string }> = {
+  "data-saver": { height: 720, crf: 25, audio: "96k" }, auto: { height: 1080, crf: 22, audio: "128k" }, high: { height: 2160, crf: 19, audio: "192k" },
+};
+
+export async function processMedia(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  if (job.purpose === "voice") return processVoice(job, input, directory, context);
+  if (job.purpose === "video-note") return processVideoNote(job, input, directory, context);
+  if (job.profile === "original") return processOriginal(job, input, directory, context);
+  if (job.kind === "image") return processImage(job, input, directory);
+  if (job.kind === "video") return processVideo(job, input, directory, context);
+  if (job.kind === "audio") return processAudio(job, input, directory, context);
+  return [];
+}
+
+async function processOriginal(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  if (job.kind === "image") {
+    const metadata = await sharp(input, { limitInputPixels: 100_000_000 }).metadata();
+    const rotated = metadata.orientation !== undefined && metadata.orientation >= 5 && metadata.orientation <= 8;
+    const thumbnail = path.join(directory, "thumbnail.webp");
+    const thumbMeta = await sharp(input, { failOn: "warning", limitInputPixels: 100_000_000 }).rotate().resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 72 }).toFile(thumbnail);
+    return [variant("primary", "original", input, job.originalMimeType, rotated ? metadata.height : metadata.width, rotated ? metadata.width : metadata.height), variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", thumbMeta.width, thumbMeta.height)];
+  }
+  const metadata = await probe(input, context);
+  const primary = variant("primary", "original", input, job.originalMimeType, metadata.width, metadata.height, metadata.durationMs);
+  return job.kind === "video" ? [primary, await videoThumbnail(input, directory, context)] : [primary];
+}
+
+async function processImage(job: MediaJob, input: string, directory: string): Promise<OutputVariant[]> {
+  const profile = imageProfiles[job.profile === "original" ? "high" : job.profile];
+  const primary = path.join(directory, "primary.webp"); const thumbnail = path.join(directory, "thumbnail.webp");
+  // rotate() honors EXIF orientation; omitting withMetadata() strips EXIF/IPTC/XMP and location data.
+  const mainMeta = await sharp(input, { failOn: "warning", limitInputPixels: 100_000_000 }).rotate().resize({ width: profile.size, height: profile.size, fit: "inside", withoutEnlargement: true }).webp({ quality: profile.quality, effort: 4 }).toFile(primary);
+  const thumbMeta = await sharp(input, { failOn: "warning", limitInputPixels: 100_000_000 }).rotate().resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 72, effort: 4 }).toFile(thumbnail);
+  return [variant("primary", job.profile, primary, "image/webp", mainMeta.width, mainMeta.height), variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", thumbMeta.width, thumbMeta.height)];
+}
+
+async function processVideo(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  const profile = videoProfiles[job.profile === "original" ? "high" : job.profile];
+  const primary = path.join(directory, "primary.mp4");
+  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-map_chapters", "-1", "-vf", `scale=-2:'min(${profile.height},ih)':flags=lanczos`, "-c:v", "libx264", "-preset", "medium", "-crf", String(profile.crf), "-pix_fmt", "yuv420p", "-threads", String(config.FFMPEG_THREADS), "-c:a", "aac", "-b:a", profile.audio, "-movflags", "+faststart", primary], context);
+  const metadata = await probe(primary, context); const thumb = await videoThumbnail(primary, directory, context);
+  return [variant("primary", job.profile, primary, "video/mp4", metadata.width, metadata.height, metadata.durationMs), thumb];
+}
+
+async function processVideoNote(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  const primary = path.join(directory, "video-note.mp4");
+  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-map_chapters", "-1", "-vf", "scale=720:720:force_original_aspect_ratio=increase:flags=lanczos,crop=720:720", "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p", "-threads", String(config.FFMPEG_THREADS), "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", primary], context);
+  const metadata = await probe(primary, context); const thumb = await videoThumbnail(primary, directory, context);
+  return [variant("primary", "video-note-720", primary, "video/mp4", 720, 720, metadata.durationMs), thumb];
+}
+
+async function processVoice(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  const primary = path.join(directory, "voice.ogg");
+  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-vn", "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "48k", "-application", "voip", primary], context);
+  const metadata = await probe(primary, context);
+  const pcm = await ffmpeg(["-v", "error", "-i", primary, "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1"], { ...context, captureStdout: true, maxStdoutBytes: 96 * 1024 * 1024 });
+  return [{ ...variant("primary", "voice-opus", primary, "audio/ogg", null, null, metadata.durationMs), waveform: waveform(pcm, 100) }];
+}
+
+async function processAudio(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  const primary = path.join(directory, "audio.ogg");
+  const bitrate = job.profile === "data-saver" ? "64k" : job.profile === "high" ? "160k" : "96k";
+  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-vn", "-c:a", "libopus", "-b:a", bitrate, primary], context);
+  const metadata = await probe(primary, context);
+  return [variant("primary", job.profile, primary, "audio/ogg", null, null, metadata.durationMs)];
+}
+
+async function videoThumbnail(input: string, directory: string, context: ProcessContext): Promise<OutputVariant> {
+  const frame = path.join(directory, "frame.jpg"); const thumbnail = path.join(directory, "thumbnail.webp");
+  await ffmpeg(["-y", "-ss", "0.1", "-i", input, "-frames:v", "1", "-vf", "scale=320:320:force_original_aspect_ratio=decrease", frame], context);
+  const meta = await sharp(await readFile(frame)).webp({ quality: 72 }).toFile(thumbnail);
+  return variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", meta.width, meta.height);
+}
+
+async function probe(input: string, context: ProcessContext) {
+  const output = await runMediaCommand(config.FFPROBE_PATH, ["-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", input], { signal: context.signal, captureStdout: true, maxStdoutBytes: 1024 * 1024, onHeartbeat: context.heartbeat });
+  const parsed = JSON.parse(output.toString("utf8")) as { format?: { duration?: string }; streams?: Array<{ codec_type?: string; width?: number; height?: number }> };
+  const video = parsed.streams?.find((stream) => stream.codec_type === "video");
+  const duration = Number(parsed.format?.duration ?? 0);
+  return { width: video?.width ?? null, height: video?.height ?? null, durationMs: Number.isFinite(duration) ? Math.round(duration * 1000) : null };
+}
+
+function waveform(pcm: Buffer, bins: number) {
+  const samples = Math.floor(pcm.length / 2); if (!samples) return Array<number>(bins).fill(0);
+  const result: number[] = [];
+  for (let bin = 0; bin < bins; bin += 1) {
+    const from = Math.floor(bin * samples / bins); const to = Math.max(from + 1, Math.floor((bin + 1) * samples / bins)); let peak = 0;
+    for (let index = from; index < to && index < samples; index += 1) peak = Math.max(peak, Math.abs(pcm.readInt16LE(index * 2)));
+    result.push(Math.round(peak / 32767 * 100));
+  }
+  return result;
+}
+
+function variant(role: "primary" | "thumbnail", profile: string, file: string, mimeType: string, width: number | null = null, height: number | null = null, durationMs: number | null = null): OutputVariant {
+  return { role, profile, path: file, mimeType, width: width ?? null, height: height ?? null, durationMs, waveform: null };
+}
+
+function ffmpeg(args: readonly string[], context: ProcessContext & { captureStdout?: boolean; maxStdoutBytes?: number }) {
+  return runMediaCommand(config.FFMPEG_PATH, ["-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,pipe", ...args], {
+    signal: context.signal, onHeartbeat: context.heartbeat,
+    ...(context.captureStdout === undefined ? {} : { captureStdout: context.captureStdout }),
+    ...(context.maxStdoutBytes === undefined ? {} : { maxStdoutBytes: context.maxStdoutBytes }),
+  });
+}
+
+export const internals = { waveform, imageProfiles, videoProfiles };
