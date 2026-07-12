@@ -63,10 +63,15 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
         flags: FLAG_GRANT_READ_URI_PERMISSION,
       });
     } catch {
-      await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.MANAGE_UNKNOWN_APP_SOURCES, {
-        data: `package:${Application.applicationId}`,
-      });
-      setState((current) => ({ ...current, phase: "ready", message: "Allow installs from Snezhok, then tap Install again." }));
+      if (Number(Platform.Version) >= 26) {
+        await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.MANAGE_UNKNOWN_APP_SOURCES, {
+          data: `package:${Application.applicationId}`,
+        });
+        setState((current) => ({ ...current, phase: "ready", message: "Allow installs from Snezhok, then tap Install again." }));
+      } else {
+        await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.SECURITY_SETTINGS);
+        setState((current) => ({ ...current, phase: "ready", message: "Enable Unknown sources in Android settings, then tap Install again." }));
+      }
     }
   }, []);
 
@@ -74,7 +79,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     if (Platform.OS !== "android") return;
     const destination = new File(Paths.cache, `snezhok-${manifest.versionCode}.apk`);
     if (destination.exists) destination.delete();
-    setState({ phase: "downloading", manifest, progress: 0, message: "Downloading update…", required: isRequired(manifest, currentVersionCode) });
+    setState({ phase: "downloading", manifest, progress: 0, message: "Downloading update...", required: isRequired(manifest, currentVersionCode) });
     const task = File.createDownloadTask(resolveApiResource(manifest.downloadUrl), destination, {
       onProgress: ({ bytesWritten, totalBytes }) => {
         const total = totalBytes > 0 ? totalBytes : manifest.bytes;
@@ -84,7 +89,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     try {
       const file = await task.downloadAsync();
       if (!file || file.size !== manifest.bytes) throw new Error("The downloaded update has an unexpected size.");
-      setState((current) => ({ ...current, message: "Verifying update…", progress: 1 }));
+      setState((current) => ({ ...current, message: "Verifying update...", progress: 1 }));
       const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, await file.bytes());
       if (arrayBufferToHex(digest) !== manifest.sha256.toLowerCase()) {
         file.delete();
@@ -105,7 +110,8 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     }
     if (checkInFlight.current) return checkInFlight.current;
     const operation = (async () => {
-      if (manual) setState((current) => ({ ...current, phase: "checking", message: "Checking for updates…" }));
+      let foundRelease = false;
+      if (manual) setState((current) => ({ ...current, phase: "checking", message: "Checking for updates..." }));
       try {
         const manifest = await api.androidRelease();
         lastCheck.current = Date.now();
@@ -114,11 +120,14 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
           return;
         }
         const required = isRequired(manifest, currentVersionCode);
+        foundRelease = true;
         setState({ phase: "available", manifest, progress: 0, message: `Snezhok ${manifest.version} is available.`, required });
         const network = await NetInfo.fetch();
         if (autoUpdate && (network.type === "wifi" || network.type === "ethernet")) await downloadRelease(manifest);
       } catch (error) {
-        if (manual) setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : "Update check failed." }));
+        if (manual || foundRelease) {
+          setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : "Update failed." }));
+        }
       }
     })().finally(() => {
       checkInFlight.current = null;
