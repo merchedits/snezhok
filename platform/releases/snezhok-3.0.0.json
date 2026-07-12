@@ -1,0 +1,14 @@
+{
+  "applicationId": "xyz.merchedits.snezhok",
+  "version": "3.0.0",
+  "versionCode": 1,
+  "apiCompatibility": "v1",
+  "sourceRevision": "7ec61265b97c780f2ed75b92fa41ce9197342d05",
+  "builtAt": "2026-07-12T22:43:16.2404952Z",
+  "bytes": 43984076,
+  "sha256": "46edb086862548ffa9405c9aaa14da08098059e6a5c604b8963449e831443e1a",
+  "signingCertificateSha256": "e59aeda3df11d6c877d6a3b77e6e062c7f7273116a23f2380091e5feaa4fdd75",
+  "architectures": ["arm64-v8a"],
+  "minSdk": 24,
+  "targetSdk": 36
+}
