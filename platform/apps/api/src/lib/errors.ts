@@ -28,6 +28,12 @@ export function installErrorHandler(app: FastifyInstance) {
       return send(reply, 400, "VALIDATION_ERROR", "Request validation failed", details);
     }
     if (error instanceof AppError) return send(reply, error.status, error.code, error.message, error.details);
+    const clientError = error as { statusCode?: number; code?: string };
+    if (clientError.statusCode && clientError.statusCode >= 400 && clientError.statusCode < 500) {
+      const code = clientError.code === "FST_ERR_CTP_INVALID_JSON_BODY" ? "INVALID_JSON" : "BAD_REQUEST";
+      const message = clientError.code === "FST_ERR_CTP_INVALID_JSON_BODY" ? "Request body must be valid JSON" : "Request is invalid";
+      return send(reply, clientError.statusCode, code, message);
+    }
     request.log.error({ err: error }, "unhandled request error");
     return send(reply, 500, "INTERNAL_ERROR", "The request could not be completed");
   });
