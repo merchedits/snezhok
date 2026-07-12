@@ -54,15 +54,16 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --from=production-dependencies /app/node_modules node_modules
+COPY --chown=node:node --from=production-dependencies /app/node_modules node_modules
 
-COPY --from=build /app/packages/contracts/dist packages/contracts/dist
-COPY --from=build /app/apps/api/dist apps/api/dist
-COPY --from=build /app/apps/api/migrations apps/api/migrations
-COPY --from=build /app/apps/web/dist apps/web/dist
+COPY --chown=node:node packages/contracts/package.json packages/contracts/package.json
+COPY --chown=node:node --from=build /app/packages/contracts/dist packages/contracts/dist
+COPY --chown=node:node --from=build /app/apps/api/dist apps/api/dist
+COPY --chown=node:node --from=build /app/apps/api/migrations apps/api/migrations
+COPY --chown=node:node --from=build /app/apps/web/dist apps/web/dist
 
 RUN mkdir -p /app/data \
-  && chown -R node:node /app
+  && chown node:node /app/data
 
 USER node
 
