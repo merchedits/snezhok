@@ -25,6 +25,7 @@ const schema = z.object({
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(4).default(1),
   WEB_DIST_PATH: z.string().optional(),
   ANDROID_APK_PATH: z.string().optional(),
+  ANDROID_RELEASE_MANIFEST_PATH: z.string().optional(),
 });
 
 const parsed = schema.parse(process.env);

@@ -57,7 +57,8 @@ services:
       INTERNAL_MEDIA_PREFIX: /chat/_media/
       USE_X_ACCEL: "true"
       LIVEKIT_URL: wss://merchedits.xyz/chat/livekit
-      ANDROID_APK_PATH: /app/releases/snezhok-3.0.0.apk
+      ANDROID_APK_PATH: /app/releases/snezhok-current.apk
+      ANDROID_RELEASE_MANIFEST_PATH: /app/releases/android-current.json
     volumes:
       - ./data-v3/storage:/app/data
       - ./releases:/app/releases:ro

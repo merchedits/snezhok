@@ -11,6 +11,7 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { usePalette } from "../hooks/usePalette";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
+import { useAndroidUpdate } from "../updates/UpdateProvider";
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -21,6 +22,7 @@ export function SettingsScreen() {
   const settings = useAppStore((state) => state.settings);
   const update = useAppStore((state) => state.updateSettings);
   const signOut = useAppStore((state) => state.signOut);
+  const appUpdate = useAndroidUpdate();
 
   const patch = (value: Partial<AppSettings>) => void update(value).catch((error: unknown) => Alert.alert("Could not save settings", error instanceof Error ? error.message : "Try again."));
 
@@ -71,6 +73,26 @@ export function SettingsScreen() {
         <SettingsSection title="Privacy">
           <ToggleRow icon="checkmark-done-outline" label="Read receipts" value={settings.readReceipts} onChange={(readReceipts) => patch({ readReceipts })} />
           <ToggleRow icon="time-outline" label="Show last seen" value={settings.showLastSeen} onChange={(showLastSeen) => patch({ showLastSeen })} />
+        </SettingsSection>
+
+        <SettingsSection title="Software update">
+          <View style={[styles.updateStatus, { borderColor: palette.border }]}>
+            <Ionicons name="phone-portrait-outline" size={20} color={palette.accent} />
+            <View style={styles.updateCopy}>
+              <Text style={[styles.optionLabel, { color: palette.text }]}>Snezhok {appUpdate.currentVersion}</Text>
+              <Text style={[styles.updateMessage, { color: palette.secondaryText }]}>{appUpdate.message ?? `Build ${appUpdate.currentVersionCode} · Android update channel`}</Text>
+            </View>
+            {appUpdate.phase === "downloading" ? <Text style={[styles.optionValue, { color: palette.accent }]}>{Math.round(appUpdate.progress * 100)}%</Text> : null}
+          </View>
+          <ToggleRow icon="cloud-download-outline" label="Download updates automatically on Wi-Fi" value={appUpdate.autoUpdate} onChange={(enabled) => void appUpdate.setAutoUpdate(enabled)} />
+          <Pressable
+            disabled={appUpdate.phase === "checking" || appUpdate.phase === "downloading"}
+            onPress={() => void (appUpdate.phase === "available" || appUpdate.phase === "error" ? appUpdate.downloadAndInstall() : appUpdate.phase === "ready" ? appUpdate.openInstaller() : appUpdate.checkForUpdate(true))}
+            style={styles.updateButton}
+          >
+            <Text style={[styles.updateButtonText, { color: palette.accent }]}>{appUpdate.phase === "available" || appUpdate.phase === "error" ? "Download update" : appUpdate.phase === "ready" ? "Install update" : appUpdate.phase === "checking" ? "Checking…" : appUpdate.phase === "downloading" ? "Downloading…" : "Check for updates"}</Text>
+          </Pressable>
+          {appUpdate.manifest?.releaseNotes.length ? <View style={styles.releaseNotes}>{appUpdate.manifest.releaseNotes.map((note) => <Text key={note} style={[styles.releaseNote, { color: palette.secondaryText }]}>• {note}</Text>)}</View> : null}
         </SettingsSection>
 
         <Pressable onPress={() => Alert.alert("Sign out", "Remove this session from the device?", [{ text: "Cancel", style: "cancel" }, { text: "Sign out", style: "destructive", onPress: () => void signOut() }])} style={[styles.signOut, { backgroundColor: palette.background }]}> 
@@ -138,4 +160,11 @@ const styles = StyleSheet.create({
   toggleLabel: { flex: 1, fontSize: 15 },
   signOut: { height: 52, alignItems: "center", justifyContent: "center" },
   signOutText: { fontSize: 16, fontWeight: "600" },
+  updateStatus: { minHeight: 60, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 11, borderBottomWidth: StyleSheet.hairlineWidth },
+  updateCopy: { flex: 1, paddingVertical: 10 },
+  updateMessage: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  updateButton: { minHeight: 48, alignItems: "center", justifyContent: "center" },
+  updateButtonText: { fontSize: 14, fontWeight: "800" },
+  releaseNotes: { gap: 5, paddingHorizontal: 16, paddingBottom: 14 },
+  releaseNote: { fontSize: 12, lineHeight: 17 },
 });

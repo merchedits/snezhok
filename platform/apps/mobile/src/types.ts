@@ -42,6 +42,20 @@ export interface CallJoinResponse {
   roomName: string;
 }
 
+export interface AndroidReleaseManifest {
+  applicationId: "xyz.merchedits.snezhok";
+  version: string;
+  versionCode: number;
+  minimumVersionCode: number;
+  mandatory: boolean;
+  bytes: number;
+  sha256: string;
+  signingCertificateSha256: string;
+  publishedAt: string;
+  releaseNotes: string[];
+  downloadUrl: string;
+}
+
 export interface UploadResponse {
   attachment: Attachment;
 }

@@ -1,12 +1,13 @@
 {
   "name": "@snezhok/mobile",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "prebuild": "expo prebuild --platform android",
+    "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "doctor": "expo-doctor",
     "build:apk": "npx eas-cli@20.5.1 build --platform android --profile preview",
@@ -26,6 +27,7 @@
     "@shopify/flash-list": "2.0.2",
     "@snezhok/contracts": "file:../../packages/contracts",
     "expo": "~56.0.15",
+    "expo-application": "~56.0.3",
     "expo-asset": "~56.0.19",
     "expo-audio": "~56.0.12",
     "expo-build-properties": "~56.0.22",
@@ -33,9 +35,11 @@
     "expo-crypto": "~56.0.4",
     "expo-dev-client": "~56.0.22",
     "expo-document-picker": "~56.0.4",
+    "expo-file-system": "~56.0.8",
     "expo-font": "~56.0.7",
     "expo-haptics": "~56.0.3",
     "expo-image-picker": "~56.0.20",
+    "expo-intent-launcher": "~56.0.4",
     "expo-secure-store": "~56.0.4",
     "expo-status-bar": "~56.0.4",
     "expo-system-ui": "~56.0.5",
@@ -52,8 +56,10 @@
     "zustand": "5.0.14"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "@types/react": "19.2.17",
     "expo-doctor": "1.20.0",
+    "tsx": "^4.20.6",
     "typescript": "6.0.3"
   },
   "engines": {

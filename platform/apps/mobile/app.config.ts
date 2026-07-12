@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.0.0",
+  version: "3.1.0",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -15,6 +15,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "snezhok",
   runtimeVersion: { policy: "appVersion" },
   plugins: [
+    "./plugins/withReleaseSigning.cjs",
     [
       "@livekit/react-native-expo-plugin",
       {
@@ -47,7 +48,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 1,
+    versionCode: 2,
     adaptiveIcon: {
       backgroundColor: "#111318",
     },
@@ -61,7 +62,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "android.permission.FOREGROUND_SERVICE_CAMERA",
       "android.permission.FOREGROUND_SERVICE_MICROPHONE",
       "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-      "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"
+      "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
+      "android.permission.REQUEST_INSTALL_PACKAGES",
     ],
     intentFilters: [
       {

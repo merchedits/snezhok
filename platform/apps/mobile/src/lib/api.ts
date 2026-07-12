@@ -4,6 +4,7 @@ import type { AppSettings, Attachment, BootstrapPayload, ConversationSummary, Fr
 
 import type {
   AuthResponse,
+  AndroidReleaseManifest,
   AuthTokens,
   CallJoinResponse,
   MessageCreateInput,
@@ -97,6 +98,10 @@ class ApiClient {
     return this.request<BootstrapPayload>("/bootstrap");
   }
 
+  androidRelease(): Promise<AndroidReleaseManifest> {
+    return this.request<AndroidReleaseManifest>("/client/android/manifest", { authenticated: false });
+  }
+
   messages(streamId: string, before?: number): Promise<MessagesResponse> {
     const query = new URLSearchParams({ limit: "60" });
     if (before !== undefined) query.set("before", String(before));
@@ -174,3 +179,9 @@ class ApiClient {
 }
 
 export const api = new ApiClient();
+
+export function resolveApiResource(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  const apiRoot = API_URL.replace(/\/api\/v1$/, "");
+  return path.startsWith("/api/v1/") ? `${apiRoot}${path}` : `${API_URL}/${path.replace(/^\//, "")}`;
+}

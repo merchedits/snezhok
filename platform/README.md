@@ -2,6 +2,8 @@
 
 Snezhok v3 is the clean-slate web and Android private messenger. It combines Telegram-style chats and media with Discord-style servers, voice channels and screen sharing.
 
+The native Android client is the primary product surface. Web behavior and visual decisions follow the mobile client unless a browser-specific interaction requires an adaptation.
+
 Nothing in `platform/` imports legacy UI, state or calling code. The legacy application remains outside this directory only as a migration source and production rollback target.
 
 ## Repository
@@ -41,5 +43,6 @@ Internal APK builds use the `preview` profile in `apps/mobile/eas.json`, or the 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Migration](docs/MIGRATION.md)
 - [Deployment](docs/DEPLOYMENT.md)
+- [Android release channel](docs/MOBILE_RELEASES.md)
 
 The design acceptance rule is simple: if a screen cannot be traced to an established Telegram or Discord interaction, it does not ship.

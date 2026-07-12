@@ -5,6 +5,7 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
     "paths": {
       "@/*": ["./src/*"],
       "@snezhok/contracts": ["../../packages/contracts/src/index.ts"]

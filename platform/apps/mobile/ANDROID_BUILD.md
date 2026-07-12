@@ -20,7 +20,7 @@ The `preview` profile produces an internally distributed APK. `production` produ
 
 ## Local signed APK
 
-Install JDK 17, Android Studio, Android SDK Platform 35, Android SDK Build Tools 36.0.0, and current Command-line/Platform Tools. Set `ANDROID_HOME` to `%LOCALAPPDATA%\Android\Sdk` and add `%ANDROID_HOME%\platform-tools` to `PATH`.
+Install JDK 17, Android Studio, Android SDK Platform 36, Android SDK Build Tools 36.0.0, and current Command-line/Platform Tools. Set `ANDROID_HOME` to `%LOCALAPPDATA%\Android\Sdk` and add `%ANDROID_HOME%\platform-tools` to `PATH`.
 
 ```powershell
 cd platform\apps\mobile
@@ -30,7 +30,9 @@ npx expo prebuild --clean --platform android
 
 The debug APK is written below `android/app/build/outputs/apk/debug/`.
 
-For a private release build, create one long-lived upload keystore, configure its path and passwords through an untracked Gradle properties file or CI secrets, then run `android\gradlew.bat :app:assembleRelease`. Keep the key backed up separately: losing it prevents installing an update over existing sideloaded copies.
+For a private release build, create one long-lived upload keystore and expose its path and credentials through the `SNEZHOK_KEYSTORE_*` environment variables. The local Expo config plugin applies that signing configuration during every prebuild, including clean prebuilds. Run `android\gradlew.bat :app:assembleRelease`. Keep the key backed up separately: losing it prevents installing an update over existing sideloaded copies.
+
+See `../../docs/MOBILE_RELEASES.md` for the web-hosted update channel and atomic publication procedure.
 
 ## Release checks
 

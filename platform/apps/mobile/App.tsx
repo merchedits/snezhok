@@ -17,13 +17,16 @@ import { LoginScreen } from "./src/screens/LoginScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { useAppStore } from "./src/store/useAppStore";
 import type { RootStackParamList } from "./src/types";
+import { AndroidUpdateProvider } from "./src/updates/UpdateProvider";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppRoot />
+      <AndroidUpdateProvider>
+        <AppRoot />
+      </AndroidUpdateProvider>
     </SafeAreaProvider>
   );
 }
