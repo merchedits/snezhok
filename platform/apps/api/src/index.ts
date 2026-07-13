@@ -2,11 +2,9 @@ import { buildApp } from "./app.js";
 import { config } from "./config.js";
 import { migrate } from "./db/migrate.js";
 import { pool } from "./db/pool.js";
-import { ensureInitialInvite } from "./modules/auth/service.js";
 import { setupRealtime } from "./modules/realtime/socket.js";
 
 await migrate();
-await ensureInitialInvite();
 const app = await buildApp();
 const io = await setupRealtime(app.server);
 

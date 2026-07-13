@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import bcrypt from "bcryptjs";
 import { SignJWT, jwtVerify } from "jose";
@@ -7,7 +7,7 @@ import type { DbClient } from "../../db/pool.js";
 import { pool, transaction } from "../../db/pool.js";
 import { config } from "../../config.js";
 import { conflict, forbidden, unauthorized } from "../../lib/errors.js";
-import { deterministicId, newId } from "../../lib/ids.js";
+import { newId } from "../../lib/ids.js";
 import { defaultSettings } from "../settings/defaults.js";
 
 const jwtKey = new TextEncoder().encode(config.JWT_SECRET);
@@ -51,47 +51,29 @@ export function hashOpaqueToken(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function hashInvite(value: string) {
-  return createHmac("sha256", config.INVITE_SECRET).update(value.trim().toUpperCase()).digest("hex");
-}
-
-export async function ensureInitialInvite() {
-  if (!config.INITIAL_INVITE_CODE) return;
-  await pool.query(
-    `INSERT INTO invite_codes(id, code_hash, max_uses)
-     VALUES ($1, $2, 100)
-     ON CONFLICT (code_hash) DO NOTHING`,
-    [deterministicId("initial-invite", config.INITIAL_INVITE_CODE), hashInvite(config.INITIAL_INVITE_CODE)],
-  );
-}
-
-export async function register(input: LoginInput & { inviteCode: string; displayName: string }) {
+export async function register(input: LoginInput & { email: string }) {
   return transaction(async (client) => {
     await client.query("SELECT pg_advisory_xact_lock($1)", [492_001_731]);
-    const invite = await client.query<{ id: string }>(
-      `SELECT id FROM invite_codes
-       WHERE code_hash=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) AND uses < max_uses
-       FOR UPDATE`,
-      [hashInvite(input.inviteCode)],
+    const existing = await client.query<{ username_taken: boolean; email_taken: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM users WHERE username=$1) AS username_taken,
+              EXISTS(SELECT 1 FROM users WHERE email=$2) AS email_taken`,
+      [input.username, input.email],
     );
-    if (!invite.rowCount) throw forbidden("Invite code is invalid or expired");
-
-    const existing = await client.query("SELECT 1 FROM users WHERE username=$1", [input.username]);
-    if (existing.rowCount) throw conflict("Username is already in use");
+    if (existing.rows[0]?.username_taken) throw conflict("Username is already in use");
+    if (existing.rows[0]?.email_taken) throw conflict("Email is already in use");
 
     const userId = newId();
     const isFirst = (await client.query<{ count: string }>("SELECT count(*)::text AS count FROM users")).rows[0]?.count === "0";
     await client.query(
-      `INSERT INTO users(id, username, display_name, avatar_color, is_admin)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [userId, input.username, input.displayName, avatarColor(userId), isFirst],
+      `INSERT INTO users(id, email, username, display_name, avatar_color, is_admin)
+       VALUES ($1,$2,$3,$3,$4,$5)`,
+      [userId, input.email, input.username, avatarColor(userId), isFirst],
     );
     await client.query(
       "INSERT INTO credentials(user_id, password_hash, algorithm) VALUES ($1,$2,'argon2id')",
       [userId, await argon2.hash(input.password, { type: argon2.argon2id })],
     );
     await client.query("INSERT INTO user_settings(user_id, settings) VALUES ($1,$2)", [userId, defaultSettings]);
-    await client.query("UPDATE invite_codes SET uses=uses+1 WHERE id=$1", [invite.rows[0]!.id]);
     const row = await getUserWithCredential(client, input.username);
     return createSession(client, row!, input);
   });

@@ -4,7 +4,6 @@ import Database from "better-sqlite3";
 import { migrate } from "../db/migrate.js";
 import { pool, transaction, type DbClient } from "../db/pool.js";
 import { deterministicId, newId } from "../lib/ids.js";
-import { hashInvite } from "../modules/auth/service.js";
 import { defaultSettings } from "../modules/settings/defaults.js";
 import { ensureStorage, finalizeObject, tempPath } from "../modules/uploads/storage.js";
 import { orderedPair } from "../modules/friends/service.js";
@@ -46,7 +45,6 @@ async function importLegacy(sqlite: Database.Database, uploadsRoot: string) {
   const reactions = all<{ id: string; message_id: string; user_id: string; emoji: string; created_at: number }>(sqlite, "reactions");
   const friendships = all<{ id: string; user_a_id: string; user_b_id: string; created_at: number }>(sqlite, "friendships");
   const requests = all<{ id: string; sender_id: string; receiver_id: string; status: string; created_at: number; responded_at: number | null }>(sqlite, "friend_requests");
-  const invites = all<{ id: string; code: string; created_by: string; used_by: string | null; used_at: number | null; created_at: number }>(sqlite, "invite_codes");
 
   const owner = users.find((user) => user.is_admin) ?? users[0];
   if (!owner) return { users: 0, messages: 0, files: 0, warning: "Legacy database contains no users" };
@@ -151,9 +149,6 @@ async function importLegacy(sqlite: Database.Database, uploadsRoot: string) {
     for (const request of requests) await client.query(
       `INSERT INTO friend_requests(id,sender_id,receiver_id,status,created_at,responded_at) VALUES ($1,$2,$3,$4,to_timestamp($5/1000.0),CASE WHEN $6::bigint IS NULL THEN NULL ELSE to_timestamp($6/1000.0) END) ON CONFLICT (id) DO NOTHING`,
       [deterministicId("legacy-friend-request", request.id), userId(request.sender_id), userId(request.receiver_id), normalizedRequestStatus(request.status), request.created_at, request.responded_at]);
-    for (const invite of invites) await client.query(
-      `INSERT INTO invite_codes(id,code_hash,created_by,max_uses,uses,created_at) VALUES ($1,$2,$3,1,$4,to_timestamp($5/1000.0)) ON CONFLICT (id) DO NOTHING`,
-      [deterministicId("legacy-invite", invite.id), hashInvite(invite.code), userId(invite.created_by), invite.used_by ? 1 : 0, invite.created_at]);
     for (const member of members) {
       if (!member.last_read_at) continue;
       const streamId = member.conversation_id === "global" ? generalChannelId : conversationId(member.conversation_id);

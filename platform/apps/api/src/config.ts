@@ -7,8 +7,6 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1).default("postgres://snezhok:snezhok@127.0.0.1:5432/snezhok"),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(20).default(5),
   JWT_SECRET: z.string().min(32).default("development-only-jwt-secret-change-me-now"),
-  INVITE_SECRET: z.string().min(32).default("development-only-invite-secret-change-now"),
-  INITIAL_INVITE_CODE: z.string().min(4).optional(),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(90),
   APP_ORIGINS: z.string().default("http://localhost:5173"),
@@ -33,7 +31,6 @@ const parsed = schema.parse(process.env);
 if (parsed.NODE_ENV === "production") {
   for (const [name, value] of [
     ["JWT_SECRET", parsed.JWT_SECRET],
-    ["INVITE_SECRET", parsed.INVITE_SECRET],
     ["LIVEKIT_API_SECRET", parsed.LIVEKIT_API_SECRET],
   ] as const) {
     if (value.startsWith("development-")) throw new Error(`${name} must be configured in production`);

@@ -8,6 +8,7 @@ export const usernameSchema = z
   .max(32)
   .regex(/^[a-zA-Z0-9_.-]+$/)
   .transform((value) => value.toLowerCase());
+export const emailSchema = z.string().trim().max(254).toLowerCase().pipe(z.email());
 
 export const loginSchema = z.object({
   username: usernameSchema,
@@ -17,8 +18,7 @@ export const loginSchema = z.object({
 });
 
 export const registerSchema = loginSchema.extend({
-  inviteCode: z.string().trim().min(4).max(128),
-  displayName: z.string().trim().min(1).max(48),
+  email: emailSchema,
 });
 
 export const messageCreateSchema = z.object({
