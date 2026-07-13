@@ -43,6 +43,7 @@ interface AppState {
   initialize: () => Promise<void>;
   signIn: (username: string, password: string) => Promise<void>;
   signUp: (input: { email: string; username: string; password: string }) => Promise<void>;
+  clearError: () => void;
   signOut: () => Promise<void>;
   setOnline: (online: boolean) => void;
   refreshBootstrap: () => Promise<void>;
@@ -147,7 +148,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   signIn: async (username, password) => {
-    set({ phase: "booting", error: null });
+    set({ error: null });
     try {
       const result = await api.login(username.trim(), password);
       await writeSession({
@@ -165,7 +166,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   signUp: async (input) => {
-    set({ phase: "booting", error: null });
+    set({ error: null });
     try {
       const result = await api.register(input);
       await writeSession({ accessToken: result.accessToken, refreshToken: result.refreshToken, expiresAt: Date.now() + result.expiresIn * 1_000 });
@@ -177,6 +178,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw error;
     }
   },
+
+  clearError: () => set({ error: null }),
 
   signOut: async () => {
     await Promise.all([clearSession(), clearLocalData()]);

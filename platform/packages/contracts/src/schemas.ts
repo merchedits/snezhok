@@ -4,15 +4,15 @@ export const idSchema = z.string().uuid();
 export const usernameSchema = z
   .string()
   .trim()
-  .min(3)
-  .max(32)
-  .regex(/^[a-zA-Z0-9_.-]+$/)
+  .min(3, "Username must contain at least 3 characters")
+  .max(32, "Username must contain at most 32 characters")
+  .regex(/^[a-zA-Z0-9_.-]+$/, "Username may only contain Latin letters, numbers, dots, hyphens and underscores")
   .transform((value) => value.toLowerCase());
-export const emailSchema = z.string().trim().max(254).toLowerCase().pipe(z.email());
+export const emailSchema = z.string().trim().max(254, "Email address is too long").toLowerCase().pipe(z.email("Enter a valid email address"));
 
 export const loginSchema = z.object({
   username: usernameSchema,
-  password: z.string().min(8).max(256),
+  password: z.string().min(8, "Password must contain at least 8 characters").max(256, "Password must contain at most 256 characters"),
   deviceName: z.string().trim().min(1).max(80).default("Web browser"),
   platform: z.enum(["web", "android"]).default("web"),
 });

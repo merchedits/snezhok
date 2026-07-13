@@ -20,6 +20,18 @@ import { uploadPercent } from "./uploadProgress";
 
 type RequestOptions = Omit<RequestInit, "body"> & { body?: BodyInit | object; authenticated?: boolean };
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+    public readonly details?: Record<string, string[]>,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 const configuredUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
 export const API_URL = (configuredUrl ?? "https://merchedits.xyz/chat/api/v1").replace(/\/$/, "");
 
@@ -74,8 +86,8 @@ class ApiClient {
       return this.request<T>(path, options, false);
     }
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-      throw new Error(payload?.message ?? `Request failed (${response.status})`);
+      const payload = (await response.json().catch(() => null)) as { code?: string; message?: string; details?: Record<string, string[]> } | null;
+      throw new ApiError(payload?.message ?? `Request failed (${response.status})`, response.status, payload?.code, payload?.details);
     }
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
