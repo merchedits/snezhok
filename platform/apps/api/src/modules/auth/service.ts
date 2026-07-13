@@ -38,6 +38,7 @@ interface UserRow {
   id: string;
   username: string;
   display_name: string;
+  avatar_attachment_id: string | null;
   avatar_color: string;
   bio: string;
   status_text: string;
@@ -74,6 +75,15 @@ export async function register(input: LoginInput & { email: string }) {
       [userId, await argon2.hash(input.password, { type: argon2.argon2id })],
     );
     await client.query("INSERT INTO user_settings(user_id, settings) VALUES ($1,$2)", [userId, defaultSettings]);
+    const savedConversationId = newId();
+    await client.query(
+      "INSERT INTO conversations(id,kind,title,owner_id,saved_owner_id) VALUES ($1,'direct','',$2,$2)",
+      [savedConversationId, userId],
+    );
+    await client.query(
+      "INSERT INTO conversation_members(conversation_id,user_id,role,pinned_at) VALUES ($1,$2,'owner',now())",
+      [savedConversationId, userId],
+    );
     const row = await getUserWithCredential(client, input.username);
     return createSession(client, row!, input);
   });
@@ -99,7 +109,7 @@ async function verifyPassword(row: UserRow, password: string) {
 
 async function getUserWithCredential(client: DbClient, username: string) {
   const result = await client.query<UserRow>(
-    `SELECT u.id,u.username,u.display_name,u.avatar_color,u.bio,u.status_text,u.is_admin,
+    `SELECT u.id,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin,
             (extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms,
             c.password_hash,c.algorithm
      FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.username=$1`,
@@ -130,9 +140,9 @@ export async function refresh(refreshToken: string) {
   return transaction(async (client) => {
     const result = await client.query<{
       id: string; user_id: string; platform: "web" | "android"; username: string; display_name: string;
-      avatar_color: string; bio: string; status_text: string; is_admin: boolean; last_seen_at_ms: number;
+      avatar_attachment_id: string | null; avatar_color: string; bio: string; status_text: string; is_admin: boolean; last_seen_at_ms: number;
     }>(
-      `SELECT s.id,s.user_id,s.platform,u.username,u.display_name,u.avatar_color,u.bio,u.status_text,u.is_admin,
+      `SELECT s.id,s.user_id,s.platform,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin,
               (extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms
        FROM device_sessions s JOIN users u ON u.id=s.user_id
        WHERE s.refresh_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now() FOR UPDATE`,
@@ -170,8 +180,9 @@ export async function authenticateAccessToken(token: string): Promise<Authentica
     if (!payload.sub || typeof payload.sid !== "string" || (payload.platform !== "web" && payload.platform !== "android")) throw new Error("invalid claims");
     const result = await pool.query<{
       id: string; username: string; display_name: string; avatar_color: string; bio: string; status_text: string; is_admin: boolean;
+      avatar_attachment_id: string | null;
     }>(
-      `SELECT u.id,u.username,u.display_name,u.avatar_color,u.bio,u.status_text,u.is_admin
+      `SELECT u.id,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin
        FROM users u JOIN device_sessions s ON s.user_id=u.id
        WHERE u.id=$1 AND s.id=$2 AND s.revoked_at IS NULL AND s.expires_at > now()`,
       [payload.sub, payload.sid],
@@ -180,7 +191,7 @@ export async function authenticateAccessToken(token: string): Promise<Authentica
     if (!user) throw new Error("session revoked");
     return {
       id: user.id, sessionId: payload.sid, username: user.username, displayName: user.display_name,
-      avatarUrl: null, avatarColor: user.avatar_color, bio: user.bio, statusText: user.status_text,
+      avatarUrl: avatarUrl(user.avatar_attachment_id), avatarColor: user.avatar_color, bio: user.bio, statusText: user.status_text,
       isAdmin: user.is_admin, platform: payload.platform,
     };
   } catch {
@@ -210,10 +221,12 @@ function avatarColor(seed: string) {
   return colors[parseInt(seed.slice(0, 2), 16) % colors.length]!;
 }
 
-function toSummary(row: Pick<UserRow, "id" | "username" | "display_name" | "avatar_color" | "bio" | "status_text" | "last_seen_at_ms">): UserSummary {
+function toSummary(row: Pick<UserRow, "id" | "username" | "display_name" | "avatar_attachment_id" | "avatar_color" | "bio" | "status_text" | "last_seen_at_ms">): UserSummary {
   return {
-    id: row.id, username: row.username, displayName: row.display_name, avatarUrl: null,
+    id: row.id, username: row.username, displayName: row.display_name, avatarUrl: avatarUrl(row.avatar_attachment_id),
     avatarColor: row.avatar_color, bio: row.bio, statusText: row.status_text,
     presence: "online", lastSeenAt: Number(row.last_seen_at_ms),
   };
 }
+
+function avatarUrl(attachmentId: string | null) { return attachmentId ? `/api/v1/files/${attachmentId}` : null; }

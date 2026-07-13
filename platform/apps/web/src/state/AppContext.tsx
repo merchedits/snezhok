@@ -119,7 +119,7 @@ function initialSelection(payload: BootstrapPayload): StreamSelection | null {
 
 function mergeMessage(list: Message[], incoming: Message): Message[] {
   const optimisticIndex = list.findIndex((message) =>
-    message.id === incoming.id || (message.pending && message.id === incoming.id),
+    message.id === incoming.id || Boolean(incoming.clientId && (message.clientId === incoming.clientId || ((message.pending || message.failed) && message.id === incoming.clientId))),
   );
   if (optimisticIndex >= 0) {
     const next = [...list];
@@ -408,6 +408,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     const key = selectionKey(selection);
     const optimistic: Message = {
       id: clientId,
+      clientId,
       streamId: selection.id,
       streamKind: selection.kind,
       sequence: Date.now(),
@@ -415,6 +416,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       kind,
       text,
       replyTo: replyingTo ? toPreview(replyingTo) : null,
+      forwardedFrom: null,
       attachments,
       reactions: [],
       createdAt: Date.now(),
@@ -435,7 +437,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       });
       setMessagesByStream((current) => ({
         ...current,
-        [key]: Array.from(new Map((current[key] || []).map((message) => message.id === clientId ? result.message : message).map((message) => [message.id, message])).values()).sort((a, b) => a.sequence - b.sequence),
+        [key]: mergeMessage(current[key] || [], result.message),
       }));
     } catch (error) {
       setMessagesByStream((current) => ({
@@ -460,13 +462,13 @@ export function AppProvider({ children }: PropsWithChildren) {
     setMessagesByStream((current) => ({ ...current, [key]: (current[key] || []).map((item) => item.id === message.id ? { ...item, failed: false, pending: true } : item) }));
     try {
       const result = await api.sendMessage(message.streamKind, message.streamId, {
-        clientId: message.id,
+        clientId: message.clientId ?? message.id,
         text: message.text,
         kind: message.kind,
         replyToId: message.replyTo?.id || null,
         attachmentIds: message.attachments.map((attachment) => attachment.id),
       });
-      setMessagesByStream((current) => ({ ...current, [key]: Array.from(new Map((current[key] || []).map((item) => item.id === message.id ? result.message : item).map((item) => [item.id, item])).values()).sort((a, b) => a.sequence - b.sequence) }));
+      setMessagesByStream((current) => ({ ...current, [key]: mergeMessage(current[key] || [], result.message) }));
     } catch (error) {
       setMessagesByStream((current) => ({ ...current, [key]: (current[key] || []).map((item) => item.id === message.id ? { ...item, pending: false, failed: true } : item) }));
       announce(userMessage(error));

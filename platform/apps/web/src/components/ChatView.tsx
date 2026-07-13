@@ -183,7 +183,7 @@ function ForwardDialog({ message, onClose }: { message: Message; onClose: () => 
   const forward = async (target: { kind: "conversation" | "channel"; id: string }) => {
     setSending(true);
     try {
-      await api.sendMessage(target.kind, target.id, { clientId: crypto.randomUUID(), text: message.text, kind: message.kind, replyToId: null, attachmentIds: message.attachments.map((item) => item.id) });
+      await api.forwardMessage(message.id, target.id, crypto.randomUUID());
       app.announce("Message forwarded.");
       onClose();
     } catch (error) { app.announce(error instanceof Error ? error.message : "Message could not be forwarded."); }

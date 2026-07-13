@@ -20,6 +20,7 @@ export type RootStackParamList = {
     subtitle?: string;
   };
   Call: { streamId: string; title: string };
+  Profile: { userId: string };
 };
 
 export interface AuthTokens {

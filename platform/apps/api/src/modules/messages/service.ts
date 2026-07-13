@@ -15,13 +15,15 @@ export interface MessageCreateInput {
 }
 
 interface MessageRow {
-  id: string; stream_id: string; stream_kind: "conversation" | "channel"; sequence: string;
+  id: string; client_id: string | null; stream_id: string; stream_kind: "conversation" | "channel"; sequence: string;
   sender_id: string; kind: MessageKind; text: string; created_at_ms: number; edited_at_ms: number | null;
   deleted_at_ms: number | null; pinned_at_ms: number | null; username: string; display_name: string;
-  avatar_color: string; bio: string; status_text: string; last_seen_at_ms: number;
+  avatar_attachment_id: string | null; avatar_color: string; bio: string; status_text: string; last_seen_at_ms: number;
   show_last_seen: boolean;
   reply_id: string | null; reply_sender_id: string | null; reply_sender_name: string | null;
   reply_text: string | null; reply_kind: MessageKind | null; reply_created_at_ms: number | null;
+  forwarded_id: string | null; forwarded_sender_id: string | null; forwarded_sender_name: string | null;
+  forwarded_text: string | null; forwarded_kind: MessageKind | null; forwarded_created_at_ms: number | null;
   attachments: unknown; reactions: unknown;
 }
 
@@ -73,6 +75,48 @@ export async function createMessage(userId: string, streamId: string, input: Mes
     }
     const message = await getMessageById(client, id, userId);
     const recipients = await streamRecipients(stream, client);
+    const event = await storeEvent(client, recipients, "message:created", (recipientId: string) => personalizeMessage(message, recipientId));
+    return { message, event };
+  });
+  if (result.event) publishStoredEvent(result.event);
+  return result.message;
+}
+
+export async function forwardMessage(userId: string, messageId: string, targetStreamId: string, clientId: string) {
+  const result = await transaction(async (client) => {
+    const source = (await client.query<{
+      id: string; stream_id: string; stream_kind: "conversation" | "channel"; kind: MessageKind; text: string; deleted_at: Date | null;
+    }>("SELECT id,stream_id,stream_kind,kind,text,deleted_at FROM messages WHERE id=$1", [messageId])).rows[0];
+    if (!source || source.deleted_at) throw notFound("Message not found");
+    const sourceAccess = await resolveStreamAccess(userId, source.stream_id, client);
+    if (sourceAccess.streamKind !== source.stream_kind) throw forbidden();
+
+    const target = await resolveStreamAccess(userId, targetStreamId, client);
+    if (target.streamKind === "channel" && target.channelKind !== "text") throw forbidden("Messages cannot be forwarded to a voice channel");
+    const duplicate = await client.query<{ id: string; stream_kind: "conversation" | "channel"; stream_id: string }>(
+      "SELECT id,stream_kind,stream_id FROM messages WHERE sender_id=$1 AND client_id=$2",
+      [userId, clientId],
+    );
+    if (duplicate.rows[0]) {
+      if (duplicate.rows[0].stream_kind !== target.streamKind || duplicate.rows[0].stream_id !== target.streamId) throw conflict("Client message ID was already used in another stream");
+      return { message: await getMessageById(client, duplicate.rows[0].id, userId), event: null };
+    }
+
+    const id = newId();
+    const sequence = await allocateMessageSequence(target, client);
+    const kind = source.kind === "system" ? "text" : source.kind;
+    await client.query(
+      `INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text,forwarded_from_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, target.streamKind, target.streamId, sequence, userId, clientId, kind, source.text, source.id],
+    );
+    await client.query(
+      `INSERT INTO message_attachments(message_id,attachment_id,position)
+       SELECT $1,attachment_id,position FROM message_attachments WHERE message_id=$2 ORDER BY position`,
+      [id, source.id],
+    );
+    const message = await getMessageById(client, id, userId);
+    const recipients = await streamRecipients(target, client);
     const event = await storeEvent(client, recipients, "message:created", (recipientId: string) => personalizeMessage(message, recipientId));
     return { message, event };
   });
@@ -185,18 +229,21 @@ export async function getMessageById(client: Pick<DbClient, "query">, id: string
 }
 
 const messageSelectSql = `
-  SELECT m.id,m.stream_id,m.stream_kind,m.sequence::text,m.sender_id,m.kind,m.text,
+  SELECT m.id,m.client_id,m.stream_id,m.stream_kind,m.sequence::text,m.sender_id,m.kind,m.text,
     (extract(epoch from m.created_at)*1000)::bigint::float8 AS created_at_ms,
     CASE WHEN m.edited_at IS NULL THEN NULL ELSE (extract(epoch from m.edited_at)*1000)::bigint::float8 END AS edited_at_ms,
     CASE WHEN m.deleted_at IS NULL THEN NULL ELSE (extract(epoch from m.deleted_at)*1000)::bigint::float8 END AS deleted_at_ms,
     CASE WHEN m.pinned_at IS NULL THEN NULL ELSE (extract(epoch from m.pinned_at)*1000)::bigint::float8 END AS pinned_at_ms,
-    u.username,u.display_name,u.avatar_color,u.bio,u.status_text,(extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms,
+    u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,(extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms,
     coalesce((SELECT (us.settings->>'showLastSeen')::boolean FROM user_settings us WHERE us.user_id=u.id),true) AS show_last_seen,
     reply.id AS reply_id,reply.sender_id AS reply_sender_id,ru.display_name AS reply_sender_name,reply.text AS reply_text,
     reply.kind AS reply_kind,CASE WHEN reply.created_at IS NULL THEN NULL ELSE (extract(epoch from reply.created_at)*1000)::bigint::float8 END AS reply_created_at_ms,
+    forwarded.id AS forwarded_id,forwarded.sender_id AS forwarded_sender_id,fu.display_name AS forwarded_sender_name,forwarded.text AS forwarded_text,
+    forwarded.kind AS forwarded_kind,CASE WHEN forwarded.created_at IS NULL THEN NULL ELSE (extract(epoch from forwarded.created_at)*1000)::bigint::float8 END AS forwarded_created_at_ms,
     COALESCE(att.items,'[]'::jsonb) AS attachments,COALESCE(react.items,'[]'::jsonb) AS reactions
   FROM messages m JOIN users u ON u.id=m.sender_id
   LEFT JOIN messages reply ON reply.id=m.reply_to_id LEFT JOIN users ru ON ru.id=reply.sender_id
+  LEFT JOIN messages forwarded ON forwarded.id=m.forwarded_from_id LEFT JOIN users fu ON fu.id=forwarded.sender_id
   LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object('id',a.id,'ownerId',a.owner_id,'kind',a.kind,'filename',a.filename,'mimeType',coalesce(p.mime_type,a.mime_type),
       'bytes',coalesce(p.bytes,a.bytes),'width',coalesce(p.width,a.width),'height',coalesce(p.height,a.height),'durationMs',coalesce(p.duration_ms,a.duration_ms),
@@ -217,11 +264,12 @@ const messageSelectSql = `
 function mapMessage(row: MessageRow, viewerId?: string): Message {
   const reactions = (row.reactions as Array<{ emoji: string; count: number; reacted: boolean; userIds: string[] }>).map((reaction) => ({ ...reaction, reacted: viewerId ? reaction.userIds.includes(viewerId) : false }));
   return {
-    id: row.id, streamId: row.stream_id, streamKind: row.stream_kind, sequence: Number(row.sequence),
-    sender: { id: row.sender_id, username: row.username, displayName: row.display_name, avatarUrl: null, avatarColor: row.avatar_color,
+    id: row.id, clientId: row.client_id, streamId: row.stream_id, streamKind: row.stream_kind, sequence: Number(row.sequence),
+    sender: { id: row.sender_id, username: row.username, displayName: row.display_name, avatarUrl: row.avatar_attachment_id ? `/api/v1/files/${row.avatar_attachment_id}` : null, avatarColor: row.avatar_color,
       bio: row.bio, statusText: row.status_text, presence: "offline", lastSeenAt: row.show_last_seen ? Number(row.last_seen_at_ms) : 0 },
     kind: row.kind, text: row.text,
     replyTo: row.reply_id ? { id: row.reply_id, senderId: row.reply_sender_id!, senderName: row.reply_sender_name!, text: row.reply_text ?? "", kind: row.reply_kind!, createdAt: Number(row.reply_created_at_ms) } : null,
+    forwardedFrom: row.forwarded_id ? { id: row.forwarded_id, senderId: row.forwarded_sender_id!, senderName: row.forwarded_sender_name!, text: row.forwarded_text ?? "", kind: row.forwarded_kind!, createdAt: Number(row.forwarded_created_at_ms) } : null,
     attachments: row.attachments as Message["attachments"], reactions,
     createdAt: Number(row.created_at_ms), editedAt: row.edited_at_ms === null ? null : Number(row.edited_at_ms),
     deletedAt: row.deleted_at_ms === null ? null : Number(row.deleted_at_ms), pinnedAt: row.pinned_at_ms === null ? null : Number(row.pinned_at_ms),

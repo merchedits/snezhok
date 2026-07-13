@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { messageCreateSchema, messageEditSchema, reactionSchema } from "@snezhok/contracts";
 import { z } from "zod";
 import { requireAuth } from "../auth/middleware.js";
-import { createMessage, deleteMessage, editMessage, listMessages, listPinnedMessages, markRead, setPinned, setReaction } from "./service.js";
+import { createMessage, deleteMessage, editMessage, forwardMessage, listMessages, listPinnedMessages, markRead, setPinned, setReaction } from "./service.js";
 
 const streamParams = z.object({ streamId: z.string().uuid() });
 const messageParams = z.object({ id: z.string().uuid() });
@@ -10,6 +10,7 @@ const historyQuery = z.object({ before: z.coerce.number().int().positive().optio
 const readSchema = z.object({ sequence: z.number().int().nonnegative() });
 const reactionBody = reactionSchema.extend({ active: z.boolean().default(true) });
 const pinBody = z.object({ pinned: z.boolean() });
+const forwardBody = z.object({ targetStreamId: z.string().uuid(), clientId: z.string().uuid() });
 const reactionParams = z.object({ id: z.string().uuid(), emoji: z.string().min(1).max(32) });
 
 export async function messageRoutes(app: FastifyInstance) {
@@ -47,6 +48,12 @@ export async function messageRoutes(app: FastifyInstance) {
   app.post("/messages/:id/reactions", { preHandler: requireAuth, config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request) => {
     const { id } = messageParams.parse(request.params); const { emoji } = reactionSchema.parse(request.body);
     return { message: await setReaction(request.auth.id, id, emoji, true) };
+  });
+  app.post("/messages/:id/forward", { preHandler: requireAuth, config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const { id } = messageParams.parse(request.params);
+    const body = forwardBody.parse(request.body);
+    const message = await forwardMessage(request.auth.id, id, body.targetStreamId, body.clientId);
+    return reply.status(201).send({ message });
   });
   app.delete("/messages/:id/reactions/:emoji", { preHandler: requireAuth }, async (request) => {
     const { id, emoji } = reactionParams.parse(request.params);

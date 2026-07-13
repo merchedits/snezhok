@@ -30,6 +30,9 @@ export async function buildApp() {
   await app.register(cookie);
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
   app.addContentTypeParser("application/offset+octet-stream", { parseAs: "buffer" }, (_request, body, done) => done(null, body));
+  // Native clients stream complete files here. Keeping this as a stream avoids
+  // buffering voice notes and large attachments in either Android or Node.
+  app.addContentTypeParser("application/octet-stream", (_request, body, done) => done(null, body));
   app.addContentTypeParser("application/webhook+json", { parseAs: "string" }, (_request, body, done) => done(null, body));
 
   installErrorHandler(app);

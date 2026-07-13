@@ -14,6 +14,7 @@ import { CallScreen } from "./src/screens/CallScreen";
 import { ChatScreen } from "./src/screens/ChatScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { MainScreen } from "./src/screens/MainScreen";
+import { PublicProfileScreen } from "./src/screens/ProfileScreen";
 import { useAppStore } from "./src/store/useAppStore";
 import type { RootStackParamList } from "./src/types";
 import { AndroidUpdateProvider } from "./src/updates/UpdateProvider";
@@ -74,6 +75,7 @@ function AppRoot() {
       <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
         <Stack.Screen name="Main" component={MainScreen} />
         <Stack.Screen name="Chat" component={SafeChatScreen} />
+        <Stack.Screen name="Profile" component={PublicProfileScreen} />
         <Stack.Screen name="Call" component={CallScreen} options={{ presentation: "fullScreenModal", animation: "fade" }} />
       </Stack.Navigator>
     </NavigationContainer>

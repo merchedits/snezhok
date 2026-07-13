@@ -171,6 +171,13 @@ export const api = {
     });
   },
 
+  forwardMessage(messageId: Id, targetStreamId: Id, clientId: Id) {
+    return request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/forward`, {
+      method: "POST",
+      body: json({ targetStreamId, clientId }),
+    });
+  },
+
   deleteMessage(messageId: Id) {
     return request<void>(`/messages/${encodeURIComponent(messageId)}`, { method: "DELETE" });
   },

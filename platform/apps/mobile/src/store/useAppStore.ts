@@ -9,6 +9,7 @@ import type {
   ConversationSummary,
   FriendEntry,
   Message,
+  Presence,
   ServerSummary,
   UserSummary,
 } from "@snezhok/contracts";
@@ -17,6 +18,7 @@ import { api } from "../lib/api";
 import { clearLocalData, readCache, readOutbox, writeCache, writeOutbox } from "../lib/offlineRepository";
 import { clearSession, readSession, writeSession } from "../lib/secureSession";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch } from "../types";
+import { mergeMessages } from "./messageReconciliation";
 
 type Phase = "booting" | "signed-out" | "ready" | "error";
 
@@ -43,8 +45,11 @@ interface AppState {
   refreshBootstrap: () => Promise<void>;
   loadMessages: (streamId: string, before?: number) => Promise<void>;
   sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">) => Promise<void>;
+  forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
+  toggleReaction: (message: Message, emoji: string) => Promise<void>;
   retryOutbox: () => Promise<void>;
   applyMessage: (message: Message) => void;
+  applyPresence: (userId: string, presence: Presence, lastSeenAt: number) => void;
   updateSettings: (patch: SettingsPatch) => Promise<void>;
   setEventCursor: (cursor: number) => void;
 }
@@ -90,12 +95,6 @@ async function persistState(): Promise<void> {
     writeCache({ bootstrap: toBootstrap(state), messages: state.messages, cachedAt: Date.now() }),
     writeOutbox(state.outbox),
   ]);
-}
-
-function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
-  const byId = new Map(existing.map((message) => [message.id, message]));
-  for (const message of incoming) byId.set(message.id, message);
-  return [...byId.values()].sort((a, b) => a.sequence - b.sequence || a.createdAt - b.createdAt);
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -247,6 +246,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const existing = get().messages[streamId] ?? [];
     const optimistic: Message = {
       id: clientId,
+      clientId,
       streamId,
       streamKind: get().channels.some((channel) => channel.id === streamId) ? "channel" : "conversation",
       sequence: (existing.at(-1)?.sequence ?? 0) + 1,
@@ -254,6 +254,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       kind: input.kind,
       text: input.text,
       replyTo: null,
+      forwardedFrom: null,
       attachments: [],
       reactions: [],
       createdAt: Date.now(),
@@ -263,7 +264,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       pending: true,
       failed: false,
     };
-    set((state) => ({ messages: { ...state.messages, [streamId]: [...existing, optimistic] } }));
+    set((state) => ({ messages: { ...state.messages, [streamId]: mergeMessages(state.messages[streamId] ?? [], [optimistic]) } }));
 
     if (!get().online) {
       const entry: OutboxEntry = { id: clientId, streamId, input, queuedAt: Date.now(), attempts: 0 };
@@ -277,7 +278,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => ({
         messages: {
           ...state.messages,
-          [streamId]: (state.messages[streamId] ?? []).map((message) => (message.id === clientId ? saved : message)),
+          [streamId]: mergeMessages(state.messages[streamId] ?? [], [saved]),
         },
       }));
     } catch {
@@ -295,6 +296,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     await persistState();
   },
 
+  forwardMessage: async (messageId, targetStreamId) => {
+    if (!get().online) throw new Error("Forwarding requires a connection");
+    const saved = await api.forwardMessage(messageId, targetStreamId, Crypto.randomUUID());
+    set((state) => ({ messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [saved]) } }));
+    await persistState();
+    return saved;
+  },
+
+  toggleReaction: async (message, emoji) => {
+    if (!get().online) throw new Error("Reactions require a connection");
+    const active = !message.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
+    const saved = await api.setReaction(message.id, emoji, active);
+    set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) } }));
+    await persistState();
+  },
+
   retryOutbox: async () => {
     if (!get().online || get().outbox.length === 0) return;
     for (const entry of [...get().outbox]) {
@@ -304,9 +321,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           outbox: state.outbox.filter((item) => item.id !== entry.id),
           messages: {
             ...state.messages,
-            [entry.streamId]: (state.messages[entry.streamId] ?? []).map((message) =>
-              message.id === entry.id ? saved : message,
-            ),
+            [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]),
           },
         }));
       } catch {
@@ -327,6 +342,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         ...state.messages,
         [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]),
       },
+    }));
+    void persistState();
+  },
+
+  applyPresence: (userId, presence, lastSeenAt) => {
+    const updateUser = (user: UserSummary): UserSummary => user.id === userId ? { ...user, presence, lastSeenAt } : user;
+    set((state) => ({
+      me: state.me ? updateUser(state.me) : null,
+      conversations: state.conversations.map((conversation) => ({ ...conversation, participants: conversation.participants.map(updateUser) })),
+      friends: state.friends.map((entry) => ({ ...entry, user: updateUser(entry.user) })),
+      channels: state.channels.map((channel) => ({ ...channel, connectedMembers: channel.connectedMembers.map(updateUser) })),
     }));
     void persistState();
   },

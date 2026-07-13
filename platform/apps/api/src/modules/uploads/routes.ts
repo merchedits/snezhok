@@ -9,8 +9,9 @@ import { AppError, conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { requireAuth } from "../auth/middleware.js";
 import { resolveStreamAccess } from "../streams/access.js";
-import { appendChunk, ensureStorage, initializeTemporary, objectPath, removeTemporary, stageObject, tempPath } from "./storage.js";
+import { appendChunk, ensureStorage, initializeTemporary, objectPath, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
 import { stat } from "node:fs/promises";
+import type { Readable } from "node:stream";
 
 const initSchema = uploadMetadataSchema.extend({
   filename: z.string().trim().min(1).max(255).optional(), originalName: z.string().trim().min(1).max(255).optional(),
@@ -58,6 +59,29 @@ export async function uploadRoutes(app: FastifyInstance) {
     return reply.header("upload-offset", nextOffset).status(204).send();
   });
 
+  app.put("/uploads/:id/content", { preHandler: requireAuth, bodyLimit: config.MAX_UPLOAD_BYTES + 1024 }, async (request, reply) => {
+    const { id } = idParams.parse(request.params);
+    const upload = await ownedUpload(request.auth.id, id);
+    if (upload.status !== "uploading" || Number(upload.received_bytes) !== 0) throw conflict("Upload no longer accepts a complete file");
+    const declaredBytes = Number(upload.declared_bytes);
+    const contentLength = Number(request.headers["content-length"]);
+    if (!Number.isSafeInteger(contentLength) || contentLength !== declaredBytes) throw conflict(`Expected content length ${declaredBytes}`);
+    const body = request.body;
+    if (!body || typeof (body as Readable).pipe !== "function") throw conflict("File body must be application/octet-stream");
+    try {
+      await writeWholeUpload(upload.temp_key, body as Readable, declaredBytes);
+    } catch (error) {
+      await initializeTemporary(upload.temp_key).catch(() => undefined);
+      throw conflict(error instanceof Error ? error.message : "Upload body could not be stored");
+    }
+    await transaction(async (client) => {
+      const locked = await ownedUpload(request.auth.id, id, client, true);
+      if (locked.status !== "uploading" || Number(locked.received_bytes) !== 0) throw conflict("Upload changed while receiving the file");
+      await client.query("UPDATE upload_sessions SET received_bytes=declared_bytes,updated_at=now() WHERE id=$1 AND owner_id=$2", [id, request.auth.id]);
+    });
+    return reply.header("upload-offset", declaredBytes).status(204).send();
+  });
+
   app.post("/uploads/:id/complete", { preHandler: requireAuth }, async (request) => completeUpload(request.auth.id, idParams.parse(request.params).id));
   app.post("/uploads/complete", { preHandler: requireAuth }, async (request) => completeUpload(request.auth.id, completeBody.parse(request.body).uploadId));
   app.delete("/uploads/:id", { preHandler: requireAuth }, async (request) => {
@@ -80,24 +104,36 @@ export async function uploadRoutes(app: FastifyInstance) {
     const file = result.rows[0]; if (!file) throw notFound("File not found");
     if (variant && !file.variant_id) throw notFound("Media variant not found");
     if (file.owner_id !== request.auth.id) {
+      const profilePhoto = await pool.query(
+        `SELECT 1 FROM user_profile_photos p JOIN attachments a ON a.id=p.attachment_id
+         WHERE p.attachment_id=$1 OR a.thumbnail_attachment_id=$1 LIMIT 1`,
+        [id],
+      );
+      if (profilePhoto.rowCount) {
+        return sendFile(reply, file, request.headers.range);
+      }
       const links = await pool.query<{ stream_id: string }>("SELECT m.stream_id FROM message_attachments ma JOIN messages m ON m.id=ma.message_id WHERE ma.attachment_id=$1", [id]);
       let allowed = false;
       for (const link of links.rows) { try { await resolveStreamAccess(request.auth.id, link.stream_id); allowed = true; break; } catch { /* try another linked stream */ } }
       if (!allowed) throw forbidden("You cannot access this file");
     }
+    return sendFile(reply, file, request.headers.range);
+  });
+
+  function sendFile(reply: import("fastify").FastifyReply, file: { filename: string; mime_type: string; storage_key: string; bytes: string }, rangeHeader: string | undefined) {
     const totalBytes = Number(file.bytes);
     reply.header("content-type", file.mime_type).header("accept-ranges", "bytes").header("cache-control", "private, max-age=86400, immutable").header("x-content-type-options", "nosniff");
     const safeFilename = file.filename.replace(/[\r\n"]/g, "_"); reply.header("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(safeFilename)}`);
     if (/(?:html|svg|xml|javascript)/i.test(file.mime_type)) reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(safeFilename)}`);
     if (config.USE_X_ACCEL) return reply.header("content-length", totalBytes).header("x-accel-redirect", `${config.INTERNAL_MEDIA_PREFIX}${file.storage_key.replace(/^objects\//, "")}`).send();
-    const range = parseRange(request.headers.range, totalBytes);
+    const range = parseRange(rangeHeader, totalBytes);
     if (range === "invalid") return reply.header("content-range", `bytes */${totalBytes}`).status(416).send();
     if (range) {
       reply.status(206).header("content-range", `bytes ${range.start}-${range.end}/${totalBytes}`).header("content-length", range.end-range.start+1);
       return reply.send(createReadStream(objectPath(file.storage_key), range));
     }
     return reply.header("content-length", totalBytes).send(createReadStream(objectPath(file.storage_key)));
-  });
+  }
 
   app.delete("/media-jobs/:id", { preHandler: requireAuth }, async (request) => {
     const { id } = idParams.parse(request.params);

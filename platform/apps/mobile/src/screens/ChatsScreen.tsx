@@ -17,7 +17,7 @@ import type { RootStackParamList } from "../types";
 export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const palette = usePalette();
-  const { t } = useTranslation();
+  const { language, t } = useTranslation();
   const conversations = useAppStore((state) => state.conversations);
   const syncing = useAppStore((state) => state.syncing);
   const refresh = useAppStore((state) => state.refreshBootstrap);
@@ -26,9 +26,9 @@ export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolea
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return conversations
-      .filter((item) => !item.archived && (!query || item.title.toLowerCase().includes(query) || item.lastMessage?.text.toLowerCase().includes(query)))
-      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
-  }, [conversations, search]);
+      .filter((item) => !item.archived && (!query || conversationTitle(item, language).toLowerCase().includes(query) || item.lastMessage?.text.toLowerCase().includes(query)))
+      .sort((a, b) => Number(b.saved) - Number(a.saved) || Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
+  }, [conversations, language, search]);
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
@@ -48,7 +48,7 @@ export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolea
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={syncing} tintColor={palette.accent} onRefresh={() => void refresh()} />}
-        renderItem={({ item }) => <ConversationRow conversation={item} onPress={() => navigation.navigate("Chat", { streamId: item.id, streamKind: "conversation", title: item.title })} />}
+        renderItem={({ item }) => <ConversationRow conversation={item} onPress={() => navigation.navigate("Chat", { streamId: item.id, streamKind: "conversation", title: conversationTitle(item, language) })} />}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
       />
       <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.accent, opacity: pressed ? 0.78 : 1 }]}><Ionicons name="create-outline" size={24} color="white" /></Pressable>
@@ -67,14 +67,17 @@ export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolea
 
 function ConversationRow({ conversation, onPress }: { conversation: ConversationSummary; onPress: () => void }) {
   const palette = usePalette();
-  const { t } = useTranslation();
+  const { language, t } = useTranslation();
+  const title = conversationTitle(conversation, language);
   const peer = conversation.kind === "direct" ? conversation.participants[0] : undefined;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, { backgroundColor: pressed ? palette.surface : palette.background }]}> 
-      <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={conversation.title} color={peer?.avatarColor} online={peer?.presence === "online"} size={52} />
+      {conversation.saved
+        ? <View style={[styles.savedAvatar, { backgroundColor: palette.accent }]}><Ionicons name="bookmark" size={24} color="white" /></View>
+        : <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={title} color={peer?.avatarColor} online={peer?.presence === "online"} size={52} />}
       <View style={[styles.rowBody, { borderColor: palette.border }]}> 
         <View style={styles.rowTop}>
-          <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.text }]}>{conversation.title}</Text>
+          <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.text }]}>{title}</Text>
           <Text style={[styles.time, { color: conversation.unreadCount ? palette.accent : palette.faintText }]}>{formatListTime(conversation.updatedAt)}</Text>
         </View>
         <View style={styles.rowBottom}>
@@ -87,6 +90,11 @@ function ConversationRow({ conversation, onPress }: { conversation: Conversation
       </View>
     </Pressable>
   );
+}
+
+function conversationTitle(conversation: ConversationSummary, language: "en" | "ru"): string {
+  if (!conversation.saved) return conversation.title;
+  return language === "ru" ? "Сохранённые сообщения" : "Saved Messages";
 }
 
 function formatListTime(timestamp: number): string {
@@ -108,6 +116,7 @@ const styles = StyleSheet.create({
   search: { height: 38, marginHorizontal: 12, marginVertical: 8, borderRadius: 10, flexDirection: "row", alignItems: "center", paddingHorizontal: 11, gap: 7 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   row: { minHeight: 72, flexDirection: "row", paddingLeft: 12, alignItems: "center" },
+  savedAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
   rowBody: { flex: 1, height: "100%", justifyContent: "center", borderBottomWidth: StyleSheet.hairlineWidth, marginLeft: 12, paddingRight: 12 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowTitle: { flex: 1, fontSize: 16, fontWeight: "700" },

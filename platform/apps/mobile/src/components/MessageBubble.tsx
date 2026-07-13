@@ -9,34 +9,34 @@ import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { Avatar } from "./Avatar";
 
-export function MessageBubble({ message, mine, showSender, variant }: { message: Message; mine: boolean; showSender: boolean; variant: "bubble" | "channel" }) {
+export function MessageBubble({ message, mine, showSender, variant, onLongPress, onReact }: { message: Message; mine: boolean; showSender: boolean; variant: "bubble" | "channel"; onLongPress?: () => void; onReact?: (emoji: string) => void }) {
   const palette = usePalette();
   if (message.deletedAt) return <Text style={[styles.deleted, { color: palette.faintText }]}>Message deleted</Text>;
   if (variant === "channel") {
     return (
-      <View style={styles.channelRow}>
+      <Pressable delayLongPress={240} onLongPress={onLongPress} style={({ pressed }) => [styles.channelRow, { opacity: pressed ? 0.72 : 1 }]}>
         <View style={styles.channelAvatar}>{showSender ? <Avatar uri={message.sender.avatarUrl} label={message.sender.displayName} color={message.sender.avatarColor} size={40} /> : null}</View>
         <View style={styles.channelContent}>
           {showSender ? <View style={styles.authorLine}><Text style={[styles.channelAuthor, { color: message.sender.avatarColor || palette.text }]}>{message.sender.displayName}</Text><Text style={[styles.channelTime, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text></View> : null}
-          <MessageContent message={message} mine={mine} showSender={false} showTime={false} />
+          <MessageContent message={message} mine={mine} showSender={false} showTime={false} onReact={onReact} />
         </View>
-      </View>
+      </Pressable>
     );
   }
   return (
     <View style={[styles.row, mine ? styles.mineRow : styles.theirRow]}> 
-      <View style={[styles.bubble, { backgroundColor: mine ? palette.outgoing : palette.incoming, borderColor: palette.border }]}> 
-        <MessageContent message={message} mine={mine} showSender={showSender && !mine} showTime />
-      </View>
+      <Pressable delayLongPress={240} onLongPress={onLongPress} style={({ pressed }) => [styles.bubble, { backgroundColor: mine ? palette.outgoing : palette.incoming, borderColor: palette.border, transform: [{ scale: pressed ? 0.985 : 1 }] }]}>
+        <MessageContent message={message} mine={mine} showSender={showSender && !mine} showTime onReact={onReact} />
+      </Pressable>
     </View>
   );
 }
 
-function MessageContent({ message, mine, showSender, showTime }: { message: Message; mine: boolean; showSender: boolean; showTime: boolean }) {
+function MessageContent({ message, mine, showSender, showTime, onReact }: { message: Message; mine: boolean; showSender: boolean; showTime: boolean; onReact?: ((emoji: string) => void) | undefined }) {
   const palette = usePalette();
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
-  return <>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{attachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text selectable style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <Ionicons name={message.failed ? "alert-circle" : message.pending ? "time-outline" : "checkmark-done"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <View key={reaction.emoji} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text><Text style={[styles.reactionCount, { color: reaction.reacted ? palette.accent : palette.secondaryText }]}>{reaction.count}</Text></View>)}</View> : null}</>;
+  return <>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{message.forwardedFrom ? <View style={styles.forwarded}><Ionicons name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}{attachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text selectable style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <Ionicons name={message.failed ? "alert-circle" : message.pending ? "time-outline" : "checkmark-done"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text><Text style={[styles.reactionCount, { color: reaction.reacted ? palette.accent : palette.secondaryText }]}>{reaction.count}</Text></Pressable>)}</View> : null}</>;
 }
 
 function AttachmentView({ attachment }: { attachment: Attachment }) {
@@ -106,6 +106,8 @@ const styles = StyleSheet.create({
   reply: { borderLeftWidth: 3, paddingLeft: 7, marginBottom: 6 },
   replyName: { fontSize: 12, fontWeight: "700" },
   replyText: { fontSize: 12, marginTop: 1 },
+  forwarded: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 5 },
+  forwardedText: { fontSize: 12, fontWeight: "700" },
   meta: { alignSelf: "flex-end", flexDirection: "row", alignItems: "center", gap: 3, marginTop: 3, marginLeft: 12 },
   time: { fontSize: 10 },
   edited: { fontSize: 10 },

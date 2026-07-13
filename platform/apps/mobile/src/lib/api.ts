@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
+import * as FileSystem from "expo-file-system/legacy";
 
-import type { AppSettings, Attachment, BootstrapPayload, ConversationSummary, FriendEntry, Message, ServerSummary, UserSummary } from "@snezhok/contracts";
+import type { AppSettings, Attachment, BootstrapPayload, ConversationSummary, FriendEntry, Message, ServerSummary, UserProfile, UserSummary } from "@snezhok/contracts";
 
 import type {
   AuthResponse,
@@ -115,39 +116,60 @@ class ApiClient {
     }).then((result) => result.message);
   }
 
+  forwardMessage(messageId: string, targetStreamId: string, clientId: string): Promise<Message> {
+    return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/forward`, {
+      method: "POST",
+      body: { targetStreamId, clientId },
+    }).then((result) => result.message);
+  }
+
+  setReaction(messageId: string, emoji: string, active: boolean): Promise<Message> {
+    return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/reactions`, {
+      method: "PUT",
+      body: { emoji, active },
+    }).then((result) => result.message);
+  }
+
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
     return this.request<{ settings: AppSettings }>("/settings", { method: "PATCH", body: patch }).then((result) => result.settings);
   }
 
   async upload(input: UploadInput): Promise<Attachment> {
-    const fileResponse = await fetch(input.uri);
-    const blob = await fileResponse.blob();
+    const info = await FileSystem.getInfoAsync(input.uri);
+    if (!info.exists || typeof info.size !== "number") throw new Error("The selected file is no longer available");
     const initialized = await this.request<UploadInitResponse>("/uploads/init", {
       method: "POST",
       body: {
         filename: input.filename,
         mimeType: input.mimeType,
-        bytes: blob.size,
+        bytes: info.size,
         quality: input.quality,
         kind: input.kind,
         stripLocation: true,
       },
     });
-    let offset = initialized.upload.offset;
-    while (offset < blob.size) {
-      const chunk = blob.slice(offset, Math.min(offset + initialized.upload.chunkBytes, blob.size));
-      await this.request<void>(`/uploads/${initialized.uploadId}/chunk`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/offset+octet-stream",
-          "Upload-Offset": String(offset),
-        },
-        body: chunk,
-      });
-      offset += chunk.size;
-    }
+    await this.uploadNativeFile(initialized.uploadId, input.uri);
     const result = await this.request<UploadResponse>(`/uploads/${initialized.uploadId}/complete`, { method: "POST" });
     return result.attachment;
+  }
+
+  private async uploadNativeFile(uploadId: string, uri: string, retry = true): Promise<void> {
+    const session = await readSession();
+    if (!session) throw new Error("Your session has expired");
+    const response = await FileSystem.uploadAsync(`${API_URL}/uploads/${encodeURIComponent(uploadId)}/content`, uri, {
+      httpMethod: "PUT",
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${session.accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+    });
+    if (response.status === 401 && retry && (await this.refresh())) return this.uploadNativeFile(uploadId, uri, false);
+    if (response.status < 200 || response.status >= 300) {
+      const payload = JSON.parse(response.body || "null") as { message?: string } | null;
+      throw new Error(payload?.message ?? `Upload failed (${response.status})`);
+    }
   }
 
   joinCall(streamId: string): Promise<CallJoinResponse> {
@@ -156,6 +178,26 @@ class ApiClient {
 
   searchUsers(query: string): Promise<UserSummary[]> {
     return this.request<{ users: UserSummary[] }>(`/users/search?q=${encodeURIComponent(query)}`).then((result) => result.users);
+  }
+
+  profile(userId: string): Promise<UserProfile> {
+    return this.request<{ profile: UserProfile }>(`/users/${encodeURIComponent(userId)}/profile`).then((result) => result.profile);
+  }
+
+  updateProfile(input: { displayName?: string; bio?: string; statusText?: string }): Promise<UserSummary> {
+    return this.request<{ user: UserSummary }>("/users/me", { method: "PATCH", body: input }).then((result) => result.user);
+  }
+
+  addProfilePhoto(attachmentId: string): Promise<UserProfile> {
+    return this.request<{ profile: UserProfile }>("/users/me/profile-photos", { method: "POST", body: { attachmentId } }).then((result) => result.profile);
+  }
+
+  reorderProfilePhotos(attachmentIds: string[]): Promise<UserProfile> {
+    return this.request<{ profile: UserProfile }>("/users/me/profile-photos/order", { method: "PATCH", body: { attachmentIds } }).then((result) => result.profile);
+  }
+
+  removeProfilePhoto(attachmentId: string): Promise<UserProfile> {
+    return this.request<{ profile: UserProfile }>(`/users/me/profile-photos/${encodeURIComponent(attachmentId)}`, { method: "DELETE" }).then((result) => result.profile);
   }
 
   createConversation(participantIds: string[], title?: string): Promise<ConversationSummary> {

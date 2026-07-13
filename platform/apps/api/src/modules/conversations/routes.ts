@@ -54,7 +54,11 @@ export async function conversationRoutes(app: FastifyInstance) {
   app.delete("/conversations/:id/members/me", { preHandler: requireAuth }, async (request) => {
     const { id } = params.parse(request.params);
     const event = await transaction(async (client) => {
-      const result = await client.query("DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2", [id, request.auth.id]);
+      const result = await client.query(
+        `DELETE FROM conversation_members cm USING conversations c
+         WHERE cm.conversation_id=$1 AND cm.user_id=$2 AND c.id=cm.conversation_id AND c.saved_owner_id IS NULL`,
+        [id, request.auth.id],
+      );
       if (!result.rowCount) throw notFound("Conversation not found");
       return storeEvent(client, [request.auth.id], "conversation:removed", { id });
     });

@@ -21,6 +21,19 @@ export interface UserSummary {
   lastSeenAt: Timestamp;
 }
 
+export interface ProfilePhoto {
+  id: Id;
+  url: string;
+  thumbnailUrl: string | null;
+  position: number;
+  createdAt: Timestamp;
+}
+
+export interface UserProfile {
+  user: UserSummary;
+  photos: ProfilePhoto[];
+}
+
 export interface SessionDevice {
   id: Id;
   label: string;
@@ -48,6 +61,8 @@ export interface ConversationSummary {
   muted: boolean;
   pinned: boolean;
   archived: boolean;
+  /** True only for the private, single-member conversation owned by this user. */
+  saved: boolean;
   updatedAt: Timestamp;
 }
 
@@ -121,6 +136,8 @@ export interface ReactionSummary {
 
 export interface Message {
   id: Id;
+  /** Stable sender-generated identifier used to reconcile optimistic messages. */
+  clientId?: Id | null;
   streamId: Id;
   streamKind: "conversation" | "channel";
   sequence: number;
@@ -128,6 +145,7 @@ export interface Message {
   kind: MessageKind;
   text: string;
   replyTo: MessagePreview | null;
+  forwardedFrom?: MessagePreview | null;
   attachments: Attachment[];
   reactions: ReactionSummary[];
   createdAt: Timestamp;

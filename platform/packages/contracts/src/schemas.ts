@@ -21,6 +21,19 @@ export const registerSchema = loginSchema.extend({
   email: emailSchema,
 });
 
+export const profileUpdateSchema = z.object({
+  displayName: z.string().trim().min(1).max(48).optional(),
+  bio: z.string().trim().max(512).optional(),
+  statusText: z.string().trim().max(128).optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: "At least one profile field is required" });
+
+export const profilePhotoSchema = z.object({ attachmentId: idSchema });
+export const profilePhotoOrderSchema = z.object({
+  attachmentIds: z.array(idSchema).min(1).max(10),
+}).refine((value) => new Set(value.attachmentIds).size === value.attachmentIds.length, {
+  message: "Profile photos must be unique",
+});
+
 export const messageCreateSchema = z.object({
   clientId: z.string().uuid(),
   text: z.string().max(16_000).default(""),

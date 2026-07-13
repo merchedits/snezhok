@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
   serverStrip: { borderBottomWidth: StyleSheet.hairlineWidth },
   serverStripContent: { paddingHorizontal: 12, paddingVertical: 12, gap: 12 },
   serverChoice: { width: 62, alignItems: "center", gap: 5 },
-  serverIcon: { width: 52, height: 52, borderWidth: 2, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  serverIcon: { width: 52, height: 52, borderWidth: 2, borderRadius: 26, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   serverLabel: { width: 62, textAlign: "center", fontSize: 11, fontWeight: "600" },
   heading: { minHeight: 62, flexDirection: "row", alignItems: "center", paddingHorizontal: 16 },
   headingCopy: { flex: 1 },

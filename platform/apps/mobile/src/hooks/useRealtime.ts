@@ -11,6 +11,7 @@ type RealtimeSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 export function useRealtime(enabled: boolean): void {
   const applyMessage = useAppStore((state) => state.applyMessage);
+  const applyPresence = useAppStore((state) => state.applyPresence);
   const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
   const setEventCursor = useAppStore((state) => state.setEventCursor);
 
@@ -40,6 +41,7 @@ export function useRealtime(enabled: boolean): void {
       socket.on("conversation:updated", () => void refreshBootstrap());
       socket.on("channel:updated", () => void refreshBootstrap());
       socket.on("friend:updated", () => void refreshBootstrap());
+      socket.on("presence:updated", ({ userId, presence, lastSeenAt }) => applyPresence(userId, presence, lastSeenAt));
       socket.io.on("reconnect_attempt", () => {
         void readSession().then((latest) => {
           if (socket && latest) socket.auth = { token: latest.accessToken };
@@ -51,5 +53,5 @@ export function useRealtime(enabled: boolean): void {
       disposed = true;
       socket?.disconnect();
     };
-  }, [applyMessage, enabled, refreshBootstrap, setEventCursor]);
+  }, [applyMessage, applyPresence, enabled, refreshBootstrap, setEventCursor]);
 }

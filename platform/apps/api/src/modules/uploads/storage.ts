@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { constants } from "node:fs";
 import { copyFile, mkdir, open, rename, rm, stat } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
+import { Transform, type Readable } from "node:stream";
 import path from "node:path";
 import { fileTypeFromFile } from "file-type";
 import { config } from "../../config.js";
@@ -26,6 +28,20 @@ export async function appendChunk(key: string, offset: number, data: Buffer) {
   const target = tempPath(key);
   const handle = await open(target, "r+").catch(() => open(target, "w+"));
   try { await handle.write(data, 0, data.length, offset); } finally { await handle.close(); }
+}
+
+export async function writeWholeUpload(key: string, body: Readable, expectedBytes: number) {
+  let receivedBytes = 0;
+  const meter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      receivedBytes += chunk.length;
+      if (receivedBytes > expectedBytes) return callback(new Error("Upload exceeds its declared size"));
+      callback(null, chunk);
+    },
+  });
+  await pipeline(body, meter, createWriteStream(tempPath(key), { flags: "w" }));
+  if (receivedBytes !== expectedBytes) throw new Error(`Expected ${expectedBytes} bytes but received ${receivedBytes}`);
+  return receivedBytes;
 }
 
 export async function finalizeObject(key: string) {
