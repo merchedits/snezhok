@@ -1,6 +1,6 @@
 {
   "name": "@snezhok/mobile",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -24,7 +24,6 @@
     "@react-native-community/netinfo": "12.0.1",
     "@react-navigation/native": "7.3.8",
     "@react-navigation/native-stack": "7.17.10",
-    "@shopify/flash-list": "2.0.2",
     "@snezhok/contracts": "file:../../packages/contracts",
     "expo": "~56.0.15",
     "expo-application": "~56.0.3",

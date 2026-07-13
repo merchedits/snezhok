@@ -11,3 +11,7 @@ ALTER TABLE users ADD CONSTRAINT users_email_format_check CHECK (
 CREATE UNIQUE INDEX users_email_unique_idx ON users(email) WHERE email IS NOT NULL;
 
 DROP TABLE invite_codes;
+
+UPDATE user_settings
+SET settings = jsonb_set(settings, '{language}', '"ru"'::jsonb, true), updated_at = now()
+WHERE COALESCE(settings->>'language', 'en') = 'en';

@@ -172,11 +172,13 @@ At 1200 px and wider, rail, sidebar, and content remain visible. The optional in
 ### Android shell
 
 - Top app bar: 56 dp.
-- Navigation drawer: at most 88% of the viewport width.
-- Server rail inside drawer: 64 dp.
-- Context list occupies the remainder.
+- Primary navigation is a persistent bottom bar with Chats, Servers, Profile, and Settings.
+- Servers use a dedicated screen with a horizontal server picker and a flat channel list; there is no Discord-style rail or drawer.
+- Chat and call detail screens hide the primary bottom bar to preserve vertical space.
 - Composer uses at least 52 dp resting height and grows to a bounded multiline height.
 - Call control dock respects bottom gesture and display cutout insets.
+
+Russian is the default Android language. English is a complete user-selectable alternative in Settings. New interface text must be added to both language dictionaries in the same change.
 
 The Android layout must support a 360 by 800 dp-equivalent viewport without clipped controls and a 412 by 915 viewport without unnecessary whitespace.
 
@@ -348,7 +350,7 @@ Errors state what failed and offer the next valid action: Retry, Choose another 
 
 ### Success
 
-Prefer immediate visible state change over toast notifications. Use short toasts only for actions whose result is otherwise invisible, such as copying an invite link.
+Prefer immediate visible state change over toast notifications. Use short toasts only for actions whose result is otherwise invisible, such as copying a username.
 
 ## Accessibility
 

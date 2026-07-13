@@ -3,22 +3,24 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
+import { useTranslation } from "../i18n";
 import { useAndroidUpdate } from "./UpdateProvider";
 
 export function UpdateBanner() {
   const update = useAndroidUpdate();
   const palette = usePalette();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   if (!["available", "downloading", "ready", "error"].includes(update.phase)) return null;
 
   const action = update.phase === "ready" ? update.openInstaller : update.downloadAndInstall;
-  const actionLabel = update.phase === "ready" ? "Install" : update.phase === "error" ? "Retry" : "Update";
+  const actionLabel = update.phase === "ready" ? t("install") : update.phase === "error" ? t("retry") : t("update");
 
   return (
     <View style={[styles.banner, { top: Math.max(8, insets.top + 4), backgroundColor: palette.elevated, borderColor: update.required ? palette.warning : palette.border }]}> 
       <Ionicons name={update.phase === "error" ? "warning-outline" : "arrow-up-circle-outline"} size={22} color={update.phase === "error" ? palette.warning : palette.accent} />
       <View style={styles.copy}>
-        <Text style={[styles.title, { color: palette.text }]}>{update.required ? "Update required" : "Snezhok update"}</Text>
+        <Text style={[styles.title, { color: palette.text }]}>{update.required ? t("updateRequired") : t("snezhokUpdate")}</Text>
         <Text numberOfLines={2} style={[styles.message, { color: palette.secondaryText }]}>{update.message}</Text>
         {update.phase === "downloading" ? <View style={[styles.track, { backgroundColor: palette.border }]}><View style={[styles.progress, { width: `${Math.round(update.progress * 100)}%`, backgroundColor: palette.accent }]} /></View> : null}
       </View>

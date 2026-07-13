@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { usePalette } from "../hooks/usePalette";
+import { useTranslation } from "../i18n";
 
 interface TextEntryModalProps {
   visible: boolean;
@@ -14,6 +15,7 @@ interface TextEntryModalProps {
 
 export function TextEntryModal({ visible, title, placeholder, submitLabel, onClose, onSubmit }: TextEntryModalProps) {
   const palette = usePalette();
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +24,7 @@ export function TextEntryModal({ visible, title, placeholder, submitLabel, onClo
     if (!value.trim() || busy) return;
     setBusy(true);
     setError(null);
-    try { await onSubmit(value.trim()); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : "Request failed"); } finally { setBusy(false); }
+    try { await onSubmit(value.trim()); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : t("requestFailed")); } finally { setBusy(false); }
   };
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
@@ -32,7 +34,7 @@ export function TextEntryModal({ visible, title, placeholder, submitLabel, onClo
           <TextInput autoFocus autoCapitalize="none" value={value} onChangeText={setValue} placeholder={placeholder} placeholderTextColor={palette.faintText} onSubmitEditing={() => void submit()} style={[styles.input, { color: palette.text, backgroundColor: palette.surface, borderColor: palette.border }]} />
           {error ? <Text style={[styles.error, { color: palette.danger }]}>{error}</Text> : null}
           <View style={styles.buttons}>
-            <Pressable disabled={busy} onPress={onClose} style={styles.button}><Text style={[styles.buttonText, { color: palette.secondaryText }]}>Cancel</Text></Pressable>
+            <Pressable disabled={busy} onPress={onClose} style={styles.button}><Text style={[styles.buttonText, { color: palette.secondaryText }]}>{t("cancel")}</Text></Pressable>
             <Pressable disabled={!value.trim() || busy} onPress={() => void submit()} style={[styles.button, styles.primary, { backgroundColor: palette.accent, opacity: !value.trim() || busy ? 0.55 : 1 }]}>{busy ? <ActivityIndicator color="white" /> : <Text style={styles.primaryText}>{submitLabel}</Text>}</Pressable>
           </View>
         </View>

@@ -174,7 +174,7 @@ function AdvancedSettings() {
 }
 
 function AdminSettings() {
-  return <SettingsPage title="Administration"><SettingsGroup title="Access"><SettingRow title="Invite codes"><button className="button button-secondary">Manage invites</button></SettingRow><SettingRow title="Members"><button className="button button-secondary">Manage members</button></SettingRow></SettingsGroup><SettingsGroup title="Storage and retention"><p className="settings-note">Server storage limits and retention policies apply to every client.</p></SettingsGroup></SettingsPage>;
+  return <SettingsPage title="Administration"><SettingsGroup title="Access"><SettingRow title="Members"><button className="button button-secondary">Manage members</button></SettingRow></SettingsGroup><SettingsGroup title="Storage and retention"><p className="settings-note">Server storage limits and retention policies apply to every client.</p></SettingsGroup></SettingsPage>;
 }
 
 function useLocalBoolean(key: string, initial: boolean) {

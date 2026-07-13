@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Snezhok is a private, invite-only communication application for a small group of friends. It combines two established interaction models:
+Snezhok is a private communication application for a small group of friends. Accounts use ordinary email, username, and password registration. It combines two established interaction models:
 
 - Telegram-style direct and group messaging: immediate, compact, media-capable, and easy to understand.
 - Discord-style servers, text channels, voice channels, calls, and screen sharing.
 
-The product has first-party web and Android clients. Android is distributed as a signed APK rather than through a public app store. Both clients use the same account, content, permissions, settings, and realtime state.
+The product has first-party web and Android clients. Android is the primary product reference and is distributed as a signed APK rather than through a public app store. It defaults to Russian and offers English in Settings. Both clients use the same account, content, permissions, settings, and realtime state.
 
 This is a clean-slate product. Existing data can be migrated, but existing UI code, styling, client state, special-case conversation logic, and peer-mesh call implementation are not design constraints.
 
@@ -18,7 +18,7 @@ This is a clean-slate product. Existing data can be migrated, but existing UI co
 3. Fast by default. Cached content appears immediately and synchronizes in the background.
 4. Quiet until needed. Secondary metadata and advanced controls stay behind conventional menus or drawers.
 5. One action, one obvious location. Common actions must not be duplicated across decorative panels.
-6. Private by default. Joining requires an invite, files require authorization, and location metadata is stripped from compressed media.
+6. Private by default. Accounts are public to register but content is visible only to authorized participants; location metadata is stripped from compressed media.
 7. Reliable under degraded conditions. Sending, uploads, calls, and reconnects expose honest states and recover without losing user work.
 
 ## Product vocabulary
@@ -69,9 +69,7 @@ The conversation composer stays above the software keyboard and respects gesture
 
 ## Accounts and onboarding
 
-Snezhok is invite-only.
-
-The login screen contains the product mark and name, username, password, Sign in, and a route to registration. Registration contains invite code, username, display name, password, and confirmation. Errors appear next to the relevant field or as a concise form error.
+The login screen contains the snowflake product mark and name, username, password, Sign in, and a route to registration. Registration contains email, username, password, and confirmation. Errors appear next to the relevant field or as a concise form error.
 
 There is no public marketing landing page, feature carousel, testimonial section, or decorative onboarding sequence.
 
@@ -114,9 +112,9 @@ Requests distinguish incoming and outgoing state. Incoming requests offer Accept
 
 ## Servers
 
-The server rail can be reordered by drag on desktop and long-press drag on Android. An unread server uses a small edge marker. Mentions use a numeric badge.
+Desktop may use a compact server rail. Android uses the dedicated Servers bottom-navigation destination with a horizontal server picker. Unread servers and mentions use compact badges.
 
-The server header menu contains Invite people, Notifications, Server settings for authorized members, and Leave server.
+The server header menu contains Notifications, Server settings for authorized members, and Leave server.
 
 Servers contain ordered categories. Categories collapse and remember local state. Text channels use a number-sign icon; voice channels use a speaker icon. Unread channel names receive stronger contrast, while the selected channel uses one quiet filled row.
 
@@ -133,10 +131,9 @@ The server domain model includes:
 - Roles.
 - Server-level permissions.
 - Channel permission overrides.
-- Server invites.
 - Channel read markers, mute state, and notification overrides.
 
-The permission system must support at minimum View channel, Send messages, Attach files, Add reactions, Manage messages, Connect, Speak, Video, Screen share, Move members, Manage channels, Manage roles, Create invites, Kick members, and Ban members.
+The permission system must support at minimum View channel, Send messages, Attach files, Add reactions, Manage messages, Connect, Speak, Video, Screen share, Move members, Manage channels, Manage roles, Kick members, and Ban members.
 
 ## Messaging
 
@@ -309,7 +306,7 @@ Settings are full-screen on Android and searchable two-pane navigation on deskto
 8. **Accessibility**: reduced motion, higher contrast, saturation, screen-reader descriptions, caption preference.
 9. **Language**: English and Russian initially.
 10. **Advanced**: hardware acceleration on web, diagnostics, log export, experimental flags.
-11. **Administration** for admins: invite codes, members, default permissions, storage limits, and retention.
+11. **Administration** for admins: members, default permissions, storage limits, and retention.
 
 Settings use rows, toggles, radio groups, sliders, and short explanations only where the consequence is not obvious. Per-chat, per-channel, and per-server settings remain accessible from their own menus.
 
@@ -350,7 +347,6 @@ The clean-slate platform should preserve existing durable user content where fea
 - Messages, replies, reactions, pins, and read state.
 - Attachments and authenticated file references.
 - Mute state and notification choices.
-- Invite codes.
 
 The existing global conversation becomes a `General` text channel inside a default migrated server. The new product must not retain a special `global` branch in its user interface or client domain model.
 
@@ -367,7 +363,7 @@ The existing global conversation becomes a `General` text channel inside a defau
 
 A production release is not complete until the following are exercised on web and Android:
 
-- Invite registration, login, session revocation, and logout.
+- Email registration, login, session persistence, session revocation, and logout.
 - Friend request, acceptance, removal, and block behavior.
 - Direct chat, private group, server, category, text channel, and voice channel flows.
 - Text, emoji, reactions, reply, edit, delete, pin, forward, and search.

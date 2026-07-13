@@ -3,27 +3,25 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { ChannelSummary, ConversationSummary } from "@snezhok/contracts";
+import type { ConversationSummary } from "@snezhok/contracts";
 
 import { Avatar } from "../components/Avatar";
 import { NewConversationModal } from "../components/NewConversationModal";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { ServerDrawer } from "../components/ServerDrawer";
 import { usePalette } from "../hooks/usePalette";
+import { useTranslation } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 
-export function ChatsScreen() {
+export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const palette = usePalette();
-  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const conversations = useAppStore((state) => state.conversations);
   const syncing = useAppStore((state) => state.syncing);
   const refresh = useAppStore((state) => state.refreshBootstrap);
   const [search, setSearch] = useState("");
-  const [drawer, setDrawer] = useState(false);
   const [newMessage, setNewMessage] = useState(false);
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -32,24 +30,15 @@ export function ChatsScreen() {
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
   }, [conversations, search]);
 
-  const openChannel = (channel: ChannelSummary) => {
-    setDrawer(false);
-    if (channel.kind === "voice") navigation.navigate("Call", { streamId: channel.id, title: channel.name });
-    else navigation.navigate("Chat", { streamId: channel.id, streamKind: "channel", title: channel.name, subtitle: channel.topic });
-  };
-
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
-      <ScreenHeader
-        title="Chats"
-        left={{ icon: "menu", label: "Open servers", onPress: () => setDrawer(true) }}
-      />
+      <ScreenHeader title={t("chats")} />
       <View style={[styles.search, { backgroundColor: palette.surface }]}> 
         <Ionicons name="search" size={18} color={palette.faintText} />
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search"
+          placeholder={t("search")}
           placeholderTextColor={palette.faintText}
           style={[styles.searchInput, { color: palette.text }]}
         />
@@ -60,19 +49,9 @@ export function ChatsScreen() {
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={syncing} tintColor={palette.accent} onRefresh={() => void refresh()} />}
         renderItem={({ item }) => <ConversationRow conversation={item} onPress={() => navigation.navigate("Chat", { streamId: item.id, streamKind: "conversation", title: item.title })} />}
-        ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>No conversations</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>Start a chat from Contacts.</Text></View>}
+        ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
       />
-      <Pressable accessibilityLabel="New message" onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: Math.max(16, insets.bottom + 12), backgroundColor: palette.accent, opacity: pressed ? 0.78 : 1 }]}><Ionicons name="create-outline" size={24} color="white" /></Pressable>
-      <ServerDrawer
-        visible={drawer}
-        onClose={() => setDrawer(false)}
-        onOpenChannel={openChannel}
-        onNavigate={(destination) => {
-          setDrawer(false);
-          if (destination === "contacts") navigation.navigate("Contacts");
-          if (destination === "settings") navigation.navigate("Settings");
-        }}
-      />
+      <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.accent, opacity: pressed ? 0.78 : 1 }]}><Ionicons name="create-outline" size={24} color="white" /></Pressable>
       <NewConversationModal
         visible={newMessage}
         onClose={() => setNewMessage(false)}
@@ -88,6 +67,7 @@ export function ChatsScreen() {
 
 function ConversationRow({ conversation, onPress }: { conversation: ConversationSummary; onPress: () => void }) {
   const palette = usePalette();
+  const { t } = useTranslation();
   const peer = conversation.kind === "direct" ? conversation.participants[0] : undefined;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, { backgroundColor: pressed ? palette.surface : palette.background }]}> 
@@ -99,7 +79,7 @@ function ConversationRow({ conversation, onPress }: { conversation: Conversation
         </View>
         <View style={styles.rowBottom}>
           <Text numberOfLines={1} style={[styles.preview, { color: conversation.unreadCount ? palette.text : palette.secondaryText }]}>
-            {conversation.lastMessage ? `${conversation.lastMessage.senderName}: ${conversation.lastMessage.text || mediaLabel(conversation.lastMessage.kind)}` : "No messages yet"}
+            {conversation.lastMessage ? `${conversation.lastMessage.senderName}: ${conversation.lastMessage.text || mediaLabel(conversation.lastMessage.kind, t)}` : t("noMessagesYet")}
           </Text>
           {conversation.muted ? <Ionicons name="volume-mute" size={14} color={palette.faintText} /> : null}
           {conversation.unreadCount > 0 ? <View style={[styles.unreadBadge, { backgroundColor: conversation.muted ? palette.faintText : palette.accent }]}><Text style={styles.unreadText}>{conversation.unreadCount}</Text></View> : null}
@@ -116,11 +96,11 @@ function formatListTime(timestamp: number): string {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function mediaLabel(kind: string): string {
-  if (kind === "voice") return "Voice message";
-  if (kind === "video-note") return "Video message";
-  if (kind === "file") return "File";
-  return "Attachment";
+function mediaLabel(kind: string, t: ReturnType<typeof useTranslation>["t"]): string {
+  if (kind === "voice") return t("voiceMessage");
+  if (kind === "video-note") return t("videoMessage");
+  if (kind === "file") return t("file");
+  return t("attachment");
 }
 
 const styles = StyleSheet.create({

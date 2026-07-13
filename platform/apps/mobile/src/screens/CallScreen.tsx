@@ -11,7 +11,7 @@ import {
   useTracks,
 } from "@livekit/react-native";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ConnectionState, Track, VideoPresets } from "livekit-client";
 
@@ -40,9 +40,17 @@ export function CallScreen({ navigation, route }: Props) {
   }, [route.params.streamId]);
 
   useEffect(() => {
-    void AudioSession.configureAudio({ android: { audioTypeOptions: { manageAudioFocus: true, audioMode: "inCommunication", audioFocusMode: "gain", audioStreamType: "voiceCall", audioAttributesUsageType: "voiceCommunication", audioAttributesContentType: "speech" } } });
-    void AudioSession.startAudioSession();
-    return () => { void AudioSession.stopAudioSession(); };
+    let started = false;
+    void (async () => {
+      try {
+        await AudioSession.configureAudio({ android: { audioTypeOptions: { manageAudioFocus: true, audioMode: "inCommunication", audioFocusMode: "gain", audioStreamType: "voiceCall", audioAttributesUsageType: "voiceCommunication", audioAttributesContentType: "speech" } } });
+        await AudioSession.startAudioSession();
+        started = true;
+      } catch (reason) {
+        console.warn("Audio session could not start", reason);
+      }
+    })();
+    return () => { if (started) void AudioSession.stopAudioSession().catch(() => undefined); };
   }, []);
 
   if (error) {
@@ -67,8 +75,8 @@ export function CallScreen({ navigation, route }: Props) {
         publishDefaults: {
           simulcast: true,
           videoCodec: "vp8",
-          screenShareEncoding: VideoPresets.h1080.encoding,
-          screenShareSimulcastLayers: [VideoPresets.h360, VideoPresets.h720],
+          screenShareEncoding: VideoPresets.h720.encoding,
+          screenShareSimulcastLayers: [VideoPresets.h360],
         },
       }}
       onError={(reason) => setError(reason.message)}
@@ -119,8 +127,8 @@ function CallRoom({ title, onLeave }: { title: string; onLeave: () => void }) {
       </ScrollView>
 
       <View style={styles.controls}>
-        <CallButton icon={isMicrophoneEnabled ? "mic" : "mic-off"} label={isMicrophoneEnabled ? "Mute" : "Unmute"} active={!isMicrophoneEnabled} onPress={() => void toggle(() => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled), "Microphone unavailable")} />
-        <CallButton icon={isCameraEnabled ? "videocam" : "videocam-off"} label="Camera" active={isCameraEnabled} onPress={() => void toggle(() => localParticipant.setCameraEnabled(!isCameraEnabled), "Camera unavailable")} />
+        <CallButton icon={isMicrophoneEnabled ? "mic" : "mic-off"} label={isMicrophoneEnabled ? "Mute" : "Unmute"} active={!isMicrophoneEnabled} onPress={() => void toggle(async () => { if (!isMicrophoneEnabled && !(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO))) throw new Error("Microphone permission denied"); return localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled); }, "Microphone unavailable")} />
+        <CallButton icon={isCameraEnabled ? "videocam" : "videocam-off"} label="Camera" active={isCameraEnabled} onPress={() => void toggle(async () => { if (!isCameraEnabled && !(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.CAMERA))) throw new Error("Camera permission denied"); return localParticipant.setCameraEnabled(!isCameraEnabled); }, "Camera unavailable")} />
         <CallButton icon="phone-portrait-outline" label="Share" active={isScreenShareEnabled} onPress={() => void toggle(() => localParticipant.setScreenShareEnabled(!isScreenShareEnabled), "Screen share unavailable")} />
         <CallButton icon={speaker ? "volume-high" : "ear-outline"} label={speaker ? "Speaker" : "Earpiece"} active={speaker} onPress={() => void toggleSpeaker()} />
         <CallButton icon="ellipsis-horizontal" label="More" onPress={() => Alert.alert("Call settings", "Audio processing follows Voice and video settings. Media quality adapts to the connection.")} />
@@ -143,6 +151,12 @@ function participantMetadata(value: string | undefined): { avatarUrl?: string; a
   } catch {
     return {};
   }
+}
+
+async function requestAndroidPermission(permission: typeof PermissionsAndroid.PERMISSIONS.CAMERA | typeof PermissionsAndroid.PERMISSIONS.RECORD_AUDIO): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  if (await PermissionsAndroid.check(permission)) return true;
+  return (await PermissionsAndroid.request(permission)) === PermissionsAndroid.RESULTS.GRANTED;
 }
 
 function CallButton({ icon, label, active = false, danger = false, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; active?: boolean; danger?: boolean; onPress: () => void }) {

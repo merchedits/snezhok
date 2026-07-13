@@ -34,7 +34,7 @@ class ApiClient {
         body: JSON.stringify({ refreshToken: current.refreshToken }),
       });
       if (!response.ok) {
-        await clearSession();
+        if (response.status === 400 || response.status === 401 || response.status === 403) await clearSession();
         return null;
       }
       const result = (await response.json()) as AuthResponse;
@@ -86,7 +86,7 @@ class ApiClient {
     });
   }
 
-  register(input: { username: string; displayName: string; password: string; inviteCode: string }): Promise<AuthResponse> {
+  register(input: { email: string; username: string; password: string }): Promise<AuthResponse> {
     return this.request<AuthResponse>("/auth/register", {
       method: "POST",
       authenticated: false,

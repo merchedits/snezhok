@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { UploadQuality } from "@snezhok/contracts";
 
 import { usePalette } from "../hooks/usePalette";
+import { optionLabel, useTranslation } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
 import type { UploadInput } from "../types";
 
@@ -20,13 +21,14 @@ interface AttachmentSheetProps {
 
 export function AttachmentSheet({ visible, busy, onClose, onSelect }: AttachmentSheetProps) {
   const palette = usePalette();
+  const { language, t } = useTranslation();
   const insets = useSafeAreaInsets();
   const defaultQuality = useAppStore((state) => state.settings.defaultUploadQuality);
   const [quality, setQuality] = useState<UploadQuality>(defaultQuality);
 
   const pickMedia = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return Alert.alert("Photos permission required", "Allow photo access to attach media.");
+    if (!permission.granted) return Alert.alert(t("permissionPhotos"), t("allowPhotos"));
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], quality: quality === "original" ? 1 : quality === "high" ? 0.9 : quality === "data-saver" ? 0.45 : 0.72 });
     const asset = result.assets?.[0];
     if (!asset) return;
@@ -35,7 +37,7 @@ export function AttachmentSheet({ visible, busy, onClose, onSelect }: Attachment
 
   const captureVideoNote = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return Alert.alert("Camera permission required", "Allow camera access to record a video message.");
+    if (!permission.granted) return Alert.alert(t("permissionCamera"), t("allowCamera"));
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["videos"], videoMaxDuration: 60, quality: 0.75 });
     const asset = result.assets?.[0];
     if (!asset) return;
@@ -54,17 +56,17 @@ export function AttachmentSheet({ visible, busy, onClose, onSelect }: Attachment
       <Pressable onPress={busy ? undefined : onClose} style={[styles.overlay, { backgroundColor: palette.overlay }]}>
         <Pressable style={[styles.sheet, { backgroundColor: palette.elevated, paddingBottom: Math.max(insets.bottom, 16) }]}>
           <View style={[styles.handle, { backgroundColor: palette.faintText }]} />
-          <Text style={[styles.title, { color: palette.text }]}>Send attachment</Text>
-          <Text style={[styles.label, { color: palette.secondaryText }]}>MEDIA QUALITY</Text>
+          <Text style={[styles.title, { color: palette.text }]}>{t("sendAttachment")}</Text>
+          <Text style={[styles.label, { color: palette.secondaryText }]}>{t("mediaQuality")}</Text>
           <View style={styles.qualities}>
-            {(["data-saver", "auto", "high", "original"] as const).map((value) => <Pressable key={value} disabled={busy} onPress={() => setQuality(value)} style={[styles.quality, { borderColor: quality === value ? palette.accent : palette.border, backgroundColor: quality === value ? palette.accentSoft : palette.surface }]}><Text style={[styles.qualityText, { color: quality === value ? palette.accent : palette.secondaryText }]}>{value.replace("-", " ")}</Text></Pressable>)}
+            {(["data-saver", "auto", "high", "original"] as const).map((value) => <Pressable key={value} disabled={busy} onPress={() => setQuality(value)} style={[styles.quality, { borderColor: quality === value ? palette.accent : palette.border, backgroundColor: quality === value ? palette.accentSoft : palette.surface }]}><Text style={[styles.qualityText, { color: quality === value ? palette.accent : palette.secondaryText }]}>{optionLabel(language, value)}</Text></Pressable>)}
           </View>
           <View style={styles.actions}>
-            <SheetAction icon="images-outline" label="Photo or video" onPress={() => void pickMedia()} disabled={busy} />
-            <SheetAction icon="videocam-outline" label="Video message" onPress={() => void captureVideoNote()} disabled={busy} />
-            <SheetAction icon="document-outline" label="File (original)" onPress={() => void pickFile()} disabled={busy} />
+            <SheetAction icon="images-outline" label={t("photoVideo")} onPress={() => void pickMedia()} disabled={busy} />
+            <SheetAction icon="videocam-outline" label={t("videoMessage")} onPress={() => void captureVideoNote()} disabled={busy} />
+            <SheetAction icon="document-outline" label={t("fileOriginal")} onPress={() => void pickFile()} disabled={busy} />
           </View>
-          {busy ? <View style={styles.busy}><ActivityIndicator color={palette.accent} /><Text style={[styles.busyText, { color: palette.secondaryText }]}>Preparing upload…</Text></View> : null}
+          {busy ? <View style={styles.busy}><ActivityIndicator color={palette.accent} /><Text style={[styles.busyText, { color: palette.secondaryText }]}>{t("preparingUpload")}</Text></View> : null}
         </Pressable>
       </Pressable>
     </Modal>

@@ -83,8 +83,7 @@ const streamPath = (streamId: Id) => `/streams/${encodeURIComponent(streamId)}`;
 export interface AuthCredentials {
   username: string;
   password: string;
-  displayName?: string;
-  inviteCode?: string;
+  email?: string;
 }
 
 export interface MessageSearchResult {
@@ -136,8 +135,7 @@ export const api = {
       body: json({
         username: input.username,
         password: input.password,
-        displayName: input.displayName,
-        inviteCode: input.inviteCode,
+        email: input.email,
         deviceName: navigator.userAgentData?.platform || navigator.platform || "Web browser",
         platform: "web",
       }),

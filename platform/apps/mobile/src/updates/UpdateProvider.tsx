@@ -10,6 +10,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import type { AndroidReleaseManifest } from "../types";
 import { api, resolveApiResource } from "../lib/api";
+import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
 import { arrayBufferToHex, isNewerRelease, isRequired } from "./updatePolicy";
 
@@ -44,6 +45,7 @@ const initialState: UpdateState = { phase: "idle", manifest: null, progress: 0, 
 
 export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
   const currentVersion = Application.nativeApplicationVersion ?? "development";
+  const { t } = useTranslation();
   const currentVersionCode = Number(Application.nativeBuildVersion ?? 0);
   const [state, setState] = useState<UpdateState>(initialState);
   const [autoUpdate, setAutoUpdateState] = useState(true);
@@ -55,7 +57,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
   const openInstaller = useCallback(async () => {
     const file = downloadedFile.current;
     if (!file?.exists) throw new Error("The downloaded update is no longer available.");
-    setState((current) => ({ ...current, phase: "ready", message: "Confirm the update in Android's installer." }));
+    setState((current) => ({ ...current, phase: "ready", message: t("updateConfirmInstaller") }));
     try {
       await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
         data: file.contentUri,
@@ -67,19 +69,19 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
         await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.MANAGE_UNKNOWN_APP_SOURCES, {
           data: `package:${Application.applicationId}`,
         });
-        setState((current) => ({ ...current, phase: "ready", message: "Allow installs from Snezhok, then tap Install again." }));
+        setState((current) => ({ ...current, phase: "ready", message: t("updateAllowSource") }));
       } else {
         await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.SECURITY_SETTINGS);
-        setState((current) => ({ ...current, phase: "ready", message: "Enable Unknown sources in Android settings, then tap Install again." }));
+        setState((current) => ({ ...current, phase: "ready", message: t("updateAllowLegacySource") }));
       }
     }
-  }, []);
+  }, [t]);
 
   const downloadRelease = useCallback(async (manifest: AndroidReleaseManifest) => {
     if (Platform.OS !== "android") return;
     const destination = new File(Paths.cache, `snezhok-${manifest.versionCode}.apk`);
     if (destination.exists) destination.delete();
-    setState({ phase: "downloading", manifest, progress: 0, message: "Downloading update...", required: isRequired(manifest, currentVersionCode) });
+    setState({ phase: "downloading", manifest, progress: 0, message: t("downloading"), required: isRequired(manifest, currentVersionCode) });
     const task = File.createDownloadTask(resolveApiResource(manifest.downloadUrl), destination, {
       onProgress: ({ bytesWritten, totalBytes }) => {
         const total = totalBytes > 0 ? totalBytes : manifest.bytes;
@@ -88,45 +90,45 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     });
     try {
       const file = await task.downloadAsync();
-      if (!file || file.size !== manifest.bytes) throw new Error("The downloaded update has an unexpected size.");
-      setState((current) => ({ ...current, message: "Verifying update...", progress: 1 }));
+      if (!file || file.size !== manifest.bytes) throw new Error(t("updateBadSize"));
+      setState((current) => ({ ...current, message: t("updateVerifying"), progress: 1 }));
       const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, await file.bytes());
       if (arrayBufferToHex(digest) !== manifest.sha256.toLowerCase()) {
         file.delete();
-        throw new Error("Update verification failed. The downloaded file was removed.");
+        throw new Error(t("updateVerificationFailed"));
       }
       downloadedFile.current = file;
-      setState((current) => ({ ...current, phase: "ready", message: "Update verified and ready to install.", progress: 1 }));
+      setState((current) => ({ ...current, phase: "ready", message: t("updateReady"), progress: 1 }));
       await openInstaller();
     } finally {
       task.release();
     }
-  }, [currentVersionCode, openInstaller]);
+  }, [currentVersionCode, openInstaller, t]);
 
   const checkForUpdate = useCallback(async (manual = false) => {
     if (Platform.OS !== "android" || __DEV__) {
-      if (manual) setState((current) => ({ ...current, phase: "up-to-date", message: "Update checks run in release builds." }));
+      if (manual) setState((current) => ({ ...current, phase: "up-to-date", message: t("updateReleaseBuildOnly") }));
       return;
     }
     if (checkInFlight.current) return checkInFlight.current;
     const operation = (async () => {
       let foundRelease = false;
-      if (manual) setState((current) => ({ ...current, phase: "checking", message: "Checking for updates..." }));
+      if (manual) setState((current) => ({ ...current, phase: "checking", message: t("updateChecking") }));
       try {
         const manifest = await api.androidRelease();
         lastCheck.current = Date.now();
         if (!isNewerRelease(manifest.versionCode, currentVersionCode)) {
-          if (manual) setState({ phase: "up-to-date", manifest, progress: 0, message: "Snezhok is up to date.", required: false });
+          if (manual) setState({ phase: "up-to-date", manifest, progress: 0, message: t("updateCurrent"), required: false });
           return;
         }
         const required = isRequired(manifest, currentVersionCode);
         foundRelease = true;
-        setState({ phase: "available", manifest, progress: 0, message: `Snezhok ${manifest.version} is available.`, required });
+        setState({ phase: "available", manifest, progress: 0, message: t("updateAvailableVersion", { version: manifest.version }), required });
         const network = await NetInfo.fetch();
         if (autoUpdate && (network.type === "wifi" || network.type === "ethernet")) await downloadRelease(manifest);
       } catch (error) {
         if (manual || foundRelease) {
-          setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : "Update failed." }));
+          setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : t("updateFailed") }));
         }
       }
     })().finally(() => {
@@ -134,16 +136,16 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     });
     checkInFlight.current = operation;
     return operation;
-  }, [autoUpdate, currentVersionCode, downloadRelease]);
+  }, [autoUpdate, currentVersionCode, downloadRelease, t]);
 
   const downloadAndInstall = useCallback(async () => {
     if (!state.manifest) return checkForUpdate(true);
     try {
       await downloadRelease(state.manifest);
     } catch (error) {
-      setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : "Update failed." }));
+      setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : t("updateFailed") }));
     }
-  }, [checkForUpdate, downloadRelease, state.manifest]);
+  }, [checkForUpdate, downloadRelease, state.manifest, t]);
 
   const setAutoUpdate = useCallback(async (enabled: boolean) => {
     setAutoUpdateState(enabled);

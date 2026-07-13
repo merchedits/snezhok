@@ -5,13 +5,15 @@ This is the first-party Android client for the clean-slate Snezhok platform. It 
 ## Product shape
 
 - Telegram-style flat chat list and direct/group message bubbles
-- Discord-style server rail and contextual channel list inside the left drawer
-- Stack navigation with native Android Back behavior; no generic bottom navigation
+- Dedicated Servers screen with a horizontal server picker and flat channel list
+- Bottom navigation for Chats, Servers, Profile, and Settings, plus native Android Back in detail screens
 - Cached bootstrap and recent messages, optimistic sends, and a durable text outbox
 - Resumable chunk uploads with Auto, High, Data saver, and Original quality modes
 - Photo/video/file attachments, voice recording, and video-note capture
 - LiveKit SFU calls with communication audio, adaptive video, camera, device screen share, and audio-route selection
 - Secure access/refresh tokens stored with Android Keystore-backed SecureStore
+- Russian-first interface with English available in Settings
+- Public email, username, and password registration without invitations
 
 The app imports domain types from `@snezhok/contracts`. REST calls are isolated in `src/lib/api.ts`; durable local state is isolated behind `src/lib/offlineRepository.ts` so a SQLite-backed repository can replace AsyncStorage without changing screens.
 

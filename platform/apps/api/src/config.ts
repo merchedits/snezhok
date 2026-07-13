@@ -8,7 +8,7 @@ const schema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(20).default(5),
   JWT_SECRET: z.string().min(32).default("development-only-jwt-secret-change-me-now"),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
-  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(90),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(365),
   APP_ORIGINS: z.string().default("http://localhost:5173"),
   STORAGE_ROOT: z.string().default("./data"),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024 * 1024),

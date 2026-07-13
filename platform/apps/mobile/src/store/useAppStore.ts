@@ -37,7 +37,7 @@ interface AppState {
   outbox: OutboxEntry[];
   initialize: () => Promise<void>;
   signIn: (username: string, password: string) => Promise<void>;
-  signUp: (input: { username: string; displayName: string; password: string; inviteCode: string }) => Promise<void>;
+  signUp: (input: { email: string; username: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
   setOnline: (online: boolean) => void;
   refreshBootstrap: () => Promise<void>;
@@ -57,7 +57,7 @@ export const defaultSettings: AppSettings = {
   bubbleRadius: 16,
   reducedMotion: false,
   highContrast: false,
-  language: "en",
+  language: "ru",
   readReceipts: true,
   showLastSeen: true,
   stripMediaLocation: true,
@@ -129,7 +129,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       categories: cached?.categories ?? [],
       channels: cached?.channels ?? [],
       friends: cached?.friends ?? [],
-      settings: cached?.settings ?? defaultSettings,
+      settings: { ...defaultSettings, ...(cached?.settings ?? {}) },
       messages: cache.messages,
       outbox,
       eventCursor: cached?.eventCursor ?? 0,

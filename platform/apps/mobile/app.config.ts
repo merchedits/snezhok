@@ -7,12 +7,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.1.0",
+  version: "3.2.0",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   scheme: "snezhok",
+  icon: "./assets/snezhok-icon.png",
   runtimeVersion: { policy: "appVersion" },
   plugins: [
     "./plugins/withReleaseSigning.cjs",
@@ -48,9 +49,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 2,
+    versionCode: 3,
     adaptiveIcon: {
-      backgroundColor: "#111318",
+      foregroundImage: "./assets/snezhok-icon.png",
+      backgroundColor: "#06101f",
     },
     permissions: [
       "android.permission.INTERNET",

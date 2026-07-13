@@ -14,7 +14,7 @@ The production SQLite database is never modified in place. Migration is one-way,
 - Preserve message timestamps, reply relationships, edits, pins and reactions.
 - Reconcile database file records with physical objects by checksum. Unlinked files go into an owner-specific recovery report rather than being deleted.
 - Convert read timestamps to the greatest imported sequence at or before that time.
-- Preserve pending friend requests, friendships, mute state and invite codes where records are valid.
+- Preserve pending friend requests, friendships, and mute state where records are valid; account invite codes are intentionally retired.
 
 ## Cutover
 

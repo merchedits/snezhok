@@ -82,7 +82,7 @@ The existing LLM and media services share the host, so every new container has C
 
 ## Security
 
-- Invite-only registration.
+- Public email, username, and password registration with strict rate limits.
 - Argon2id credentials; imported bcrypt hashes upgrade after successful login.
 - Short-lived access tokens and rotating opaque refresh tokens.
 - Refresh tokens are hashed in PostgreSQL; web delivery uses a secure HttpOnly cookie and Android uses protected storage.
@@ -90,7 +90,7 @@ The existing LLM and media services share the host, so every new container has C
 - Strict origin checks, request schemas, quotas and rate limits.
 - File magic-byte validation, decompression limits and forced download for active formats.
 - LiveKit secrets and object paths never reach clients.
-- Administrative membership, role and invite changes are audited.
+- Administrative membership and role changes are audited.
 
 ## Versioning
 

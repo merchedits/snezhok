@@ -1,8 +1,9 @@
 import NetInfo from "@react-native-community/netinfo";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { useEffect } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { Component, type ComponentProps, type ErrorInfo, type ReactNode, useEffect } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -11,10 +12,8 @@ import { usePalette } from "./src/hooks/usePalette";
 import { useRealtime } from "./src/hooks/useRealtime";
 import { CallScreen } from "./src/screens/CallScreen";
 import { ChatScreen } from "./src/screens/ChatScreen";
-import { ChatsScreen } from "./src/screens/ChatsScreen";
-import { ContactsScreen } from "./src/screens/ContactsScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
-import { SettingsScreen } from "./src/screens/SettingsScreen";
+import { MainScreen } from "./src/screens/MainScreen";
 import { useAppStore } from "./src/store/useAppStore";
 import type { RootStackParamList } from "./src/types";
 import { AndroidUpdateProvider } from "./src/updates/UpdateProvider";
@@ -73,14 +72,45 @@ function AppRoot() {
       <StatusBar style={palette.dark ? "light" : "dark"} />
       <OfflineBar />
       <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
-        <Stack.Screen name="Main" component={ChatsScreen} />
-        <Stack.Screen name="Chat" component={ChatScreen} />
-        <Stack.Screen name="Contacts" component={ContactsScreen} />
-        <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="Main" component={MainScreen} />
+        <Stack.Screen name="Chat" component={SafeChatScreen} />
         <Stack.Screen name="Call" component={CallScreen} options={{ presentation: "fullScreenModal", animation: "fade" }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({ loader: { flex: 1, alignItems: "center", justifyContent: "center" } });
+function SafeChatScreen(props: ComponentProps<typeof ChatScreen>) {
+  return <ChatErrorBoundary key={props.route.params.streamId} onBack={props.navigation.goBack}><ChatScreen {...props} /></ChatErrorBoundary>;
+}
+
+class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => void }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() { return { failed: true }; }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Chat screen failed", error, info.componentStack);
+    void AsyncStorage.setItem("@snezhok/last-chat-error/v1", JSON.stringify({ message: error.message, stack: error.stack, componentStack: info.componentStack, recordedAt: new Date().toISOString() })).catch(() => undefined);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <View style={styles.crash}>
+        <Text style={styles.crashTitle}>Не удалось открыть чат</Text>
+        <Text style={styles.crashText}>Ошибка сохранена в журнале. Вернитесь назад и попробуйте снова.</Text>
+        <Pressable onPress={this.props.onBack} style={styles.crashButton}><Text style={styles.crashButtonText}>Назад</Text></Pressable>
+      </View>
+    );
+  }
+}
+
+const styles = StyleSheet.create({
+  loader: { flex: 1, alignItems: "center", justifyContent: "center" },
+  crash: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, backgroundColor: "#0b1422" },
+  crashTitle: { color: "#f4f7fb", fontSize: 20, fontWeight: "800" },
+  crashText: { color: "#96a5b8", fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 8 },
+  crashButton: { minWidth: 120, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 20, backgroundColor: "#35b9ef" },
+  crashButtonText: { color: "white", fontSize: 15, fontWeight: "800" },
+});

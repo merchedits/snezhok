@@ -8,7 +8,7 @@ export const defaultSettings: AppSettings = {
   bubbleRadius: 16,
   reducedMotion: false,
   highContrast: false,
-  language: "en",
+  language: "ru",
   readReceipts: true,
   showLastSeen: true,
   stripMediaLocation: true,
