@@ -11,3 +11,9 @@ export function isRequired(manifest: Pick<AndroidReleaseManifest, "mandatory" | 
 export function arrayBufferToHex(value: ArrayBuffer) {
   return Array.from(new Uint8Array(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+
+export function monotonicDownloadProgress(bytesWritten: number, expectedBytes: number, previousProgress: number) {
+  if (!Number.isFinite(bytesWritten) || !Number.isFinite(expectedBytes) || expectedBytes <= 0) return previousProgress;
+  const measured = Math.max(0, Math.min(1, bytesWritten / expectedBytes));
+  return Math.max(previousProgress, measured);
+}

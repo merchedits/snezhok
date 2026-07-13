@@ -12,7 +12,7 @@ import type { AndroidReleaseManifest } from "../types";
 import { api, resolveApiResource } from "../lib/api";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
-import { arrayBufferToHex, isNewerRelease, isRequired } from "./updatePolicy";
+import { arrayBufferToHex, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
 
 const AUTO_UPDATE_KEY = "snezhok.android.auto-update.v1";
 const CHECK_INTERVAL_MS = 15 * 60 * 1_000;
@@ -51,6 +51,8 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
   const [autoUpdate, setAutoUpdateState] = useState(true);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const checkInFlight = useRef<Promise<void> | null>(null);
+  const downloadInFlight = useRef<Promise<void> | null>(null);
+  const activeDownloadId = useRef(0);
   const lastCheck = useRef(0);
   const downloadedFile = useRef<File | null>(null);
 
@@ -77,32 +79,54 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     }
   }, [t]);
 
-  const downloadRelease = useCallback(async (manifest: AndroidReleaseManifest) => {
-    if (Platform.OS !== "android") return;
-    const destination = new File(Paths.cache, `snezhok-${manifest.versionCode}.apk`);
-    if (destination.exists) destination.delete();
-    setState({ phase: "downloading", manifest, progress: 0, message: t("downloading"), required: isRequired(manifest, currentVersionCode) });
-    const task = File.createDownloadTask(resolveApiResource(manifest.downloadUrl), destination, {
-      onProgress: ({ bytesWritten, totalBytes }) => {
-        const total = totalBytes > 0 ? totalBytes : manifest.bytes;
-        setState((current) => ({ ...current, progress: Math.min(1, bytesWritten / total) }));
-      },
-    });
-    try {
-      const file = await task.downloadAsync();
-      if (!file || file.size !== manifest.bytes) throw new Error(t("updateBadSize"));
-      setState((current) => ({ ...current, message: t("updateVerifying"), progress: 1 }));
-      const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, await file.bytes());
-      if (arrayBufferToHex(digest) !== manifest.sha256.toLowerCase()) {
-        file.delete();
-        throw new Error(t("updateVerificationFailed"));
+  const downloadRelease = useCallback((manifest: AndroidReleaseManifest) => {
+    if (Platform.OS !== "android") return Promise.resolve();
+    if (downloadInFlight.current) return downloadInFlight.current;
+
+    const downloadId = activeDownloadId.current + 1;
+    activeDownloadId.current = downloadId;
+    const operation = (async () => {
+      let lastProgress = 0;
+      // Every attempt gets its own destination. A stale native task can therefore
+      // never truncate or append to the APK owned by a newer attempt.
+      const destination = new File(Paths.cache, `snezhok-${manifest.versionCode}-${Date.now()}-${downloadId}.apk`);
+      if (destination.exists) destination.delete();
+      setState({ phase: "downloading", manifest, progress: 0, message: t("downloading"), required: isRequired(manifest, currentVersionCode) });
+      const task = File.createDownloadTask(resolveApiResource(manifest.downloadUrl), destination, {
+        onProgress: ({ bytesWritten }) => {
+          if (activeDownloadId.current !== downloadId) return;
+          const progress = monotonicDownloadProgress(bytesWritten, manifest.bytes, lastProgress);
+          if (progress === lastProgress) return;
+          lastProgress = progress;
+          setState((current) => current.phase === "downloading" ? { ...current, progress } : current);
+        },
+      });
+      try {
+        const file = await task.downloadAsync();
+        if (!file || file.size !== manifest.bytes) throw new Error(t("updateBadSize"));
+        setState((current) => ({ ...current, message: t("updateVerifying"), progress: 1 }));
+        const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, await file.bytes());
+        if (arrayBufferToHex(digest) !== manifest.sha256.toLowerCase()) throw new Error(t("updateVerificationFailed"));
+
+        const previousFile = downloadedFile.current;
+        if (previousFile?.exists && previousFile.uri !== file.uri) previousFile.delete();
+        downloadedFile.current = file;
+        setState((current) => ({ ...current, phase: "ready", message: t("updateReady"), progress: 1 }));
+        await openInstaller();
+      } catch (error) {
+        if (destination.exists) destination.delete();
+        throw error;
+      } finally {
+        task.release();
       }
-      downloadedFile.current = file;
-      setState((current) => ({ ...current, phase: "ready", message: t("updateReady"), progress: 1 }));
-      await openInstaller();
-    } finally {
-      task.release();
-    }
+    })();
+
+    let trackedOperation: Promise<void>;
+    trackedOperation = operation.finally(() => {
+      if (downloadInFlight.current === trackedOperation) downloadInFlight.current = null;
+    });
+    downloadInFlight.current = trackedOperation;
+    return trackedOperation;
   }, [currentVersionCode, openInstaller, t]);
 
   const checkForUpdate = useCallback(async (manual = false) => {
