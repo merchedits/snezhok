@@ -12,9 +12,11 @@ import type {
   MessagesResponse,
   UploadInput,
   UploadInitResponse,
+  UploadProgressCallback,
   UploadResponse,
 } from "../types";
 import { clearSession, readSession, writeSession } from "./secureSession";
+import { uploadPercent } from "./uploadProgress";
 
 type RequestOptions = Omit<RequestInit, "body"> & { body?: BodyInit | object; authenticated?: boolean };
 
@@ -134,7 +136,15 @@ class ApiClient {
     return this.request<{ settings: AppSettings }>("/settings", { method: "PATCH", body: patch }).then((result) => result.settings);
   }
 
-  async upload(input: UploadInput): Promise<Attachment> {
+  async upload(input: UploadInput, onProgress?: UploadProgressCallback): Promise<Attachment> {
+    let lastProgress = -1;
+    const reportProgress = (value: number) => {
+      const progress = Math.max(lastProgress, Math.min(100, Math.max(0, Math.round(value))));
+      if (progress === lastProgress) return;
+      lastProgress = progress;
+      onProgress?.(progress);
+    };
+    reportProgress(0);
     const info = await FileSystem.getInfoAsync(input.uri);
     if (!info.exists || typeof info.size !== "number") throw new Error("The selected file is no longer available");
     const initialized = await this.request<UploadInitResponse>("/uploads/init", {
@@ -145,29 +155,42 @@ class ApiClient {
         bytes: info.size,
         quality: input.quality,
         kind: input.kind,
-        stripLocation: true,
+        stripLocation: input.stripLocation ?? true,
+        purpose: input.purpose ?? "standard",
       },
     });
-    await this.uploadNativeFile(initialized.uploadId, input.uri);
+    reportProgress(1);
+    await this.uploadNativeFile(initialized.uploadId, input.uri, (sent, expected) => {
+      reportProgress(Math.min(96, Math.max(1, uploadPercent(sent, expected))));
+    });
+    reportProgress(97);
     const result = await this.request<UploadResponse>(`/uploads/${initialized.uploadId}/complete`, { method: "POST" });
+    reportProgress(100);
     return result.attachment;
   }
 
-  private async uploadNativeFile(uploadId: string, uri: string, retry = true): Promise<void> {
+  private async uploadNativeFile(uploadId: string, uri: string, onProgress: (sent: number, expected: number) => void, retry = true): Promise<void> {
     const session = await readSession();
     if (!session) throw new Error("Your session has expired");
-    const response = await FileSystem.uploadAsync(`${API_URL}/uploads/${encodeURIComponent(uploadId)}/content`, uri, {
-      httpMethod: "PUT",
-      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${session.accessToken}`,
-        "Content-Type": "application/octet-stream",
+    const task = FileSystem.createUploadTask(
+      `${API_URL}/uploads/${encodeURIComponent(uploadId)}/content`,
+      uri,
+      {
+        httpMethod: "PUT",
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/octet-stream",
+        },
       },
-    });
-    if (response.status === 401 && retry && (await this.refresh())) return this.uploadNativeFile(uploadId, uri, false);
+      ({ totalBytesSent, totalBytesExpectedToSend }) => onProgress(totalBytesSent, totalBytesExpectedToSend),
+    );
+    const response = await task.uploadAsync();
+    if (!response) throw new Error("Upload was cancelled");
+    if (response.status === 401 && retry && (await this.refresh())) return this.uploadNativeFile(uploadId, uri, onProgress, false);
     if (response.status < 200 || response.status >= 300) {
-      const payload = JSON.parse(response.body || "null") as { message?: string } | null;
+      const payload = tryParseError(response.body);
       throw new Error(payload?.message ?? `Upload failed (${response.status})`);
     }
   }
@@ -221,6 +244,15 @@ class ApiClient {
 }
 
 export const api = new ApiClient();
+
+function tryParseError(body: string): { message?: string } | null {
+  try {
+    const value = JSON.parse(body || "null") as unknown;
+    return value && typeof value === "object" ? value as { message?: string } : null;
+  } catch {
+    return null;
+  }
+}
 
 export function resolveApiResource(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;

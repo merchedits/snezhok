@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import type {
   AppSettings,
+  Attachment,
   BootstrapPayload,
   ChannelCategory,
   ChannelSummary,
@@ -17,7 +18,8 @@ import type {
 import { api } from "../lib/api";
 import { clearLocalData, readCache, readOutbox, writeCache, writeOutbox } from "../lib/offlineRepository";
 import { clearSession, readSession, writeSession } from "../lib/secureSession";
-import type { MessageCreateInput, OutboxEntry, SettingsPatch } from "../types";
+import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
+import { applyConversationPreview } from "./conversationPreview";
 import { mergeMessages } from "./messageReconciliation";
 
 type Phase = "booting" | "signed-out" | "ready" | "error";
@@ -37,6 +39,7 @@ interface AppState {
   settings: AppSettings;
   messages: Record<string, Message[]>;
   outbox: OutboxEntry[];
+  uploadProgress: number | null;
   initialize: () => Promise<void>;
   signIn: (username: string, password: string) => Promise<void>;
   signUp: (input: { email: string; username: string; password: string }) => Promise<void>;
@@ -44,6 +47,7 @@ interface AppState {
   setOnline: (online: boolean) => void;
   refreshBootstrap: () => Promise<void>;
   loadMessages: (streamId: string, before?: number) => Promise<void>;
+  uploadAttachment: (input: UploadInput) => Promise<Attachment>;
   sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">) => Promise<void>;
   forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
   toggleReaction: (message: Message, emoji: string) => Promise<void>;
@@ -112,6 +116,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   settings: defaultSettings,
   messages: {},
   outbox: [],
+  uploadProgress: null,
 
   initialize: async () => {
     const [session, cache, outbox] = await Promise.all([readSession(), readCache(), readOutbox()]);
@@ -188,6 +193,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: {},
       outbox: [],
       eventCursor: 0,
+      uploadProgress: null,
     });
   },
 
@@ -238,6 +244,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     await persistState();
   },
 
+  uploadAttachment: async (input) => {
+    set({ uploadProgress: 0 });
+    try {
+      return await api.upload(
+        { ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation },
+        (uploadProgress) => set({ uploadProgress }),
+      );
+    } catch (error) {
+      set({ uploadProgress: null });
+      throw error;
+    }
+  },
+
   sendMessage: async (streamId, partial) => {
     const me = get().me;
     if (!me) throw new Error("No active session");
@@ -264,7 +283,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       pending: true,
       failed: false,
     };
-    set((state) => ({ messages: { ...state.messages, [streamId]: mergeMessages(state.messages[streamId] ?? [], [optimistic]) } }));
+    set((state) => ({
+      conversations: applyConversationPreview(state.conversations, optimistic),
+      messages: { ...state.messages, [streamId]: mergeMessages(state.messages[streamId] ?? [], [optimistic]) },
+    }));
 
     if (!get().online) {
       const entry: OutboxEntry = { id: clientId, streamId, input, queuedAt: Date.now(), attempts: 0 };
@@ -276,6 +298,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const saved = await api.createMessage(streamId, input);
       set((state) => ({
+        conversations: applyConversationPreview(state.conversations, saved),
         messages: {
           ...state.messages,
           [streamId]: mergeMessages(state.messages[streamId] ?? [], [saved]),
@@ -299,7 +322,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   forwardMessage: async (messageId, targetStreamId) => {
     if (!get().online) throw new Error("Forwarding requires a connection");
     const saved = await api.forwardMessage(messageId, targetStreamId, Crypto.randomUUID());
-    set((state) => ({ messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [saved]) } }));
+    set((state) => ({
+      conversations: applyConversationPreview(state.conversations, saved),
+      messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [saved]) },
+    }));
     await persistState();
     return saved;
   },
@@ -319,6 +345,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         const saved = await api.createMessage(entry.streamId, entry.input);
         set((state) => ({
           outbox: state.outbox.filter((item) => item.id !== entry.id),
+          conversations: applyConversationPreview(state.conversations, saved),
           messages: {
             ...state.messages,
             [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]),
@@ -338,6 +365,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   applyMessage: (message) => {
     set((state) => ({
+      conversations: applyConversationPreview(state.conversations, message),
       messages: {
         ...state.messages,
         [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]),

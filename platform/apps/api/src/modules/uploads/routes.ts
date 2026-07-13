@@ -161,6 +161,7 @@ async function completeUpload(userId: string, uploadId: string) {
   const object = await stageObject(upload.temp_key);
   if (object.bytes !== Number(upload.declared_bytes)) throw conflict("Final object size does not match the upload");
   const attachmentId = upload.id;
+  const processMedia = canProcessMedia(upload.kind, upload.media_purpose, object.detectedMimeType);
   await transaction(async (client) => {
     const locked = await ownedUpload(userId, uploadId, client, true);
     if (locked.status === "complete") return;
@@ -170,9 +171,9 @@ async function completeUpload(userId: string, uploadId: string) {
        ON CONFLICT (checksum_sha256) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256 RETURNING id`,
       [newId(), object.checksum, object.storageKey, object.bytes, object.detectedMimeType]);
     await client.query(
-      `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,quality,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'ready')
-       ON CONFLICT (id) DO NOTHING`, [attachmentId, userId, blob.rows[0]!.id, upload.filename, upload.kind, object.detectedMimeType, object.bytes, upload.quality]);
-    if (canProcessMedia(upload.kind, upload.media_purpose, object.detectedMimeType)) {
+      `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,quality,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO NOTHING`, [attachmentId, userId, blob.rows[0]!.id, upload.filename, upload.kind, object.detectedMimeType, object.bytes, upload.quality, processMedia ? "processing" : "ready"]);
+    if (processMedia) {
       await client.query("INSERT INTO media_jobs(id,attachment_id,profile) SELECT $1,$2,$3 WHERE NOT EXISTS(SELECT 1 FROM media_jobs WHERE attachment_id=$2 AND profile=$3)", [newId(), attachmentId, upload.quality]);
     }
     await client.query("UPDATE upload_sessions SET status='complete',checksum_sha256=$2,updated_at=now() WHERE id=$1", [uploadId, object.checksum]);

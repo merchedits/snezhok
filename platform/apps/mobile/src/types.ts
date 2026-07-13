@@ -77,7 +77,11 @@ export interface UploadInput {
   mimeType: string;
   kind: Attachment["kind"];
   quality: UploadQuality;
+  purpose?: "standard" | "voice" | "video-note";
+  stripLocation?: boolean;
 }
+
+export type UploadProgressCallback = (progress: number) => void;
 
 export interface MessageCreateInput {
   clientId: string;

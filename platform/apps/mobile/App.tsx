@@ -4,6 +4,7 @@ import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Component, type ComponentProps, type ErrorInfo, type ReactNode, useEffect } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -23,11 +24,13 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AndroidUpdateProvider>
-        <AppRoot />
-      </AndroidUpdateProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <AndroidUpdateProvider>
+          <AppRoot />
+        </AndroidUpdateProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -109,6 +112,7 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => v
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   loader: { flex: 1, alignItems: "center", justifyContent: "center" },
   crash: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, backgroundColor: "#0b1422" },
   crashTitle: { color: "#f4f7fb", fontSize: 20, fontWeight: "800" },

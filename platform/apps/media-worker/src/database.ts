@@ -85,12 +85,17 @@ export async function failJob(job: MediaJob, error: unknown) {
     return;
   }
   const delaySeconds = Math.min(900, 5 * (2 ** Math.max(0, job.attempts - 1)));
-  await pool.query(
+  const result = await pool.query<{ status: string }>(
     `UPDATE media_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'pending' END,
        available_at=CASE WHEN attempts>=max_attempts THEN available_at ELSE now()+($3::int*interval '1 second') END,
        completed_at=CASE WHEN attempts>=max_attempts THEN now() ELSE NULL END,locked_by=NULL,heartbeat_at=NULL,error=$4,updated_at=now()
-     WHERE id=$1 AND locked_by=$2`, [job.id, config.WORKER_ID, delaySeconds, message.slice(0, 4000)],
+     WHERE id=$1 AND locked_by=$2 RETURNING status`, [job.id, config.WORKER_ID, delaySeconds, message.slice(0, 4000)],
   );
+  // The immutable source is still valid if optimization fails. Expose that
+  // fallback instead of leaving the attachment in an endless processing state.
+  if (result.rows[0]?.status === "failed") {
+    await pool.query("UPDATE attachments SET status='ready' WHERE id=$1 AND status='processing'", [job.attachmentId]);
+  }
 }
 
 export async function callsAreActive() {

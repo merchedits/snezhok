@@ -5,9 +5,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import type { MainTab } from "../navigation/mainTabs";
 import { useAppStore } from "../store/useAppStore";
 
-export type MainTab = "chats" | "servers" | "profile" | "settings";
+export type { MainTab } from "../navigation/mainTabs";
 
 const tabs: Array<{ id: MainTab; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = [
   { id: "chats", icon: "chatbubbles-outline", activeIcon: "chatbubbles" },

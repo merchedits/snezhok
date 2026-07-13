@@ -3,7 +3,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Message, UploadQuality } from "@snezhok/contracts";
@@ -13,9 +13,10 @@ import { Avatar } from "../components/Avatar";
 import { MessageActionsSheet } from "../components/MessageActionsSheet";
 import { MessageBubble } from "../components/MessageBubble";
 import { ScreenHeader } from "../components/ScreenHeader";
+import { SwipeReplyRow } from "../components/SwipeReplyRow";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { api } from "../lib/api";
+import { composerBottomPadding } from "../lib/keyboardLayout";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList, UploadInput } from "../types";
 
@@ -38,6 +39,8 @@ export function ChatScreen({ navigation, route }: Props) {
   const sendMessage = useAppStore((state) => state.sendMessage);
   const forwardMessage = useAppStore((state) => state.forwardMessage);
   const toggleReaction = useAppStore((state) => state.toggleReaction);
+  const uploadAttachment = useAppStore((state) => state.uploadAttachment);
+  const uploadProgress = useAppStore((state) => state.uploadProgress);
   const uploadQuality = useAppStore((state) => state.settings.defaultUploadQuality);
   const [text, setText] = useState("");
   const [recorderMounted, setRecorderMounted] = useState(false);
@@ -46,8 +49,14 @@ export function ChatScreen({ navigation, route }: Props) {
   const [uploading, setUploading] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
 
   useEffect(() => { void loadMessages(streamId).catch(() => undefined); }, [loadMessages, streamId]);
+  useEffect(() => {
+    const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
+    const hidden = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
+    return () => { shown.remove(); hidden.remove(); };
+  }, []);
 
   const sorted = useMemo(() => [...messages].sort((a, b) => a.sequence - b.sequence), [messages]);
 
@@ -65,7 +74,7 @@ export function ChatScreen({ navigation, route }: Props) {
     if (!online) return Alert.alert(t("offline"), t("attachmentOnline"));
     setUploading(true);
     try {
-      const attachment = await api.upload(input);
+      const attachment = await uploadAttachment(input);
       const replyToId = replyingTo?.id ?? null;
       setReplyingTo(null);
       await sendMessage(streamId, { text: "", kind: messageKind, replyToId, attachmentIds: [attachment.id] });
@@ -89,21 +98,21 @@ export function ChatScreen({ navigation, route }: Props) {
     const showDay = !previous || new Date(previous.createdAt).toDateString() !== new Date(item.createdAt).toDateString();
     const groupedWithPrevious = !showDay && previous?.sender.id === item.sender.id && item.createdAt - previous.createdAt <= 5 * 60_000;
     const showSender = (streamKind === "channel" || isGroup) && !groupedWithPrevious;
-    return <View>{showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}<MessageBubble message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} onLongPress={() => { setSelectedMessage(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain")))} /></View>;
+    return <View>{showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}<SwipeReplyRow disabled={Boolean(item.pending || item.failed)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}><MessageBubble message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} onLongPress={() => { setSelectedMessage(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain")))} /></SwipeReplyRow></View>;
   };
 
   return (
-    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.background }]} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0}>
+    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.background }]} behavior="padding" enabled={Platform.OS === "ios"} keyboardVerticalOffset={0}>
       <ScreenHeader title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={streamKind === "conversation" ? [{ icon: "call-outline", label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : []} />
-      <FlatList ref={list} data={sorted} keyExtractor={(item) => item.id} renderItem={renderMessage} contentContainerStyle={styles.list} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" removeClippedSubviews={Platform.OS === "android"} initialNumToRender={18} maxToRenderPerBatch={12} windowSize={7} onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })} ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>} />
+      <FlatList ref={list} data={sorted} keyExtractor={(item) => item.id} renderItem={renderMessage} contentContainerStyle={styles.list} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" removeClippedSubviews={Platform.OS === "android"} initialNumToRender={18} maxToRenderPerBatch={12} windowSize={7} onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })} ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>} />
       {recording ? <View style={[styles.recording, { backgroundColor: palette.surface }]}><View style={[styles.recordDot, { backgroundColor: palette.danger }]} /><Text style={[styles.recordingText, { color: palette.text }]}>{t("recording")}</Text><Text style={[styles.recordHint, { color: palette.secondaryText }]}>{t("tapStop")}</Text></View> : null}
       {replyingTo ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{replyingTo.sender.displayName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{replyingTo.text || t("attachment")}</Text></View><Pressable onPress={() => setReplyingTo(null)} style={styles.replyClose}><Ionicons name="close" size={21} color={palette.secondaryText} /></Pressable></View> : null}
-      <View style={[styles.composer, { borderColor: palette.border, backgroundColor: palette.background, paddingBottom: Math.max(insets.bottom, 7) }]}> 
+      <View style={[styles.composer, { borderColor: palette.border, backgroundColor: palette.background, paddingBottom: composerBottomPadding(insets.bottom, keyboardVisible) }]}>
         <Pressable disabled={uploading || recording} onPress={() => setAttachmentSheet(true)} style={styles.composerButton} accessibilityLabel={t("attachFile")}><Ionicons name="add-circle-outline" size={27} color={uploading || recording ? palette.faintText : palette.accent} /></Pressable>
         <View style={[styles.inputWrap, { backgroundColor: palette.surface }]}><TextInput value={text} onChangeText={setText} editable={!recording} multiline maxLength={16_000} placeholder={recording ? t("recording") : t("message")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text }]} /></View>
         {uploading ? <View style={styles.composerButton}><ActivityIndicator color={palette.accent} /></View> : text.trim() ? <Pressable onPress={() => void sendText()} style={[styles.send, { backgroundColor: palette.accent }]} accessibilityLabel={t("sendMessage")}><Ionicons name="arrow-up" size={21} color="white" /></Pressable> : recorderMounted ? <VoiceRecorderControl quality={uploadQuality} onRecordingChange={setRecording} onCancel={() => { setRecording(false); setRecorderMounted(false); }} onComplete={async (input) => { setRecording(false); setRecorderMounted(false); await handleUpload(input, "voice"); }} /> : <Pressable onPress={() => void beginRecording()} style={[styles.send, { backgroundColor: palette.accent }]} accessibilityLabel={t("recordVoice")}><Ionicons name="mic" size={20} color="white" /></Pressable>}
       </View>
-      <AttachmentSheet visible={attachmentSheet} busy={uploading} onClose={() => setAttachmentSheet(false)} onSelect={handleUpload} />
+      <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadProgress} onClose={() => setAttachmentSheet(false)} onSelect={handleUpload} />
       <MessageActionsSheet message={selectedMessage} conversations={conversations} onClose={() => setSelectedMessage(null)} onReply={(message) => { setSelectedMessage(null); setReplyingTo(message); }} onReact={(message, emoji) => { setSelectedMessage(null); void toggleReaction(message, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain"))); }} onForward={(message, conversation) => { setSelectedMessage(null); void forwardMessage(message.id, conversation.id).then(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)).catch(() => Alert.alert(t("requestFailed"), t("tryAgain"))); }} />
     </KeyboardAvoidingView>
   );
@@ -139,7 +148,7 @@ function VoiceRecorderControl({ quality, onRecordingChange, onCancel, onComplete
       await recorder.stop();
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (!recorder.uri) throw new Error(t("tryAgain"));
-      await onComplete({ uri: recorder.uri, filename: `voice-${Date.now()}.m4a`, mimeType: "audio/mp4", kind: "audio", quality });
+      await onComplete({ uri: recorder.uri, filename: `voice-${Date.now()}.m4a`, mimeType: "audio/mp4", kind: "audio", quality, purpose: "voice" });
     } catch (error) {
       Alert.alert(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
       onCancel();

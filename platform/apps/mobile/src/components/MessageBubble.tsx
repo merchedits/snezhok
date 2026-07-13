@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { Attachment, Message } from "@snezhok/contracts";
 
@@ -41,11 +42,7 @@ function MessageContent({ message, mine, showSender, showTime, onReact }: { mess
 
 function AttachmentView({ attachment }: { attachment: Attachment }) {
   const palette = usePalette();
-  const source = useAuthorizedMedia(attachment.url);
-  const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
-  if (attachment.kind === "image") {
-    return <Pressable onPress={() => void Linking.openURL(source.uri)}><Image source={thumbnailSource} style={styles.photo} resizeMode="cover" /></Pressable>;
-  }
+  if (attachment.kind === "image") return <ImageAttachment attachment={attachment} />;
   if (attachment.kind === "video") return <InlineVideo attachment={attachment} />;
   if (attachment.kind === "audio") return <VoiceAttachment attachment={attachment} />;
   return (
@@ -55,6 +52,14 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
       <Ionicons name="download-outline" size={20} color={palette.accent} />
     </Pressable>
   );
+}
+
+function ImageAttachment({ attachment }: { attachment: Attachment }) {
+  const palette = usePalette();
+  const [open, setOpen] = useState(false);
+  const source = useAuthorizedMedia(attachment.url);
+  const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
+  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} style={styles.photo} resizeMode="cover" /></Pressable><Modal visible={open} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setOpen(false)}><View style={styles.viewer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} /><Image source={source} style={styles.viewerImage} resizeMode="contain" /><Pressable accessibilityLabel="Close" onPress={() => setOpen(false)} style={[styles.viewerClose, { backgroundColor: palette.overlay }]}><Ionicons name="close" size={26} color="white" /></Pressable></View></Modal></>;
 }
 
 function VoiceAttachment({ attachment }: { attachment: Attachment }) {
@@ -113,6 +118,9 @@ const styles = StyleSheet.create({
   edited: { fontSize: 10 },
   deleted: { fontSize: 13, fontStyle: "italic", marginHorizontal: 14, marginVertical: 5 },
   photo: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
+  viewer: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
+  viewerImage: { width: "100%", height: "100%" },
+  viewerClose: { position: "absolute", top: 44, right: 14, width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   video: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, overflow: "hidden" },
   file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
   fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
