@@ -26,7 +26,7 @@ export async function bootstrap(userId: string): Promise<BootstrapPayload> {
 
 export async function conversationSummary(userId: string, conversationId: string, client: Pick<DbClient, "query"> = pool): Promise<ConversationSummary> {
   const base = (await client.query<{ id: string; kind: "direct" | "group"; title: string; saved: boolean; updated_at_ms: number; muted: boolean; pinned: boolean; archived: boolean; unread_count: number }>(
-    `SELECT c.id,c.kind,c.title,c.saved_owner_id=$1 saved,(extract(epoch from c.updated_at)*1000)::bigint::float8 updated_at_ms,
+    `SELECT c.id,c.kind,c.title,coalesce(c.saved_owner_id=$1,false) saved,(extract(epoch from c.updated_at)*1000)::bigint::float8 updated_at_ms,
       (cm.muted_until IS NOT NULL AND cm.muted_until>now()) muted,cm.pinned_at IS NOT NULL pinned,cm.archived_at IS NOT NULL archived,
       (SELECT count(*)::int FROM messages m WHERE m.stream_kind='conversation' AND m.stream_id=c.id AND m.deleted_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id)

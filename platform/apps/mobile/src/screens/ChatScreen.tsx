@@ -15,6 +15,7 @@ import { AttachmentSheet } from "../components/AttachmentSheet";
 import { Avatar } from "../components/Avatar";
 import { ForwardPickerModal } from "../components/ForwardPickerModal";
 import { MessageBubble } from "../components/MessageBubble";
+import { ReactionPicker } from "../components/ReactionPicker";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { SwipeReplyRow } from "../components/SwipeReplyRow";
 import { usePalette } from "../hooks/usePalette";
@@ -69,6 +70,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [forwardPicker, setForwardPicker] = useState(false);
   const [forwarding, setForwarding] = useState(false);
+  const [reactionTarget, setReactionTarget] = useState<{ message: Message; anchorY: number } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
   const selectionProgress = useSharedValue(0);
@@ -87,6 +89,7 @@ export function ChatScreen({ navigation, route }: Props) {
   useEffect(() => {
     setSelectedIds(new Set());
     setForwardPicker(false);
+    setReactionTarget(null);
   }, [streamId]);
   useEffect(() => {
     const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
@@ -164,7 +167,7 @@ export function ChatScreen({ navigation, route }: Props) {
     const showDay = !previous || new Date(previous.createdAt).toDateString() !== new Date(item.createdAt).toDateString();
     const groupedWithPrevious = !showDay && previous?.sender.id === item.sender.id && item.createdAt - previous.createdAt <= 5 * 60_000;
     const showSender = (streamKind === "channel" || isGroup) && !groupedWithPrevious;
-    return <View>{showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}<SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}><MessageBubble message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain")))} /></SwipeReplyRow></View>;
+    return <View>{showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}<SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}><MessageBubble message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain")))} /></SwipeReplyRow></View>;
   }, [displayMessages, isGroup, me?.id, palette.border, palette.secondaryText, selectedIds, selectionMode, selectionProgress, streamKind, t, toggleReaction, toggleSelected]);
 
   const handleScrollToIndexFailed = useCallback(({ index }: { index: number }) => {
@@ -233,6 +236,18 @@ export function ChatScreen({ navigation, route }: Props) {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
   };
 
+  const activeReactionEmojis = useMemo(() => new Set(
+    reactionTarget?.message.reactions.filter((reaction) => reaction.reacted).map((reaction) => reaction.emoji) ?? [],
+  ), [reactionTarget]);
+
+  const selectReaction = useCallback((emoji: string) => {
+    const target = reactionTarget;
+    setReactionTarget(null);
+    if (!target) return;
+    void Haptics.selectionAsync().catch(() => undefined);
+    void toggleReaction(target.message, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain")));
+  }, [reactionTarget, t, toggleReaction]);
+
   return (
     <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.background }]} behavior="padding" enabled={Platform.OS === "ios"} keyboardVerticalOffset={0}>
       {selectedIds.size > 0
@@ -241,7 +256,6 @@ export function ChatScreen({ navigation, route }: Props) {
       {latestPin ? <Pressable onPress={jumpToPinned} style={({ pressed }) => [styles.pinBanner, { borderColor: palette.border, backgroundColor: pressed ? palette.surface : palette.background }]}><View style={[styles.pinAccent, { backgroundColor: palette.accent }]} /><AppIcon name="pin" size={17} color={palette.accent} /><View style={styles.pinCopy}><Text style={[styles.pinLabel, { color: palette.accent }]}>{t("pinnedMessage")}</Text><Text numberOfLines={1} style={[styles.pinText, { color: palette.secondaryText }]}>{latestPin.text || t("attachment")}</Text></View></Pressable> : null}
       <FlatList inverted ref={list} data={displayMessages} keyExtractor={messageKey} renderItem={renderMessage} contentContainerStyle={styles.list} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" removeClippedSubviews={Platform.OS === "android"} initialNumToRender={16} maxToRenderPerBatch={10} updateCellsBatchingPeriod={48} windowSize={7} maintainVisibleContentPosition={maintainVisibleMessagePosition} onScrollToIndexFailed={handleScrollToIndexFailed} ListEmptyComponent={emptyState} />
       {selectedIds.size > 0 ? <View style={[styles.selectionToolbar, { paddingBottom: Math.max(insets.bottom, 8), borderColor: palette.border, backgroundColor: palette.background }]}>
-        {selectedMessages.length === 1 ? <SelectionAction icon="return-down-back-outline" label={t("reply")} onPress={() => { setReplyingTo(selectedMessages[0]!); setSelectedIds(new Set()); }} /> : <View style={styles.selectionPlaceholder} />}
         {clipboardText ? <SelectionAction icon="copy-outline" label={t("copy")} onPress={() => void copySelected()} /> : null}
         <SelectionAction icon="return-up-forward-outline" label={t("forward")} onPress={() => setForwardPicker(true)} />
         <SelectionAction icon={selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "pin-outline" : "pin"} label={t(selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "unpinMessage" : "pinMessage")} onPress={() => void toggleSelectedPins()} />
@@ -256,6 +270,7 @@ export function ChatScreen({ navigation, route }: Props) {
         </View>
       </>}
       <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadProgress} onClose={closeAttachmentSheet} onSelect={handleUpload} />
+      <ReactionPicker visible={Boolean(reactionTarget)} anchorY={reactionTarget?.anchorY ?? 0} activeEmojis={activeReactionEmojis} onClose={() => setReactionTarget(null)} onSelect={selectReaction} />
       <ForwardPickerModal
         visible={forwardPicker}
         conversations={conversations}
@@ -387,7 +402,7 @@ const styles = StyleSheet.create({
   replyCopy: { flex: 1 }, replyName: { fontSize: 12, fontWeight: "800" }, replyText: { fontSize: 12, marginTop: 2 }, replyClose: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19 },
   selectionToolbar: { minHeight: 58, flexDirection: "row", alignItems: "flex-start", borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 7, paddingHorizontal: 4 },
   selectionAction: { flex: 1, minWidth: 0, minHeight: 47, alignItems: "center", justifyContent: "center", gap: 2 },
-  selectionPlaceholder: { flex: 1 }, selectionLabel: { maxWidth: "100%", paddingHorizontal: 2, fontSize: 10, fontWeight: "600" },
+  selectionLabel: { maxWidth: "100%", paddingHorizontal: 2, fontSize: 10, fontWeight: "600" },
   composer: { minHeight: 54, flexDirection: "row", alignItems: "flex-end", borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 6, paddingHorizontal: 6, gap: 5 }, composerButton: { width: 38, height: 40, alignItems: "center", justifyContent: "center" }, inputWrap: { flex: 1, minHeight: 39, maxHeight: 120, borderRadius: 19, justifyContent: "center" }, input: { fontSize: 16, lineHeight: 20, paddingHorizontal: 13, paddingVertical: 9, maxHeight: 120 }, send: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", marginBottom: 1 },
 });
 

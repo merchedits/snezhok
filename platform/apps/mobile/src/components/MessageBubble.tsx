@@ -1,8 +1,8 @@
 import { AppIcon } from "./AppIcon";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { memo, useRef, useState } from "react";
-import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { memo, useEffect, useRef, useState } from "react";
+import { type GestureResponderEvent, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 import type { Attachment, Message } from "@snezhok/contracts";
@@ -25,12 +25,24 @@ interface MessageBubbleProps {
   onPress?: () => void;
   onLongPress?: () => void;
   onReact?: (emoji: string) => void;
+  onOpenReactions?: (anchorY: number) => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions }: MessageBubbleProps) {
   const palette = usePalette();
   const lastTapAt = useRef(0);
+  const tapAnchorY = useRef(0);
+  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
+  useEffect(() => () => {
+    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+  }, []);
+  useEffect(() => {
+    if (!selectionMode || !singleTapTimer.current) return;
+    clearTimeout(singleTapTimer.current);
+    singleTapTimer.current = null;
+    lastTapAt.current = 0;
+  }, [selectionMode]);
   const selectionContentStyle = useAnimatedStyle(() => ({
     // Incoming/direct and server messages need to clear the selector. Outgoing
     // bubbles already live on the opposite edge, so keeping them stationary
@@ -41,11 +53,12 @@ export const MessageBubble = memo(function MessageBubble({ message, mine, showSe
     opacity: selectionProgress.value,
     transform: [{ scale: 0.76 + 0.24 * selectionProgress.value }],
   }));
-  const handlePress = () => {
+  const handlePress = (event: GestureResponderEvent) => {
     if (longPressTriggered.current) {
       longPressTriggered.current = false;
       return;
     }
+    tapAnchorY.current = event.nativeEvent.pageY;
     if (selectionMode) {
       lastTapAt.current = 0;
       onPress?.();
@@ -53,13 +66,22 @@ export const MessageBubble = memo(function MessageBubble({ message, mine, showSe
     }
     const now = Date.now();
     if (now - lastTapAt.current <= 280) {
+      if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+      singleTapTimer.current = null;
       lastTapAt.current = 0;
-      onReact?.("❤️");
+      onReact?.("\u2764\uFE0F");
       return;
     }
     lastTapAt.current = now;
+    singleTapTimer.current = setTimeout(() => {
+      singleTapTimer.current = null;
+      lastTapAt.current = 0;
+      onOpenReactions?.(tapAnchorY.current);
+    }, 280);
   };
   const handleLongPress = () => {
+    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+    singleTapTimer.current = null;
     longPressTriggered.current = true;
     lastTapAt.current = 0;
     onLongPress?.();

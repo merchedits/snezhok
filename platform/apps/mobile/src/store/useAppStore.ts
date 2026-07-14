@@ -111,6 +111,8 @@ async function persistState(): Promise<void> {
   ]);
 }
 
+let bootstrapRefresh: Promise<void> | null = null;
+
 export const useAppStore = create<AppState>((set, get) => ({
   phase: "booting",
   error: null,
@@ -217,31 +219,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  refreshBootstrap: async () => {
-    if (!get().online) return;
+  refreshBootstrap: () => {
+    if (!get().online) return Promise.resolve();
+    if (bootstrapRefresh) return bootstrapRefresh;
     set({ syncing: true });
-    try {
-      const payload = await api.bootstrap();
-      set({
-        phase: "ready",
-        error: null,
-        syncing: false,
-        me: payload.me,
-        conversations: payload.conversations,
-        servers: payload.servers,
-        categories: payload.categories,
-        channels: payload.channels,
-        friends: payload.friends,
-        settings: payload.settings,
-        eventCursor: payload.eventCursor,
-      });
-      await persistState();
-    } catch (error) {
-      set({ syncing: false });
-      const session = await readSession();
-      if (!session) set({ phase: "signed-out" });
-      throw error;
-    }
+    bootstrapRefresh = (async () => {
+      try {
+        const payload = await api.bootstrap();
+        set({
+          phase: "ready",
+          error: null,
+          syncing: false,
+          me: payload.me,
+          conversations: payload.conversations,
+          servers: payload.servers,
+          categories: payload.categories,
+          channels: payload.channels,
+          friends: payload.friends,
+          settings: payload.settings,
+          eventCursor: payload.eventCursor,
+        });
+        await persistState();
+      } catch (error) {
+        set({ syncing: false });
+        const session = await readSession();
+        if (!session) set({ phase: "signed-out" });
+        throw error;
+      }
+    })().finally(() => {
+      bootstrapRefresh = null;
+    });
+    return bootstrapRefresh;
   },
 
   loadMessages: async (streamId, before) => {

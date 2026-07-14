@@ -1,8 +1,8 @@
 import { AppIcon } from "../components/AppIcon";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { ConversationSummary } from "@snezhok/contracts";
 
@@ -11,11 +11,12 @@ import { NewConversationModal } from "../components/NewConversationModal";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import { visibleConversationSummaries } from "../lib/conversationList";
 import { directPeer, startsRegularConversationSection } from "../store/conversationIdentity";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 
-export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolean }) {
+export function ChatsScreen({ embedded: _embedded = false, active = true }: { embedded?: boolean; active?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const palette = usePalette();
   const { language, t } = useTranslation();
@@ -26,12 +27,13 @@ export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolea
   const refresh = useAppStore((state) => state.refreshBootstrap);
   const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState(false);
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return conversations
-      .filter((item) => !item.archived && (!query || conversationTitle(item, language).toLowerCase().includes(query) || item.lastMessage?.text.toLowerCase().includes(query)))
-      .sort((a, b) => Number(b.saved) - Number(a.saved) || Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
-  }, [conversations, language, search]);
+  useEffect(() => {
+    if (active) void refresh().catch(() => undefined);
+  }, [active, refresh]);
+  const filtered = useMemo(
+    () => visibleConversationSummaries(conversations, search, (conversation) => conversationTitle(conversation, language)),
+    [conversations, language, search],
+  );
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
@@ -47,9 +49,17 @@ export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolea
         />
       </View>
       <FlatList
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
         data={filtered}
         keyExtractor={(item) => item.id}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews={Platform.OS === "android"}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        windowSize={7}
         refreshControl={<RefreshControl refreshing={syncing} tintColor={palette.accent} onRefresh={() => void refresh()} />}
         renderItem={({ item, index }) => <ConversationRow conversation={item} currentUserId={me?.id} sectionBreak={startsRegularConversationSection(filtered, index)} onPress={() => navigation.navigate("Chat", { streamId: item.id, streamKind: "conversation", title: conversationTitle(item, language) })} />}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
@@ -116,12 +126,14 @@ function mediaLabel(kind: string, t: ReturnType<typeof useTranslation>["t"]): st
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  list: { flex: 1 },
+  listContent: { flexGrow: 1, paddingBottom: 86 },
   search: { height: 38, marginHorizontal: 12, marginVertical: 8, borderRadius: 10, flexDirection: "row", alignItems: "center", paddingHorizontal: 11, gap: 7 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
-  row: { minHeight: 72, flexDirection: "row", paddingLeft: 12, alignItems: "center" },
-  sectionBreak: { marginTop: 8 },
+  row: { height: 72, flexDirection: "row", paddingLeft: 12, alignItems: "center" },
+  sectionBreak: { borderTopWidth: 4, borderTopColor: "transparent" },
   savedAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
-  rowBody: { flex: 1, height: "100%", justifyContent: "center", borderBottomWidth: StyleSheet.hairlineWidth, marginLeft: 12, paddingRight: 12 },
+  rowBody: { flex: 1, alignSelf: "stretch", justifyContent: "center", borderBottomWidth: StyleSheet.hairlineWidth, marginLeft: 12, paddingRight: 12 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowTitle: { flex: 1, fontSize: 16, fontWeight: "700" },
   time: { fontSize: 12 },
