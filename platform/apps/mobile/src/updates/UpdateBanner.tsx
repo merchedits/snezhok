@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon } from "../components/AppIcon";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -18,7 +18,7 @@ export function UpdateBanner() {
 
   return (
     <View style={[styles.banner, { top: Math.max(8, insets.top + 4), backgroundColor: palette.elevated, borderColor: update.required ? palette.warning : palette.border }]}> 
-      <Ionicons name={update.phase === "error" ? "warning-outline" : "arrow-up-circle-outline"} size={22} color={update.phase === "error" ? palette.warning : palette.accent} />
+      <AppIcon name={update.phase === "error" ? "warning-outline" : "arrow-up-circle-outline"} size={22} color={update.phase === "error" ? palette.warning : palette.accent} />
       <View style={styles.copy}>
         <Text style={[styles.title, { color: palette.text }]}>{update.required ? t("updateRequired") : t("snezhokUpdate")}</Text>
         <Text numberOfLines={2} style={[styles.message, { color: palette.secondaryText }]}>{update.message}</Text>

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 
 import { API_URL } from "../lib/api";
 import { getRuntimeSession, subscribeToSession } from "../lib/secureSession";
@@ -16,8 +16,8 @@ export function useAuthorizedMedia(uri: string) {
     () => getRuntimeSession()?.accessToken ?? "",
     () => "",
   );
-  return {
+  return useMemo(() => ({
     uri: resolveMediaUrl(uri),
     headers: token ? { Authorization: `Bearer ${token}` } : {},
-  };
+  }), [token, uri]);
 }

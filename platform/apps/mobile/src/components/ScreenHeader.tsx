@@ -1,11 +1,11 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import type { ComponentProps, ReactNode } from "react";
+import { AppIcon, type AppIconName } from "./AppIcon";
+import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
 
-type IconName = ComponentProps<typeof Ionicons>["name"];
+type IconName = AppIconName;
 
 interface HeaderAction {
   icon: IconName;
@@ -50,7 +50,7 @@ function HeaderButton({ icon, label, onPress }: HeaderAction) {
   const palette = usePalette();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={styles.button}>
-      <Ionicons name={icon} size={23} color={palette.accent} />
+      <AppIcon name={icon} size={23} color={palette.accent} />
     </Pressable>
   );
 }

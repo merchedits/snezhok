@@ -6,6 +6,7 @@ import { Component, type ComponentProps, type ErrorInfo, type ReactNode, useEffe
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { enableFreeze } from "react-native-screens";
 import { StatusBar } from "expo-status-bar";
 
 import { OfflineBar } from "./src/components/OfflineBar";
@@ -23,6 +24,11 @@ import type { RootStackParamList } from "./src/types";
 import { AndroidUpdateProvider } from "./src/updates/UpdateProvider";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+// Native-screen freezing prevents the four-tab home tree from rerendering
+// behind an open chat, profile, or call. This is especially visible on low-end
+// devices while message and recording events arrive frequently.
+enableFreeze(true);
 
 export default function App() {
   return (
@@ -77,11 +83,11 @@ function AppRoot() {
     <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationNavigation} theme={navigationTheme}>
       <StatusBar style={palette.dark ? "light" : "dark"} />
       <OfflineBar />
-      <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right", freezeOnBlur: true }}>
         <Stack.Screen name="Main" component={MainScreen} />
         <Stack.Screen name="Chat" component={SafeChatScreen} />
         <Stack.Screen name="Profile" component={PublicProfileScreen} />
-        <Stack.Screen name="Call" component={CallScreen} options={{ presentation: "fullScreenModal", animation: "fade" }} />
+        <Stack.Screen name="Call" component={CallScreen} options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

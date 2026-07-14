@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon } from "../components/AppIcon";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
@@ -37,7 +37,7 @@ export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolea
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
       <ScreenHeader title={t("chats")} />
       <View style={[styles.search, { backgroundColor: palette.surface }]}> 
-        <Ionicons name="search" size={18} color={palette.faintText} />
+        <AppIcon name="search" size={18} color={palette.faintText} />
         <TextInput
           value={search}
           onChangeText={setSearch}
@@ -54,7 +54,7 @@ export function ChatsScreen({ embedded: _embedded = false }: { embedded?: boolea
         renderItem={({ item, index }) => <ConversationRow conversation={item} currentUserId={me?.id} sectionBreak={startsRegularConversationSection(filtered, index)} onPress={() => navigation.navigate("Chat", { streamId: item.id, streamKind: "conversation", title: conversationTitle(item, language) })} />}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
       />
-      <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.accent, opacity: pressed ? 0.78 : 1 }]}><Ionicons name="create-outline" size={24} color="white" /></Pressable>
+      <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.accent, opacity: pressed ? 0.78 : 1 }]}><AppIcon name="create-outline" size={24} color="white" /></Pressable>
       <NewConversationModal
         visible={newMessage}
         onClose={() => setNewMessage(false)}
@@ -76,7 +76,7 @@ function ConversationRow({ conversation, currentUserId, sectionBreak, onPress }:
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { backgroundColor: pressed ? palette.surface : palette.background }]}>
       {conversation.saved
-        ? <View style={[styles.savedAvatar, { backgroundColor: palette.accent }]}><Ionicons name="bookmark" size={24} color="white" /></View>
+        ? <View style={[styles.savedAvatar, { backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color="white" /></View>
         : <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={title} color={peer?.avatarColor} online={peer?.presence === "online"} size={52} />}
       <View style={[styles.rowBody, { borderColor: palette.border }]}> 
         <View style={styles.rowTop}>
@@ -87,7 +87,7 @@ function ConversationRow({ conversation, currentUserId, sectionBreak, onPress }:
           <Text numberOfLines={1} style={[styles.preview, { color: conversation.unreadCount ? palette.text : palette.secondaryText }]}>
             {conversation.lastMessage ? `${conversation.lastMessage.senderName}: ${conversation.lastMessage.text || mediaLabel(conversation.lastMessage.kind, t)}` : peer ? `@${peer.username}` : t("noMessagesYet")}
           </Text>
-          {conversation.muted ? <Ionicons name="volume-mute" size={14} color={palette.faintText} /> : null}
+          {conversation.muted ? <AppIcon name="volume-mute" size={14} color={palette.faintText} /> : null}
           {conversation.unreadCount > 0 ? <View style={[styles.unreadBadge, { backgroundColor: conversation.muted ? palette.faintText : palette.accent }]}><Text style={styles.unreadText}>{conversation.unreadCount}</Text></View> : null}
         </View>
       </View>

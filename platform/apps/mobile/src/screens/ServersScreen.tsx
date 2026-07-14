@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon } from "../components/AppIcon";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo, useState } from "react";
@@ -48,7 +48,7 @@ export function ServersScreen() {
           <View style={styles.heading}><View style={styles.headingCopy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{selected?.name}</Text><Text style={[styles.subtitle, { color: palette.secondaryText }]}>{t("channels", { count: selectedChannels.length })}</Text></View></View>
           <FlatList data={selectedChannels} keyExtractor={(item) => item.id} contentContainerStyle={styles.list} renderItem={({ item }) => <ChannelRow channel={item} onPress={() => open(item)} />} ListEmptyComponent={<Text style={[styles.empty, { color: palette.secondaryText }]}>{t("noChannels")}</Text>} />
         </>
-      ) : <View style={styles.emptyWrap}><Ionicons name="albums-outline" size={38} color={palette.faintText} /><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noServers")}</Text><Pressable onPress={() => setCreating(true)} style={[styles.createButton, { backgroundColor: palette.accent }]}><Text style={styles.createText}>{t("createServer")}</Text></Pressable></View>}
+      ) : <View style={styles.emptyWrap}><AppIcon name="albums-outline" size={38} color={palette.faintText} /><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noServers")}</Text><Pressable onPress={() => setCreating(true)} style={[styles.createButton, { backgroundColor: palette.accent }]}><Text style={styles.createText}>{t("createServer")}</Text></Pressable></View>}
       <TextEntryModal visible={creating} title={t("createServer")} placeholder={t("serverName")} submitLabel={t("create")} onClose={() => setCreating(false)} onSubmit={async (name) => { const server = await api.createServer(name); await refresh(); setSelectedId(server.id); }} />
     </View>
   );
@@ -57,7 +57,7 @@ export function ServersScreen() {
 function ChannelRow({ channel, onPress }: { channel: ChannelSummary; onPress: () => void }) {
   const palette = usePalette();
   const { t } = useTranslation();
-  return <Pressable onPress={onPress} style={({ pressed }) => [styles.channel, { backgroundColor: pressed ? palette.surface : "transparent", borderColor: palette.border }]}><View style={[styles.channelIcon, { backgroundColor: palette.accentSoft }]}>{channel.kind === "voice" ? <Ionicons name="volume-medium-outline" size={21} color={palette.accent} /> : <Text style={[styles.hash, { color: palette.accent }]}>#</Text>}</View><View style={styles.channelCopy}><Text numberOfLines={1} style={[styles.channelName, { color: palette.text }]}>{channel.name}</Text><Text numberOfLines={1} style={[styles.channelDetail, { color: channel.connectedMembers.length ? palette.success : palette.secondaryText }]}>{channel.connectedMembers.length ? t("connected", { count: channel.connectedMembers.length }) : channel.topic || t("textChannels")}</Text></View>{channel.mentionCount ? <View style={[styles.badge, { backgroundColor: palette.danger }]}><Text style={styles.badgeText}>{channel.mentionCount}</Text></View> : <Ionicons name="chevron-forward" size={18} color={palette.faintText} />}</Pressable>;
+  return <Pressable onPress={onPress} style={({ pressed }) => [styles.channel, { backgroundColor: pressed ? palette.surface : "transparent", borderColor: palette.border }]}><View style={[styles.channelIcon, { backgroundColor: palette.accentSoft }]}>{channel.kind === "voice" ? <AppIcon name="volume-medium-outline" size={21} color={palette.accent} /> : <Text style={[styles.hash, { color: palette.accent }]}>#</Text>}</View><View style={styles.channelCopy}><Text numberOfLines={1} style={[styles.channelName, { color: palette.text }]}>{channel.name}</Text><Text numberOfLines={1} style={[styles.channelDetail, { color: channel.connectedMembers.length ? palette.success : palette.secondaryText }]}>{channel.connectedMembers.length ? t("connected", { count: channel.connectedMembers.length }) : channel.topic || t("textChannels")}</Text></View>{channel.mentionCount ? <View style={[styles.badge, { backgroundColor: palette.danger }]}><Text style={styles.badgeText}>{channel.mentionCount}</Text></View> : <AppIcon name="chevron-forward" size={18} color={palette.faintText} />}</Pressable>;
 }
 
 const styles = StyleSheet.create({

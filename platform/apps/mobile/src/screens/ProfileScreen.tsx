@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon } from "../components/AppIcon";
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -141,7 +141,7 @@ export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScree
       <ScrollView contentContainerStyle={[styles.content, !embedded && { paddingBottom: Math.max(insets.bottom + 16, 34) }]} keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
           <Avatar uri={heroUri} label={user.displayName} color={user.avatarColor} online={user.presence === "online"} size={112} />
-          {own ? <Pressable disabled={busy} onPress={() => void addPhoto()} style={[styles.camera, { backgroundColor: palette.accent, borderColor: palette.background }]}><Ionicons name="camera" size={19} color="white" /></Pressable> : null}
+          {own ? <Pressable disabled={busy} onPress={() => void addPhoto()} style={[styles.camera, { backgroundColor: palette.accent, borderColor: palette.background }]}><AppIcon name="camera" size={19} color="white" /></Pressable> : null}
         </View>
         {editing ? <View style={styles.form}>
           <ProfileInput label={t("displayName")} value={displayName} onChangeText={setDisplayName} maxLength={48} />
@@ -154,7 +154,7 @@ export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScree
           {user.statusText ? <Text style={[styles.status, { color: palette.accent }]}>{user.statusText}</Text> : null}
           {user.bio ? <Text style={[styles.bio, { color: palette.text }]}>{user.bio}</Text> : null}
         </View>}
-        {!own ? <Pressable onPress={() => void openChat()} style={[styles.primaryButton, { backgroundColor: palette.accent }]}><Ionicons name="chatbubble-outline" size={18} color="white" /><Text style={styles.primaryButtonText}>{t("messageUser")}</Text></Pressable> : null}
+        {!own ? <Pressable onPress={() => void openChat()} style={[styles.primaryButton, { backgroundColor: palette.accent }]}><AppIcon name="chatbubble-outline" size={18} color="white" /><Text style={styles.primaryButtonText}>{t("messageUser")}</Text></Pressable> : null}
 
         {(own || profile.photos.length > 0) ? <View style={styles.section}>
           <View style={styles.sectionHeader}><Text style={[styles.sectionTitle, { color: palette.text }]}>{t("profilePhotos")}</Text>{own ? <Pressable disabled={busy} onPress={() => void addPhoto()}><Text style={[styles.sectionAction, { color: palette.accent }]}>{t("addPhoto")}</Text></Pressable> : null}</View>
@@ -166,7 +166,7 @@ export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScree
 
         {own && contactEntries.length > 0 ? <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: palette.text }]}>{t("contacts")}</Text>
-          {contactEntries.map((entry) => <Pressable key={entry.user.id} onPress={() => openContact(entry.user.id)} style={[styles.contact, { borderColor: palette.border }]}><Avatar uri={entry.user.avatarUrl} label={entry.user.displayName} color={entry.user.avatarColor} size={46} /><View style={styles.contactCopy}><Text style={[styles.contactName, { color: palette.text }]}>{entry.user.displayName}</Text><Text style={[styles.contactUsername, { color: palette.secondaryText }]}>@{entry.user.username}</Text></View><Ionicons name="chevron-forward" size={18} color={palette.faintText} /></Pressable>)}
+          {contactEntries.map((entry) => <Pressable key={entry.user.id} onPress={() => openContact(entry.user.id)} style={[styles.contact, { borderColor: palette.border }]}><Avatar uri={entry.user.avatarUrl} label={entry.user.displayName} color={entry.user.avatarColor} size={46} /><View style={styles.contactCopy}><Text style={[styles.contactName, { color: palette.text }]}>{entry.user.displayName}</Text><Text style={[styles.contactUsername, { color: palette.secondaryText }]}>@{entry.user.username}</Text></View><AppIcon name="chevron-forward" size={18} color={palette.faintText} /></Pressable>)}
         </View> : null}
       </ScrollView>
       {busy && !editing ? <View style={[styles.busyOverlay, { backgroundColor: palette.overlay }]}><ActivityIndicator color="white" /></View> : null}
@@ -183,7 +183,7 @@ function ProfileInput({ label, ...props }: { label: string; value: string; onCha
 function PhotoThumbnail({ photo, selected, primary, onPress, onLongPress }: { photo: ProfilePhoto; selected: boolean; primary: boolean; onPress: () => void; onLongPress?: () => void }) {
   const palette = usePalette();
   const source = useAuthorizedMedia(photo.thumbnailUrl ?? photo.url);
-  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><Image source={source} style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><Ionicons name="checkmark" size={11} color="white" /></View> : null}</Pressable>;
+  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><Image source={source} style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><AppIcon name="checkmark" size={11} color="white" strokeWidth={2} /></View> : null}</Pressable>;
 }
 
 const styles = StyleSheet.create({

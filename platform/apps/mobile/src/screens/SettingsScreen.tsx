@@ -1,7 +1,7 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon, type AppIconName } from "../components/AppIcon";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 
 import type { AppSettings } from "@snezhok/contracts";
@@ -13,7 +13,7 @@ import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 import { useAndroidUpdate } from "../updates/UpdateProvider";
 
-type IconName = ComponentProps<typeof Ionicons>["name"];
+type IconName = AppIconName;
 
 export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -61,7 +61,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         </SettingsSection>
 
         <SettingsSection title={t("softwareUpdate")}>
-          <View style={[styles.updateStatus, { borderColor: palette.border }]}><Ionicons name="phone-portrait-outline" size={20} color={palette.accent} /><View style={styles.updateCopy}><Text style={[styles.optionLabel, { color: palette.text }]}>Snezhok {appUpdate.currentVersion}</Text><Text style={[styles.updateMessage, { color: palette.secondaryText }]}>{appUpdate.message ?? t("buildChannel", { build: appUpdate.currentVersionCode })}</Text></View>{appUpdate.phase === "downloading" ? <Text style={[styles.optionValue, { color: palette.accent }]}>{Math.round(appUpdate.progress * 100)}%</Text> : null}</View>
+          <View style={[styles.updateStatus, { borderColor: palette.border }]}><AppIcon name="phone-portrait-outline" size={20} color={palette.accent} /><View style={styles.updateCopy}><Text style={[styles.optionLabel, { color: palette.text }]}>Snezhok {appUpdate.currentVersion}</Text><Text style={[styles.updateMessage, { color: palette.secondaryText }]}>{appUpdate.message ?? t("buildChannel", { build: appUpdate.currentVersionCode })}</Text></View>{appUpdate.phase === "downloading" ? <Text style={[styles.optionValue, { color: palette.accent }]}>{Math.round(appUpdate.progress * 100)}%</Text> : null}</View>
           <ToggleRow icon="cloud-download-outline" label={t("autoUpdateWifi")} value={appUpdate.autoUpdate} onChange={(enabled) => void appUpdate.setAutoUpdate(enabled)} />
           <Pressable disabled={appUpdate.phase === "checking" || appUpdate.phase === "downloading"} onPress={() => void (appUpdate.phase === "available" || appUpdate.phase === "error" ? appUpdate.downloadAndInstall() : appUpdate.phase === "ready" ? appUpdate.openInstaller() : appUpdate.checkForUpdate(true))} style={styles.updateButton}><Text style={[styles.updateButtonText, { color: palette.accent }]}>{appUpdate.phase === "available" || appUpdate.phase === "error" ? t("downloadUpdate") : appUpdate.phase === "ready" ? t("installUpdate") : appUpdate.phase === "checking" ? t("checking") : appUpdate.phase === "downloading" ? t("downloading") : t("checkUpdates")}</Text></Pressable>
           {appUpdate.manifest?.releaseNotes.length ? <View style={styles.releaseNotes}>{appUpdate.manifest.releaseNotes.map((note) => <Text key={note} style={[styles.releaseNote, { color: palette.secondaryText }]}>• {note}</Text>)}</View> : null}
@@ -74,8 +74,8 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
 }
 
 function SettingsSection({ title, children }: { title: string; children: ReactNode }) { const palette = usePalette(); return <View><Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{title}</Text><View style={[styles.section, { backgroundColor: palette.background }]}>{children}</View></View>; }
-function OptionRow({ icon, label, value, children }: { icon: IconName; label: string; value: string; children: ReactNode }) { const palette = usePalette(); return <View style={[styles.option, { borderColor: palette.border }]}><View style={styles.optionHeader}><Ionicons name={icon} size={20} color={palette.accent} /><Text style={[styles.optionLabel, { color: palette.text }]}>{label}</Text><Text style={[styles.optionValue, { color: palette.secondaryText }]}>{value}</Text></View>{children}</View>; }
-function ToggleRow({ icon, label, value, onChange }: { icon: IconName; label: string; value: boolean; onChange: (value: boolean) => void }) { const palette = usePalette(); return <View style={[styles.toggle, { borderColor: palette.border }]}><Ionicons name={icon} size={20} color={palette.accent} /><Text style={[styles.toggleLabel, { color: palette.text }]}>{label}</Text><Switch value={value} onValueChange={onChange} trackColor={{ false: palette.border, true: palette.accent }} /></View>; }
+function OptionRow({ icon, label, value, children }: { icon: IconName; label: string; value: string; children: ReactNode }) { const palette = usePalette(); return <View style={[styles.option, { borderColor: palette.border }]}><View style={styles.optionHeader}><AppIcon name={icon} size={20} color={palette.accent} /><Text style={[styles.optionLabel, { color: palette.text }]}>{label}</Text><Text style={[styles.optionValue, { color: palette.secondaryText }]}>{value}</Text></View>{children}</View>; }
+function ToggleRow({ icon, label, value, onChange }: { icon: IconName; label: string; value: boolean; onChange: (value: boolean) => void }) { const palette = usePalette(); return <View style={[styles.toggle, { borderColor: palette.border }]}><AppIcon name={icon} size={20} color={palette.accent} /><Text style={[styles.toggleLabel, { color: palette.text }]}>{label}</Text><Switch value={value} onValueChange={onChange} trackColor={{ false: palette.border, true: palette.accent }} /></View>; }
 function ChoiceStrip<T extends string>({ values, selected, onSelect, compact = false, labelFor }: { values: readonly T[]; selected: T; onSelect: (value: T) => void; compact?: boolean; labelFor?: (value: T) => string }) { const palette = usePalette(); const { language } = useTranslation(); return <View style={styles.choices}>{values.map((value) => <Pressable key={value} onPress={() => onSelect(value)} style={[styles.choice, compact && styles.choiceCompact, { backgroundColor: selected === value ? palette.accentSoft : palette.surface, borderColor: selected === value ? palette.accent : palette.border }]}><Text numberOfLines={1} style={[styles.choiceText, { color: selected === value ? palette.accent : palette.secondaryText }]}>{labelFor?.(value) ?? (value === "ru" ? "Русский" : value === "en" ? "English" : optionLabel(language, value))}</Text></Pressable>)}</View>; }
 
 function microphoneLabel(mode: AppSettings["microphoneMode"], t: ReturnType<typeof useTranslation>["t"]): string {

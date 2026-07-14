@@ -1,6 +1,7 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
-import { useEffect, useRef } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppIcon, type AppIconName } from "./AppIcon";
+import { memo, useCallback, useEffect } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, { Easing, interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
@@ -10,44 +11,48 @@ import { useAppStore } from "../store/useAppStore";
 
 export type { MainTab } from "../navigation/mainTabs";
 
-const tabs: Array<{ id: MainTab; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = [
+const tabs: Array<{ id: MainTab; icon: AppIconName; activeIcon: AppIconName }> = [
   { id: "chats", icon: "chatbubbles-outline", activeIcon: "chatbubbles" },
   { id: "servers", icon: "albums-outline", activeIcon: "albums" },
   { id: "profile", icon: "person-circle-outline", activeIcon: "person-circle" },
   { id: "settings", icon: "settings-outline", activeIcon: "settings" },
 ];
 
-export function BottomNavigation({ selected, onSelect }: { selected: MainTab; onSelect: (tab: MainTab) => void }) {
+export const BottomNavigation = memo(function BottomNavigation({ selected, onSelect }: { selected: MainTab; onSelect: (tab: MainTab) => void }) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   return (
     <View style={[styles.nav, { minHeight: 62 + insets.bottom, paddingBottom: insets.bottom + 4, backgroundColor: palette.background, borderColor: palette.border }]}>
-      {tabs.map((tab) => <TabButton key={tab.id} tab={tab} active={selected === tab.id} label={t(tab.id)} onPress={() => onSelect(tab.id)} />)}
+      {tabs.map((tab) => <TabButton key={tab.id} tab={tab} active={selected === tab.id} label={t(tab.id)} onSelect={onSelect} />)}
     </View>
   );
-}
+});
 
-function TabButton({ tab, active, label, onPress }: { tab: (typeof tabs)[number]; active: boolean; label: string; onPress: () => void }) {
+const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { tab: (typeof tabs)[number]; active: boolean; label: string; onSelect: (tab: MainTab) => void }) {
   const palette = usePalette();
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
-  const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
+  const progress = useSharedValue(active ? 1 : 0);
   useEffect(() => {
-    if (reducedMotion) {
-      progress.setValue(active ? 1 : 0);
-      return;
-    }
-    Animated.spring(progress, { toValue: active ? 1 : 0, damping: 18, stiffness: 260, mass: 0.7, useNativeDriver: true }).start();
+    progress.value = withTiming(active ? 1 : 0, {
+      duration: reducedMotion ? 0 : 140,
+      easing: Easing.out(Easing.cubic),
+    });
   }, [active, progress, reducedMotion]);
+  const iconStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(progress.value, [0, 1], ["transparent", palette.accentSoft]),
+    transform: [{ translateY: 1 - progress.value }, { scale: 0.94 + progress.value * 0.06 }],
+  }), [palette.accentSoft]);
+  const onPress = useCallback(() => onSelect(tab.id), [onSelect, tab.id]);
   return (
     <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={label} onPress={onPress} style={styles.tab} android_ripple={{ color: palette.accentSoft, borderless: false }}>
-      <Animated.View style={[styles.iconWrap, { backgroundColor: active ? palette.accentSoft : "transparent", transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }, { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.93, 1] }) }] }]}>
-        <Ionicons name={active ? tab.activeIcon : tab.icon} size={23} color={active ? palette.accent : palette.secondaryText} />
+      <Animated.View style={[styles.iconWrap, iconStyle]}>
+        <AppIcon name={active ? tab.activeIcon : tab.icon} size={23} color={active ? palette.accent : palette.secondaryText} strokeWidth={active ? 2 : 1.8} />
       </Animated.View>
       <Text numberOfLines={1} style={[styles.label, { color: active ? palette.accent : palette.secondaryText }]}>{label}</Text>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   nav: { flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth },

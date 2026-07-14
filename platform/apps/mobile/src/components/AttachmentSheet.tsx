@@ -1,7 +1,7 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon, type AppIconName } from "./AppIcon";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -17,7 +17,7 @@ interface AttachmentSheetProps {
   onSelect: (input: UploadInput, messageKind?: "media" | "file" | "video-note") => Promise<void>;
 }
 
-export function AttachmentSheet({ visible, busy, progress = null, onClose, onSelect }: AttachmentSheetProps) {
+export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onSelect }: AttachmentSheetProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -63,11 +63,11 @@ export function AttachmentSheet({ visible, busy, progress = null, onClose, onSel
       </Pressable>
     </Modal>
   );
-}
+});
 
-function SheetAction({ icon, label, onPress, disabled, expanded = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; disabled: boolean; expanded?: boolean }) {
+function SheetAction({ icon, label, onPress, disabled, expanded = false }: { icon: AppIconName; label: string; onPress: () => void; disabled: boolean; expanded?: boolean }) {
   const palette = usePalette();
-  return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: pressed ? palette.surface : "transparent", opacity: disabled ? 0.45 : 1 }]}><View style={[styles.actionIcon, { backgroundColor: palette.accentSoft }]}><Ionicons name={icon} size={23} color={palette.accent} /></View><Text style={[styles.actionText, { color: palette.text }]}>{label}</Text><Ionicons name={expanded ? "chevron-up" : "chevron-forward"} size={19} color={palette.faintText} /></Pressable>;
+  return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: pressed ? palette.surface : "transparent", opacity: disabled ? 0.45 : 1 }]}><View style={[styles.actionIcon, { backgroundColor: palette.accentSoft }]}><AppIcon name={icon} size={23} color={palette.accent} /></View><Text style={[styles.actionText, { color: palette.text }]}>{label}</Text><AppIcon name={expanded ? "chevron-up" : "chevron-forward"} size={19} color={palette.faintText} /></Pressable>;
 }
 
 const progressSegments = Array.from({ length: 24 }, (_, index) => index);

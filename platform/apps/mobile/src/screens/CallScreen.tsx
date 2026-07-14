@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon, type AppIconName } from "../components/AppIcon";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
   AudioSession,
@@ -73,7 +73,7 @@ export function CallScreen({ navigation, route }: Props) {
   useEffect(() => () => endOwnedCall(), [endOwnedCall]);
 
   if (error) {
-    return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><Ionicons name="warning-outline" size={42} color={palette.danger} /><Text style={[styles.errorTitle, { color: palette.text }]}>Call unavailable</Text><Text style={[styles.errorText, { color: palette.secondaryText }]}>{error}</Text><Pressable onPress={navigation.goBack} style={[styles.retry, { backgroundColor: palette.accent }]}><Text style={styles.retryText}>Go back</Text></Pressable></SafeAreaView>;
+    return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><AppIcon name="warning-outline" size={42} color={palette.danger} /><Text style={[styles.errorTitle, { color: palette.text }]}>Call unavailable</Text><Text style={[styles.errorText, { color: palette.secondaryText }]}>{error}</Text><Pressable onPress={navigation.goBack} style={[styles.retry, { backgroundColor: palette.accent }]}><Text style={styles.retryText}>Go back</Text></Pressable></SafeAreaView>;
   }
   if (!credentials) return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><ActivityIndicator size="large" color={palette.accent} /><Text style={[styles.connecting, { color: palette.secondaryText }]}>Joining {route.params.title}…</Text></SafeAreaView>;
 
@@ -130,7 +130,7 @@ function CallRoom({ title, onLeave }: { title: string; onLeave: () => void }) {
     <SafeAreaView style={[styles.call, { backgroundColor: palette.background }]}> 
       <View style={styles.callHeader}>
         <View><Text style={[styles.callTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.callState, { color: connected ? palette.success : palette.warning }]}>{connected ? `${participants.length} connected` : connection}</Text></View>
-        <Pressable onPress={leave} style={styles.headerClose}><Ionicons name="chevron-down" size={28} color={palette.text} /></Pressable>
+        <Pressable onPress={leave} style={styles.headerClose}><AppIcon name="chevron-down" size={28} color={palette.text} /></Pressable>
       </View>
 
       {screenTrack ? <View style={[styles.screenStage, { borderColor: palette.border }]}><VideoTrack trackRef={screenTrack} style={styles.screenVideo} objectFit="contain" /><View style={styles.screenLabel}><Text style={styles.screenLabelText}>{screenTrack.participant.name || screenTrack.participant.identity} · screen</Text></View></View> : null}
@@ -140,7 +140,7 @@ function CallRoom({ title, onLeave }: { title: string; onLeave: () => void }) {
         <View style={styles.voiceGrid}>
           {participants.map((participant) => {
             const meta = participantMetadata(participant.metadata);
-            return <View key={participant.identity} style={[styles.person, { backgroundColor: palette.surface, borderColor: participant.isSpeaking ? palette.success : palette.border }]}><Avatar uri={meta.avatarUrl ?? null} label={participant.name || participant.identity} color={meta.avatarColor} size={60} /><Text numberOfLines={1} style={[styles.personName, { color: palette.text }]}>{participant.isLocal ? "You" : participant.name || participant.identity}</Text><Ionicons name={participant.isMicrophoneEnabled ? "mic" : "mic-off"} size={15} color={participant.isMicrophoneEnabled ? palette.secondaryText : palette.danger} /></View>;
+            return <View key={participant.identity} style={[styles.person, { backgroundColor: palette.surface, borderColor: participant.isSpeaking ? palette.success : palette.border }]}><Avatar uri={meta.avatarUrl ?? null} label={participant.name || participant.identity} color={meta.avatarColor} size={60} /><Text numberOfLines={1} style={[styles.personName, { color: palette.text }]}>{participant.isLocal ? "You" : participant.name || participant.identity}</Text><AppIcon name={participant.isMicrophoneEnabled ? "mic" : "mic-off"} size={15} color={participant.isMicrophoneEnabled ? palette.secondaryText : palette.danger} /></View>;
           })}
         </View>
       </ScrollView>
@@ -178,10 +178,10 @@ async function requestAndroidPermission(permission: typeof PermissionsAndroid.PE
   return (await PermissionsAndroid.request(permission)) === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-function CallButton({ icon, label, active = false, danger = false, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; active?: boolean; danger?: boolean; onPress: () => void }) {
+function CallButton({ icon, label, active = false, danger = false, onPress }: { icon: AppIconName; label: string; active?: boolean; danger?: boolean; onPress: () => void }) {
   const palette = usePalette();
   const background = danger ? palette.danger : active ? palette.accent : palette.elevated;
-  return <Pressable onPress={onPress} accessibilityLabel={label} style={styles.control}><View style={[styles.controlCircle, { backgroundColor: background }]}><Ionicons name={icon} size={22} color={danger || active ? "white" : palette.text} /></View><Text style={[styles.controlLabel, { color: palette.secondaryText }]}>{label}</Text></Pressable>;
+  return <Pressable onPress={onPress} accessibilityLabel={label} style={styles.control}><View style={[styles.controlCircle, { backgroundColor: background }]}><AppIcon name={icon} size={22} color={danger || active ? "white" : palette.text} /></View><Text style={[styles.controlLabel, { color: palette.secondaryText }]}>{label}</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({

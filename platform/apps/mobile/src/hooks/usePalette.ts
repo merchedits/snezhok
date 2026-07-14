@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useColorScheme } from "react-native";
 
 import type { AppSettings } from "@snezhok/contracts";
@@ -15,7 +16,10 @@ const accents: Record<AppSettings["accent"], string> = {
 
 export function usePalette() {
   const system = useColorScheme();
-  const settings = useAppStore((state) => state.settings);
-  const scheme = settings.theme === "system" ? system : settings.theme;
-  return createPalette(scheme, accents[settings.accent]);
+  // Palette consumers are present in every list row. Selecting the complete
+  // settings object made all of them rerender for unrelated audio/data changes.
+  const theme = useAppStore((state) => state.settings.theme);
+  const accent = useAppStore((state) => state.settings.accent);
+  const scheme = theme === "system" ? system : theme;
+  return useMemo(() => createPalette(scheme, accents[accent]), [accent, scheme]);
 }

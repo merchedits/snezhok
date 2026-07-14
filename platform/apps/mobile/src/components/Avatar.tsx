@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Image, StyleSheet, Text, View } from "react-native";
 
 import { usePalette } from "../hooks/usePalette";
@@ -11,7 +12,7 @@ interface AvatarProps {
   online?: boolean;
 }
 
-export function Avatar({ uri, label, color = "#637184", size = 48, online = false }: AvatarProps) {
+export const Avatar = memo(function Avatar({ uri, label, color = "#637184", size = 48, online = false }: AvatarProps) {
   const palette = usePalette();
   const source = useAuthorizedMedia(uri ?? "");
   const initial = label.trim().charAt(0).toUpperCase() || "?";
@@ -40,7 +41,7 @@ export function Avatar({ uri, label, color = "#637184", size = 48, online = fals
       ) : null}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   image: { resizeMode: "cover" },

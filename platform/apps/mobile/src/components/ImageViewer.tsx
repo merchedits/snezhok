@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon } from "./AppIcon";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -163,10 +163,10 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
             </Animated.View>
           </GestureDetector>
           <Pressable accessibilityRole="button" accessibilityLabel={t("closePhoto")} onPress={onClose} style={[styles.control, styles.close, { top: insets.top + 10 }]}>
-            <Ionicons name="close" size={26} color="white" />
+            <AppIcon name="close" size={26} color="white" />
           </Pressable>
           <Pressable disabled={saving} accessibilityRole="button" accessibilityLabel={t("savePhoto")} onPress={() => void savePhoto()} style={[styles.control, styles.download, { top: insets.top + 10 }]}>
-            {saving ? <ActivityIndicator color="white" /> : <Ionicons name="download-outline" size={24} color="white" />}
+            {saving ? <ActivityIndicator color="white" /> : <AppIcon name="download-outline" size={24} color="white" />}
           </Pressable>
         </View>
       </GestureHandlerRootView>

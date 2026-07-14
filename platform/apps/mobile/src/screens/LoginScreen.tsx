@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { AppIcon, type AppIconName } from "../components/AppIcon";
 import { type ComponentProps, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -63,9 +63,9 @@ export function LoginScreen() {
             <AuthField icon="person-outline" autoCapitalize="none" autoCorrect={false} autoComplete="username" placeholder={t("username")} value={username} onChangeText={edit(setUsername)} invalid={Boolean(username && !usernameIsValid)} />
             {registering || (username && !usernameIsValid) ? <Text style={[styles.fieldHint, { color: username && !usernameIsValid ? palette.danger : palette.secondaryText }]}>{t("usernameRules")}</Text> : null}
             <View style={[styles.field, { backgroundColor: palette.surface, borderColor: password && !passwordIsValid ? palette.danger : palette.border }]}>
-              <Ionicons name="lock-closed-outline" size={21} color={palette.faintText} />
+              <AppIcon name="lock-closed-outline" size={21} color={palette.faintText} />
               <TextInput autoCapitalize="none" autoComplete={registering ? "new-password" : "current-password"} placeholder={t("password")} placeholderTextColor={palette.faintText} secureTextEntry={!showPassword} value={password} onChangeText={edit(setPassword)} onSubmitEditing={() => void submit()} style={[styles.input, { color: palette.text }]} />
-              <Pressable accessibilityLabel={showPassword ? "Hide password" : "Show password"} onPress={() => setShowPassword((value) => !value)} style={styles.eye}><Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={22} color={palette.faintText} /></Pressable>
+              <Pressable accessibilityLabel={showPassword ? "Hide password" : "Show password"} onPress={() => setShowPassword((value) => !value)} style={styles.eye}><AppIcon name={showPassword ? "eye-off-outline" : "eye-outline"} size={22} color={palette.faintText} /></Pressable>
             </View>
             {password && !passwordIsValid ? <Text style={[styles.fieldHint, { color: palette.danger }]}>{t("passwordRules")}</Text> : null}
             {registering ? <AuthField icon="shield-checkmark-outline" autoCapitalize="none" placeholder={t("confirmPassword")} secureTextEntry={!showPassword} value={confirmPassword} onChangeText={edit(setConfirmPassword)} onSubmitEditing={() => void submit()} invalid={Boolean(confirmPassword && confirmPassword !== password)} /> : null}
@@ -82,11 +82,11 @@ export function LoginScreen() {
   );
 }
 
-type FieldProps = ComponentProps<typeof TextInput> & { icon: keyof typeof Ionicons.glyphMap; invalid?: boolean };
+type FieldProps = ComponentProps<typeof TextInput> & { icon: AppIconName; invalid?: boolean };
 
 function AuthField({ icon, invalid, style: _style, ...props }: FieldProps) {
   const palette = usePalette();
-  return <View style={[styles.field, { backgroundColor: palette.surface, borderColor: invalid ? palette.danger : palette.border }]}><Ionicons name={icon} size={21} color={palette.faintText} /><TextInput {...props} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text }]} /></View>;
+  return <View style={[styles.field, { backgroundColor: palette.surface, borderColor: invalid ? palette.danger : palette.border }]}><AppIcon name={icon} size={21} color={palette.faintText} /><TextInput {...props} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text }]} /></View>;
 }
 
 const styles = StyleSheet.create({
