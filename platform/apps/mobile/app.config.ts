@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.5.1",
+  version: "3.5.2",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -59,7 +59,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 9,
+    versionCode: 10,
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
       foregroundImage: "./assets/snezhok-icon.png",
