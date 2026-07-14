@@ -29,6 +29,7 @@ export async function conversationSummary(userId: string, conversationId: string
     `SELECT c.id,c.kind,c.title,c.saved_owner_id=$1 saved,(extract(epoch from c.updated_at)*1000)::bigint::float8 updated_at_ms,
       (cm.muted_until IS NOT NULL AND cm.muted_until>now()) muted,cm.pinned_at IS NOT NULL pinned,cm.archived_at IS NOT NULL archived,
       (SELECT count(*)::int FROM messages m WHERE m.stream_kind='conversation' AND m.stream_id=c.id AND m.deleted_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id)
        AND m.sender_id<>$1
        AND m.sequence > coalesce((SELECT last_read_sequence FROM read_states WHERE user_id=$1 AND stream_kind='conversation' AND stream_id=c.id),0)) unread_count
      FROM conversations c JOIN conversation_members cm ON cm.conversation_id=c.id WHERE c.id=$2 AND cm.user_id=$1`, [userId, conversationId])).rows[0];
@@ -39,7 +40,8 @@ export async function conversationSummary(userId: string, conversationId: string
     `SELECT m.id,m.sender_id,u.display_name sender_name,m.text,m.kind,(extract(epoch from m.created_at)*1000)::bigint::float8 created_at_ms
      FROM messages m JOIN users u ON u.id=m.sender_id
      WHERE m.stream_kind='conversation' AND m.stream_id=$1 AND m.deleted_at IS NULL
-     ORDER BY m.sequence DESC LIMIT 1`, [conversationId]);
+       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$2 AND hm.message_id=m.id)
+     ORDER BY m.sequence DESC LIMIT 1`, [conversationId, userId]);
   const other = participants.find((user) => user.id !== userId);
   return { id: base.id, kind: base.kind, title: base.saved ? "Saved Messages" : base.kind === "direct" ? (other?.displayName ?? "Direct message") : base.title,
     avatarUrl: base.kind === "direct" ? (other?.avatarUrl ?? null) : null, participants,
@@ -63,6 +65,7 @@ async function serverSummaries(userId: string, client: DbClient) {
     `SELECT s.id,s.name,s.owner_id,sm.position,0::int mention_count,EXISTS(
        SELECT 1 FROM channels ch JOIN messages m ON m.stream_kind='channel' AND m.stream_id=ch.id
        WHERE ch.server_id=s.id AND m.sequence>coalesce((SELECT last_read_sequence FROM read_states WHERE user_id=$1 AND stream_kind='channel' AND stream_id=ch.id),0)
+       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id)
      ) unread FROM servers s JOIN server_members sm ON sm.server_id=s.id WHERE sm.user_id=$1 ORDER BY sm.position,s.name`, [userId]);
   const servers: ServerSummary[] = serverRows.rows.map((row) => ({ id: row.id, name: row.name, iconUrl: null, ownerId: row.owner_id, unread: row.unread, mentionCount: row.mention_count, position: row.position }));
   const ids = servers.map((server) => server.id);
@@ -72,6 +75,7 @@ async function serverSummaries(userId: string, client: DbClient) {
   const channelRows = await client.query<{ id: string; server_id: string; category_id: string | null; kind: "text" | "voice"; name: string; topic: string; position: number; unread_count: number }>(
     `SELECT ch.id,ch.server_id,ch.category_id,ch.kind,ch.name,ch.topic,ch.position,
       (SELECT count(*)::int FROM messages m WHERE m.stream_kind='channel' AND m.stream_id=ch.id AND m.deleted_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id)
        AND m.sender_id<>$1
        AND m.sequence>coalesce((SELECT last_read_sequence FROM read_states WHERE user_id=$1 AND stream_kind='channel' AND stream_id=ch.id),0)) unread_count
      FROM channels ch WHERE ch.server_id=ANY($2::uuid[]) ORDER BY ch.server_id,ch.position`, [userId, ids]);

@@ -42,9 +42,9 @@ export function AttachmentSheet({ visible, busy, progress = null, onClose, onSel
   const visibleProgress = Math.max(0, Math.min(100, progress ?? 0));
 
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible={visible} animationType="slide" navigationBarTranslucent={false} onRequestClose={onClose}>
       <Pressable onPress={busy ? undefined : onClose} style={[styles.overlay, { backgroundColor: palette.overlay }]}>
-        <Pressable style={[styles.sheet, { backgroundColor: palette.elevated, paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <Pressable style={[styles.sheet, { backgroundColor: palette.elevated, paddingBottom: Math.max(insets.bottom + 4, 16) }]}>
           <View style={[styles.handle, { backgroundColor: palette.faintText }]} />
           <Text style={[styles.title, { color: palette.text }]}>{t("sendAttachment")}</Text>
           <View style={styles.actions}>

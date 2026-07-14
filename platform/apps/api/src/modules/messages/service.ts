@@ -128,7 +128,8 @@ export async function listMessages(userId: string, streamId: string, before: num
   const stream = await resolveStreamAccess(userId, streamId);
   const result = await pool.query<MessageRow>(`${messageSelectSql}
     WHERE m.stream_kind=$1 AND m.stream_id=$2 AND ($3::bigint IS NULL OR m.sequence < $3)
-    ORDER BY m.sequence DESC LIMIT $4`, [stream.streamKind, streamId, before, limit]);
+      AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$5 AND hm.message_id=m.id)
+    ORDER BY m.sequence DESC LIMIT $4`, [stream.streamKind, streamId, before, limit, userId]);
   const items = result.rows.map((row) => mapMessage(row, userId)).reverse();
   return { items, nextCursor: items.length === limit ? String(items[0]!.sequence) : null };
 }
@@ -137,7 +138,8 @@ export async function listPinnedMessages(userId: string, streamId: string) {
   const stream = await resolveStreamAccess(userId, streamId);
   const result = await pool.query<MessageRow>(`${messageSelectSql}
     WHERE m.stream_kind=$1 AND m.stream_id=$2 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
-    ORDER BY m.pinned_at DESC LIMIT 100`, [stream.streamKind, streamId]);
+      AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$3 AND hm.message_id=m.id)
+    ORDER BY m.pinned_at DESC LIMIT 100`, [stream.streamKind, streamId, userId]);
   return result.rows.map((row) => mapMessage(row, userId));
 }
 
@@ -151,9 +153,28 @@ export async function editMessage(userId: string, messageId: string, text: strin
 
 export async function deleteMessage(userId: string, messageId: string) {
   return mutateMessage(userId, messageId, async (client, row, access) => {
-    if (row.sender_id !== userId && !canManageMessages(access.memberRole)) throw forbidden("You cannot delete this message");
+    // Telegram-style private conversations allow either participant to remove
+    // a message for both sides. Server channels keep their moderation boundary.
+    if (access.streamKind === "channel" && row.sender_id !== userId && !canManageMessages(access.memberRole)) throw forbidden("You cannot delete this message");
     await client.query("UPDATE messages SET text='',deleted_at=now(),edited_at=NULL WHERE id=$1 AND deleted_at IS NULL", [messageId]);
     return "message:deleted";
+  });
+}
+
+export async function hideMessage(userId: string, messageId: string) {
+  return transaction(async (client) => {
+    const row = (await client.query<{ stream_id: string; stream_kind: "conversation" | "channel" }>(
+      "SELECT stream_id,stream_kind FROM messages WHERE id=$1",
+      [messageId],
+    )).rows[0];
+    if (!row) throw notFound("Message not found");
+    const access = await resolveStreamAccess(userId, row.stream_id, client);
+    if (access.streamKind !== row.stream_kind) throw forbidden();
+    await client.query(
+      "INSERT INTO hidden_messages(user_id,message_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+      [userId, messageId],
+    );
+    return { id: messageId, streamId: row.stream_id };
   });
 }
 
@@ -209,7 +230,13 @@ async function mutateMessage(
     if (access.streamKind !== row.stream_kind) throw forbidden();
     const eventName = await mutation(client, row, access);
     const message = await getMessageById(client, messageId, userId);
-    const recipients = await streamRecipients(access, client);
+    const streamRecipientIds = await streamRecipients(access, client);
+    const hidden = await client.query<{ user_id: string }>(
+      "SELECT user_id FROM hidden_messages WHERE message_id=$1 AND user_id=ANY($2::uuid[])",
+      [messageId, streamRecipientIds],
+    );
+    const hiddenIds = new Set(hidden.rows.map((item) => item.user_id));
+    const recipients = streamRecipientIds.filter((recipientId) => !hiddenIds.has(recipientId));
     const payload = eventName === "message:deleted"
       ? { id: message.id, streamId: message.streamId, deletedAt: message.deletedAt }
       : (recipientId: string) => personalizeMessage(message, recipientId);

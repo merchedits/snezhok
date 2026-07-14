@@ -18,5 +18,6 @@ export const defaultSettings: AppSettings = {
   noiseSuppression: "standard",
   echoCancellation: true,
   autoGainControl: true,
+  microphoneMode: "phone",
   pushToTalk: false,
 };

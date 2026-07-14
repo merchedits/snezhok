@@ -174,6 +174,7 @@ export interface AppSettings {
   noiseSuppression: "off" | "standard" | "high";
   echoCancellation: boolean;
   autoGainControl: boolean;
+  microphoneMode: "system" | "phone" | "speakerphone";
   pushToTalk: boolean;
 }
 

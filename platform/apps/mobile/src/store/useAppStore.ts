@@ -49,12 +49,13 @@ interface AppState {
   setOnline: (online: boolean) => void;
   refreshBootstrap: () => Promise<void>;
   loadMessages: (streamId: string, before?: number) => Promise<void>;
+  markStreamRead: (streamId: string, sequence: number) => Promise<void>;
   loadPinnedMessages: (streamId: string) => Promise<void>;
   uploadAttachment: (input: UploadInput) => Promise<Attachment>;
   sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">) => Promise<void>;
   forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
   toggleReaction: (message: Message, emoji: string) => Promise<void>;
-  deleteMessage: (message: Message) => Promise<void>;
+  deleteMessage: (message: Message, scope: "me" | "everyone") => Promise<void>;
   setMessagePinned: (message: Message, pinned: boolean) => Promise<void>;
   retryOutbox: () => Promise<void>;
   applyMessage: (message: Message) => void;
@@ -84,6 +85,7 @@ export const defaultSettings: AppSettings = {
   noiseSuppression: "standard",
   echoCancellation: true,
   autoGainControl: true,
+  microphoneMode: "phone",
   pushToTalk: false,
 };
 
@@ -254,6 +256,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     await persistState();
   },
 
+  markStreamRead: async (streamId, sequence) => {
+    if (sequence < 0) return;
+    // Clear the badge immediately. The server write remains idempotent and is
+    // retried whenever the focused chat receives another message.
+    set((state) => ({
+      conversations: state.conversations.map((conversation) => conversation.id === streamId
+        ? { ...conversation, unreadCount: 0, mentionCount: 0 }
+        : conversation),
+      channels: state.channels.map((channel) => channel.id === streamId
+        ? { ...channel, unreadCount: 0, mentionCount: 0 }
+        : channel),
+    }));
+    await persistState();
+    if (!get().online) return;
+    await api.markRead(streamId, sequence);
+  },
+
   loadPinnedMessages: async (streamId) => {
     if (!get().online) return;
     const pinned = await api.pinnedMessages(streamId);
@@ -357,8 +376,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     await persistState();
   },
 
-  deleteMessage: async (message) => {
+  deleteMessage: async (message, scope) => {
     if (!get().online) throw new Error("Deleting messages requires a connection");
+    if (scope === "me") {
+      await api.hideMessage(message.id);
+      set((state) => ({
+        messages: {
+          ...state.messages,
+          [message.streamId]: (state.messages[message.streamId] ?? []).filter((item) => item.id !== message.id),
+        },
+      }));
+      await persistState();
+      await get().refreshBootstrap();
+      return;
+    }
     const saved = await api.deleteMessage(message.id);
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, saved),

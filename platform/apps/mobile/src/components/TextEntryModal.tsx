@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
@@ -15,6 +16,7 @@ interface TextEntryModalProps {
 
 export function TextEntryModal({ visible, title, placeholder, submitLabel, onClose, onSubmit }: TextEntryModalProps) {
   const palette = usePalette();
+  const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,8 +29,8 @@ export function TextEntryModal({ visible, title, placeholder, submitLabel, onClo
     try { await onSubmit(value.trim()); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : t("requestFailed")); } finally { setBusy(false); }
   };
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
-      <KeyboardAvoidingView style={[styles.overlay, { backgroundColor: palette.overlay }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <Modal visible={visible} transparent animationType="fade" navigationBarTranslucent={false} onRequestClose={busy ? undefined : onClose}>
+      <KeyboardAvoidingView style={[styles.overlay, { backgroundColor: palette.overlay, paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 4, 24) }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={[styles.card, { backgroundColor: palette.elevated }]}> 
           <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
           <TextInput autoFocus autoCapitalize="none" value={value} onChangeText={setValue} placeholder={placeholder} placeholderTextColor={palette.faintText} onSubmitEditing={() => void submit()} style={[styles.input, { color: palette.text, backgroundColor: palette.surface, borderColor: palette.border }]} />
@@ -44,7 +46,7 @@ export function TextEntryModal({ visible, title, placeholder, submitLabel, onClo
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "center", padding: 24 },
+  overlay: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
   card: { borderRadius: 16, padding: 18 },
   title: { fontSize: 19, fontWeight: "800" },
   input: { height: 48, borderWidth: 1, borderRadius: 10, marginTop: 16, paddingHorizontal: 13, fontSize: 16 },

@@ -4,6 +4,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ProfilePhoto, UserProfile } from "@snezhok/contracts";
 
@@ -24,6 +25,7 @@ export function PublicProfileScreen({ route, navigation }: NativeStackScreenProp
 
 export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScreenProps) {
   const palette = usePalette();
+  const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const me = useAppStore((state) => state.me);
@@ -136,7 +138,7 @@ export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScree
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
       <ScreenHeader title={t("profile")} {...(!embedded && onBack ? { left: { icon: "chevron-back" as const, label: t("back"), onPress: onBack } } : {})} right={own ? [{ icon: editing ? "checkmark" : "create-outline", label: editing ? t("save") : t("editProfile"), onPress: editing ? () => void saveProfile() : () => setEditing(true) }] : []} />
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.content, !embedded && { paddingBottom: Math.max(insets.bottom + 16, 34) }]} keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
           <Avatar uri={heroUri} label={user.displayName} color={user.avatarColor} online={user.presence === "online"} size={112} />
           {own ? <Pressable disabled={busy} onPress={() => void addPhoto()} style={[styles.camera, { backgroundColor: palette.accent, borderColor: palette.background }]}><Ionicons name="camera" size={19} color="white" /></Pressable> : null}

@@ -123,6 +123,13 @@ class ApiClient {
     return this.request<MessagesResponse>(`/streams/${encodeURIComponent(streamId)}/messages?${query}`);
   }
 
+  markRead(streamId: string, sequence: number): Promise<{ streamId: string; userId: string; sequence: number }> {
+    return this.request(`/streams/${encodeURIComponent(streamId)}/read`, {
+      method: "POST",
+      body: { sequence },
+    });
+  }
+
   pinnedMessages(streamId: string): Promise<Message[]> {
     return this.request<{ messages: Message[] }>(`/streams/${encodeURIComponent(streamId)}/pins`).then((result) => result.messages);
   }
@@ -149,9 +156,15 @@ class ApiClient {
   }
 
   deleteMessage(messageId: string): Promise<Message> {
-    return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}`, {
+    return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}?scope=everyone`, {
       method: "DELETE",
     }).then((result) => result.message);
+  }
+
+  hideMessage(messageId: string): Promise<{ id: string; streamId: string }> {
+    return this.request<{ hidden: { id: string; streamId: string } }>(`/messages/${encodeURIComponent(messageId)}?scope=me`, {
+      method: "DELETE",
+    }).then((result) => result.hidden);
   }
 
   setMessagePinned(messageId: string, pinned: boolean): Promise<Message> {

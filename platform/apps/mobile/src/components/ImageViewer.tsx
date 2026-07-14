@@ -2,8 +2,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, View } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, View } from "react-native";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -38,8 +38,18 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
   }, [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, visible]);
 
   const pinch = useMemo(() => Gesture.Pinch()
+    .onBegin(() => {
+      savedScale.value = scale.value;
+      savedTranslateX.value = translateX.value;
+      savedTranslateY.value = translateY.value;
+    })
     .onUpdate((event) => {
-      scale.value = Math.max(1, Math.min(4, savedScale.value * event.scale));
+      const nextScale = Math.max(1, Math.min(6, savedScale.value * event.scale));
+      const maxX = Math.max(0, (viewportWidth.value * (nextScale - 1)) / (2 * nextScale));
+      const maxY = Math.max(0, (viewportHeight.value * (nextScale - 1)) / (2 * nextScale));
+      scale.value = nextScale;
+      translateX.value = Math.max(-maxX, Math.min(maxX, savedTranslateX.value));
+      translateY.value = Math.max(-maxY, Math.min(maxY, savedTranslateY.value));
     })
     .onEnd(() => {
       savedScale.value = scale.value;
@@ -48,11 +58,16 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
         translateY.value = withTiming(0);
         savedTranslateX.value = 0;
         savedTranslateY.value = 0;
+      } else {
+        savedTranslateX.value = translateX.value;
+        savedTranslateY.value = translateY.value;
       }
-    }), [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY]);
+    }), [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth]);
 
   const pan = useMemo(() => Gesture.Pan()
-    .maxPointers(2)
+    .minPointers(1)
+    .maxPointers(1)
+    .minDistance(2)
     .onBegin(() => {
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
@@ -69,7 +84,7 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
       savedTranslateY.value = translateY.value;
     }), [savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth]);
 
-  const doubleTap = useMemo(() => Gesture.Tap().numberOfTaps(2).maxDuration(250).onEnd(() => {
+  const doubleTap = useMemo(() => Gesture.Tap().numberOfTaps(2).maxDuration(280).onEnd((event) => {
     if (scale.value > 1) {
       scale.value = withTiming(1);
       savedScale.value = 1;
@@ -78,10 +93,17 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
       savedTranslateX.value = 0;
       savedTranslateY.value = 0;
     } else {
-      scale.value = withTiming(2.5);
-      savedScale.value = 2.5;
+      const targetScale = 2.5;
+      const targetX = ((viewportWidth.value / 2) - event.x) * ((targetScale - 1) / targetScale);
+      const targetY = ((viewportHeight.value / 2) - event.y) * ((targetScale - 1) / targetScale);
+      scale.value = withTiming(targetScale);
+      savedScale.value = targetScale;
+      translateX.value = withTiming(targetX);
+      translateY.value = withTiming(targetY);
+      savedTranslateX.value = targetX;
+      savedTranslateY.value = targetY;
     }
-  }), [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY]);
+  }), [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth]);
 
   const gesture = useMemo(() => Gesture.Race(doubleTap, Gesture.Simultaneous(pinch, pan)), [doubleTap, pan, pinch]);
   const imageStyle = useAnimatedStyle(() => ({
@@ -122,25 +144,32 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
   }, [filename, mimeType, saving, source.headers, source.uri, t]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
-      <View
-        accessibilityViewIsModal
-        style={styles.viewer}
-        onLayout={(event) => {
-          viewportWidth.value = event.nativeEvent.layout.width;
-          viewportHeight.value = event.nativeEvent.layout.height;
-        }}
-      >
-        <GestureDetector gesture={gesture}>
-          <Animated.Image accessibilityLabel={filename} source={source} style={[styles.image, imageStyle]} resizeMode="contain" />
-        </GestureDetector>
-        <Pressable accessibilityRole="button" accessibilityLabel={t("closePhoto")} onPress={onClose} style={[styles.control, styles.close, { top: insets.top + 10 }]}>
-          <Ionicons name="close" size={26} color="white" />
-        </Pressable>
-        <Pressable disabled={saving} accessibilityRole="button" accessibilityLabel={t("savePhoto")} onPress={() => void savePhoto()} style={[styles.control, styles.download, { top: insets.top + 10 }]}>
-          {saving ? <ActivityIndicator color="white" /> : <Ionicons name="download-outline" size={24} color="white" />}
-        </Pressable>
-      </View>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent={false} onRequestClose={onClose}>
+      {/* Android presents Modal content in a separate native root. A nested handler root is
+          required for pinch/pan gestures to be recognized consistently on older devices. */}
+      <GestureHandlerRootView style={styles.viewer}>
+        <View
+          accessibilityViewIsModal
+          collapsable={false}
+          style={styles.viewport}
+          onLayout={(event) => {
+            viewportWidth.value = event.nativeEvent.layout.width;
+            viewportHeight.value = event.nativeEvent.layout.height;
+          }}
+        >
+          <GestureDetector gesture={gesture}>
+            <Animated.View collapsable={false} style={[styles.imageStage, imageStyle]}>
+              <Image accessibilityLabel={filename} source={source} style={styles.image} resizeMode="contain" />
+            </Animated.View>
+          </GestureDetector>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("closePhoto")} onPress={onClose} style={[styles.control, styles.close, { top: insets.top + 10 }]}>
+            <Ionicons name="close" size={26} color="white" />
+          </Pressable>
+          <Pressable disabled={saving} accessibilityRole="button" accessibilityLabel={t("savePhoto")} onPress={() => void savePhoto()} style={[styles.control, styles.download, { top: insets.top + 10 }]}>
+            {saving ? <ActivityIndicator color="white" /> : <Ionicons name="download-outline" size={24} color="white" />}
+          </Pressable>
+        </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
@@ -156,7 +185,9 @@ export function imageExtension(filename: string, mimeType: string): "jpg" | "png
 }
 
 const styles = StyleSheet.create({
-  viewer: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  viewer: { flex: 1, backgroundColor: "#000" },
+  viewport: { flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  imageStage: { width: "100%", height: "100%" },
   image: { width: "100%", height: "100%" },
   control: { position: "absolute", width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18, 22, 29, 0.76)" },
   close: { left: 12 },

@@ -97,6 +97,19 @@ export async function notifyIncomingMessage(message: Message): Promise<void> {
   });
 }
 
+/** Remove every presented notification for a stream once its chat is opened. */
+export async function dismissMessageNotifications(streamId: string): Promise<void> {
+  if (Platform.OS !== "android") return;
+  const presented = await Notifications.getPresentedNotificationsAsync();
+  const matching = presented.filter((notification) => {
+    const data = notification.request.content.data;
+    return data?.notificationType === "message" && data.streamId === streamId;
+  });
+  await Promise.all(matching.map((notification) =>
+    Notifications.dismissNotificationAsync(notification.request.identifier).catch(() => undefined),
+  ));
+}
+
 export async function handleCallUpdate(payload: CallUpdatePayload): Promise<void> {
   if (payload.state === "ended") {
     const notificationId = callNotifications.get(payload.roomId);

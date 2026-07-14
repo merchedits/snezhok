@@ -5,7 +5,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Component, type ComponentProps, type ErrorInfo, type ReactNode, useEffect } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
 import { OfflineBar } from "./src/components/OfflineBar";
@@ -27,7 +27,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <AndroidUpdateProvider>
           <AppRoot />
         </AndroidUpdateProvider>
@@ -104,11 +104,11 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => v
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <View style={styles.crash}>
+      <SafeAreaView style={styles.crash}>
         <Text style={styles.crashTitle}>Не удалось открыть чат</Text>
         <Text style={styles.crashText}>Ошибка сохранена в журнале. Вернитесь назад и попробуйте снова.</Text>
         <Pressable onPress={this.props.onBack} style={styles.crashButton}><Text style={styles.crashButtonText}>Назад</Text></Pressable>
-      </View>
+      </SafeAreaView>
     );
   }
 }

@@ -10,7 +10,8 @@ const settingsSchema = z.object({
   fontScale: z.number().min(.8).max(1.5), density: z.enum(["compact","comfortable"]), bubbleRadius: z.number().int().min(0).max(24),
   reducedMotion: z.boolean(), highContrast: z.boolean(), language: z.enum(["en","ru"]), readReceipts: z.boolean(), showLastSeen: z.boolean(),
   stripMediaLocation: z.boolean(), defaultUploadQuality: z.enum(["data-saver","auto","high","original"]), autoDownloadWifi: z.boolean(),
-  autoDownloadMobile: z.boolean(), noiseSuppression: z.enum(["off","standard","high"]), echoCancellation: z.boolean(), autoGainControl: z.boolean(), pushToTalk: z.boolean(),
+  autoDownloadMobile: z.boolean(), noiseSuppression: z.enum(["off","standard","high"]), echoCancellation: z.boolean(), autoGainControl: z.boolean(),
+  microphoneMode: z.enum(["system","phone","speakerphone"]), pushToTalk: z.boolean(),
 }).partial();
 
 export async function settingsRoutes(app: FastifyInstance) {

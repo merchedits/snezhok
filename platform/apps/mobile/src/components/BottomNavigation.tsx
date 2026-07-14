@@ -22,7 +22,7 @@ export function BottomNavigation({ selected, onSelect }: { selected: MainTab; on
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   return (
-    <View style={[styles.nav, { minHeight: 58 + insets.bottom, paddingBottom: insets.bottom, backgroundColor: palette.background, borderColor: palette.border }]}> 
+    <View style={[styles.nav, { minHeight: 62 + insets.bottom, paddingBottom: insets.bottom + 4, backgroundColor: palette.background, borderColor: palette.border }]}>
       {tabs.map((tab) => <TabButton key={tab.id} tab={tab} active={selected === tab.id} label={t(tab.id)} onPress={() => onSelect(tab.id)} />)}
     </View>
   );

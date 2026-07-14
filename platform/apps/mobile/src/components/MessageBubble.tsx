@@ -1,7 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { Attachment, Message } from "@snezhok/contracts";
@@ -13,12 +13,37 @@ import { voiceWaveformBars } from "../lib/voiceWaveform";
 import { Avatar } from "./Avatar";
 import { ImageViewer } from "./ImageViewer";
 
-export function MessageBubble({ message, mine, showSender, variant, onLongPress, onReact }: { message: Message; mine: boolean; showSender: boolean; variant: "bubble" | "channel"; onLongPress?: () => void; onReact?: (emoji: string) => void }) {
+export function MessageBubble({ message, mine, showSender, variant, selected = false, selectionMode = false, onPress, onLongPress, onReact }: { message: Message; mine: boolean; showSender: boolean; variant: "bubble" | "channel"; selected?: boolean; selectionMode?: boolean; onPress?: () => void; onLongPress?: () => void; onReact?: (emoji: string) => void }) {
   const palette = usePalette();
+  const lastTapAt = useRef(0);
+  const longPressTriggered = useRef(false);
+  const handlePress = () => {
+    if (longPressTriggered.current) {
+      longPressTriggered.current = false;
+      return;
+    }
+    if (selectionMode) {
+      lastTapAt.current = 0;
+      onPress?.();
+      return;
+    }
+    const now = Date.now();
+    if (now - lastTapAt.current <= 280) {
+      lastTapAt.current = 0;
+      onReact?.("❤️");
+      return;
+    }
+    lastTapAt.current = now;
+  };
+  const handleLongPress = () => {
+    longPressTriggered.current = true;
+    lastTapAt.current = 0;
+    onLongPress?.();
+  };
   if (message.deletedAt) return null;
   if (variant === "channel") {
     return (
-      <Pressable delayLongPress={240} onLongPress={onLongPress} style={({ pressed }) => [styles.channelRow, { opacity: pressed ? 0.72 : 1 }]}>
+      <Pressable delayLongPress={240} onPress={handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.channelRow, selected && { backgroundColor: palette.accentSoft }, { opacity: pressed ? 0.72 : 1 }]}>
         <View style={styles.channelAvatar}>{showSender ? <Avatar uri={message.sender.avatarUrl} label={message.sender.displayName} color={message.sender.avatarColor} size={40} /> : null}</View>
         <View style={styles.channelContent}>
           {showSender ? <View style={styles.authorLine}><Text style={[styles.channelAuthor, { color: message.sender.avatarColor || palette.text }]}>{message.sender.displayName}</Text><Text style={[styles.channelTime, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text></View> : null}
@@ -28,8 +53,8 @@ export function MessageBubble({ message, mine, showSender, variant, onLongPress,
     );
   }
   return (
-    <View style={[styles.row, mine ? styles.mineRow : styles.theirRow]}> 
-      <Pressable delayLongPress={240} onLongPress={onLongPress} style={({ pressed }) => [styles.bubble, { backgroundColor: mine ? palette.outgoing : palette.incoming, borderColor: palette.border, transform: [{ scale: pressed ? 0.985 : 1 }] }]}>
+    <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, selected && { backgroundColor: palette.accentSoft }]}>
+      <Pressable delayLongPress={240} onPress={handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, { backgroundColor: mine ? palette.outgoing : palette.incoming, borderColor: palette.border, transform: [{ scale: pressed ? 0.985 : 1 }] }]}>
         <MessageContent message={message} mine={mine} showSender={showSender && !mine} showTime onReact={onReact} />
       </Pressable>
     </View>
@@ -41,7 +66,7 @@ function MessageContent({ message, mine, showSender, showTime, onReact }: { mess
   const { t } = useTranslation();
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
-  return <>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{message.forwardedFrom ? <View style={styles.forwarded}><Ionicons name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}{attachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text selectable style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.pinnedAt ? <View style={styles.pinned}><Ionicons name="pin" size={10} color={palette.accent} /><Text style={[styles.edited, { color: palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <Ionicons name={message.failed ? "alert-circle" : message.pending ? "time-outline" : "checkmark-done"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text><Text style={[styles.reactionCount, { color: reaction.reacted ? palette.accent : palette.secondaryText }]}>{reaction.count}</Text></Pressable>)}</View> : null}</>;
+  return <>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{message.forwardedFrom ? <View style={styles.forwarded}><Ionicons name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}{attachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text selectable style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.pinnedAt ? <View style={styles.pinned}><Ionicons name="pin" size={10} color={palette.accent} /><Text style={[styles.edited, { color: palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <Ionicons name={message.failed ? "alert-circle" : message.pending ? "time-outline" : "checkmark-done"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}</>;
 }
 
 function AttachmentView({ attachment }: { attachment: Attachment }) {
@@ -139,7 +164,6 @@ const styles = StyleSheet.create({
   waveBar: { width: 2, minHeight: 4, borderRadius: 1 },
   duration: { fontSize: 11, width: 30 },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 5 },
-  reaction: { borderWidth: 1, borderRadius: 10, minHeight: 22, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 3 },
-  emoji: { fontSize: 12 },
-  reactionCount: { fontSize: 10, fontWeight: "700" },
+  reaction: { borderWidth: 1, borderRadius: 11, minWidth: 27, minHeight: 23, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
+  emoji: { fontSize: 13 },
 });

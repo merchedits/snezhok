@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { messageCreateSchema, messageEditSchema, reactionSchema } from "@snezhok/contracts";
 import { z } from "zod";
 import { requireAuth } from "../auth/middleware.js";
-import { createMessage, deleteMessage, editMessage, forwardMessage, listMessages, listPinnedMessages, markRead, setPinned, setReaction } from "./service.js";
+import { createMessage, deleteMessage, editMessage, forwardMessage, hideMessage, listMessages, listPinnedMessages, markRead, setPinned, setReaction } from "./service.js";
 
 const streamParams = z.object({ streamId: z.string().uuid() });
 const messageParams = z.object({ id: z.string().uuid() });
@@ -12,6 +12,7 @@ const reactionBody = reactionSchema.extend({ active: z.boolean().default(true) }
 const pinBody = z.object({ pinned: z.boolean() });
 const forwardBody = z.object({ targetStreamId: z.string().uuid(), clientId: z.string().uuid() });
 const reactionParams = z.object({ id: z.string().uuid(), emoji: z.string().min(1).max(32) });
+const deleteQuery = z.object({ scope: z.enum(["me", "everyone"]).default("everyone") });
 
 export async function messageRoutes(app: FastifyInstance) {
   app.get("/streams/:streamId/messages", { preHandler: requireAuth }, async (request) => {
@@ -38,6 +39,7 @@ export async function messageRoutes(app: FastifyInstance) {
   });
   app.delete("/messages/:id", { preHandler: requireAuth }, async (request) => {
     const { id } = messageParams.parse(request.params);
+    if (deleteQuery.parse(request.query).scope === "me") return { hidden: await hideMessage(request.auth.id, id) };
     return { message: await deleteMessage(request.auth.id, id) };
   });
   app.put("/messages/:id/reactions", { preHandler: requireAuth, config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request) => {

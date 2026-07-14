@@ -13,13 +13,14 @@ export async function searchRoutes(app: FastifyInstance) {
     const [users, messageIds, files] = await Promise.all([
       pool.query<PublicUserRow>(`SELECT ${publicUserSelect} FROM users u WHERE (u.username ILIKE $2 OR u.display_name ILIKE $2) AND u.id<>$1 ORDER BY u.display_name LIMIT $3`, [request.auth.id, `%${query.q}%`, query.limit]),
       pool.query<{ id: string }>(
-        `SELECT m.id FROM messages m WHERE m.deleted_at IS NULL AND m.text ILIKE $2 AND ($3::uuid IS NULL OR m.stream_id=$3) AND (
+        `SELECT m.id FROM messages m WHERE m.deleted_at IS NULL AND m.text ILIKE $2 AND ($3::uuid IS NULL OR m.stream_id=$3)
+         AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id) AND (
            (m.stream_kind='conversation' AND EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.conversation_id=m.stream_id AND cm.user_id=$1)) OR
            (m.stream_kind='channel' AND EXISTS(SELECT 1 FROM channels ch JOIN server_members sm ON sm.server_id=ch.server_id WHERE ch.id=m.stream_id AND sm.user_id=$1))
          ) ORDER BY m.created_at DESC LIMIT $4`, [request.auth.id, `%${query.q}%`, query.streamId ?? null, query.limit]),
       pool.query<{ id: string; filename: string; kind: string; bytes: string }>(
         `SELECT DISTINCT a.id,a.filename,a.kind,a.bytes::text FROM attachments a LEFT JOIN message_attachments ma ON ma.attachment_id=a.id LEFT JOIN messages m ON m.id=ma.message_id
-         WHERE a.filename ILIKE $2 AND (a.owner_id=$1 OR
+         WHERE a.filename ILIKE $2 AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id) AND (a.owner_id=$1 OR
            (m.stream_kind='conversation' AND EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.conversation_id=m.stream_id AND cm.user_id=$1)) OR
            (m.stream_kind='channel' AND EXISTS(SELECT 1 FROM channels ch JOIN server_members sm ON sm.server_id=ch.server_id WHERE ch.id=m.stream_id AND sm.user_id=$1)))
          ORDER BY a.filename LIMIT $3`, [request.auth.id, `%${query.q}%`, query.limit]),
