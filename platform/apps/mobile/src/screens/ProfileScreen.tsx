@@ -29,6 +29,7 @@ export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScree
   const me = useAppStore((state) => state.me);
   const friends = useAppStore((state) => state.friends);
   const conversations = useAppStore((state) => state.conversations);
+  const applyConversation = useAppStore((state) => state.applyConversation);
   const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
   const targetId = userId ?? me?.id;
   const own = Boolean(me && targetId === me.id);
@@ -121,7 +122,7 @@ export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScree
     const direct = conversations.find((conversation) => conversation.kind === "direct" && conversation.participants.some((user) => user.id === profile.user.id));
     try {
       const conversation = direct ?? await api.createConversation([profile.user.id]);
-      if (!direct) await refreshBootstrap();
+      if (!direct) applyConversation(conversation);
       navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title });
     } catch (error) { Alert.alert(t("openChatFailed"), error instanceof Error ? error.message : t("tryAgain")); }
   };

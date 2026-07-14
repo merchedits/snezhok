@@ -123,6 +123,10 @@ class ApiClient {
     return this.request<MessagesResponse>(`/streams/${encodeURIComponent(streamId)}/messages?${query}`);
   }
 
+  pinnedMessages(streamId: string): Promise<Message[]> {
+    return this.request<{ messages: Message[] }>(`/streams/${encodeURIComponent(streamId)}/pins`).then((result) => result.messages);
+  }
+
   createMessage(streamId: string, input: MessageCreateInput): Promise<Message> {
     return this.request<{ message: Message }>(`/streams/${encodeURIComponent(streamId)}/messages`, {
       method: "POST",
@@ -141,6 +145,19 @@ class ApiClient {
     return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/reactions`, {
       method: "PUT",
       body: { emoji, active },
+    }).then((result) => result.message);
+  }
+
+  deleteMessage(messageId: string): Promise<Message> {
+    return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}`, {
+      method: "DELETE",
+    }).then((result) => result.message);
+  }
+
+  setMessagePinned(messageId: string, pinned: boolean): Promise<Message> {
+    return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/pin`, {
+      method: "PUT",
+      body: { pinned },
     }).then((result) => result.message);
   }
 
@@ -209,6 +226,10 @@ class ApiClient {
 
   joinCall(streamId: string): Promise<CallJoinResponse> {
     return this.request<CallJoinResponse>("/calls/token", { method: "POST", body: { streamId } });
+  }
+
+  endCall(callId: string): Promise<void> {
+    return this.request(`/calls/${encodeURIComponent(callId)}/end`, { method: "POST" }).then(() => undefined);
   }
 
   searchUsers(query: string): Promise<UserSummary[]> {

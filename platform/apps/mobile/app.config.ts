@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.4.2",
+  version: "3.5.0",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -38,6 +38,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     ["expo-secure-store", { configureAndroidBackup: true }],
+    "expo-notifications",
+    [
+      "expo-media-library",
+      {
+        photosPermission: "Allow Snezhok to access photos.",
+        savePhotosPermission: "Allow Snezhok to save photos.",
+        granularPermissions: ["photo"],
+        isAccessMediaLocationEnabled: false,
+      },
+    ],
     [
       "expo-image-picker",
       {
@@ -49,7 +59,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 7,
+    versionCode: 8,
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
       foregroundImage: "./assets/snezhok-icon.png",

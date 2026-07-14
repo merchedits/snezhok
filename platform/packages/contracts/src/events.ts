@@ -1,5 +1,18 @@
 import type { ChannelSummary, ConversationSummary, FriendEntry, Id, Message, Presence, ServerSummary, Timestamp } from "./models.js";
 
+export interface CallUpdatePayload {
+  roomId: Id;
+  state: "started" | "ended";
+  participantIds: Id[];
+  /** Present on events emitted by servers that support incoming-call notifications. */
+  streamId?: Id;
+  streamKind?: "conversation" | "channel";
+  title?: string;
+  callerId?: Id;
+  callerName?: string;
+  startedAt?: Timestamp;
+}
+
 export interface ServerToClientEvents {
   "sync:ready": (payload: { cursor: number; serverTime: Timestamp }) => void;
   "message:created": (message: Message) => void;
@@ -16,7 +29,7 @@ export interface ServerToClientEvents {
   "presence:updated": (payload: { userId: Id; presence: Presence; lastSeenAt: Timestamp }) => void;
   "typing:updated": (payload: { streamId: Id; userId: Id; typing: boolean }) => void;
   "read:updated": (payload: { streamId: Id; userId: Id; sequence: number }) => void;
-  "call:updated": (payload: { roomId: Id; state: "started" | "ended"; participantIds: Id[] }) => void;
+  "call:updated": (payload: CallUpdatePayload) => void;
 }
 
 export interface ClientToServerEvents {

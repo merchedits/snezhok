@@ -3,7 +3,7 @@ import { Animated, Easing, type LayoutChangeEvent, StyleSheet, View } from "reac
 
 import { BottomNavigation } from "../components/BottomNavigation";
 import { usePalette } from "../hooks/usePalette";
-import { MAIN_TABS, mainTabIndex, type MainTab } from "../navigation/mainTabs";
+import { mainTabTransition, type MainTab } from "../navigation/mainTabs";
 import { useAppStore } from "../store/useAppStore";
 import { ChatsScreen } from "./ChatsScreen";
 import { ProfileScreen } from "./ProfileScreen";
@@ -14,31 +14,45 @@ export function MainScreen() {
   const palette = usePalette();
   const [tab, setTab] = useState<MainTab>("chats");
   const [pageWidth, setPageWidth] = useState(0);
+  const [transition, setTransition] = useState<ReturnType<typeof mainTabTransition> | null>(null);
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
-  const position = useRef(new Animated.Value(mainTabIndex("chats"))).current;
+  const progress = useRef(new Animated.Value(1)).current;
+  const transitionId = useRef(0);
 
   useEffect(() => {
-    if (reducedMotion) {
-      position.stopAnimation();
-      position.setValue(mainTabIndex(tab));
+    if (reducedMotion && transition) {
+      transitionId.current += 1;
+      progress.stopAnimation();
+      progress.setValue(1);
+      setTransition(null);
     }
-  }, [position, reducedMotion, tab]);
+  }, [progress, reducedMotion, transition]);
 
   const selectTab = (next: MainTab) => {
     if (next === tab) return;
-    const nextIndex = mainTabIndex(next);
+    const nextTransition = mainTabTransition(tab, next);
+    const id = transitionId.current + 1;
+    transitionId.current = id;
+    progress.stopAnimation();
+    progress.setValue(0);
     setTab(next);
-    position.stopAnimation();
-    if (reducedMotion) {
-      position.setValue(nextIndex);
+    if (reducedMotion || pageWidth <= 0) {
+      setTransition(null);
+      progress.setValue(1);
       return;
     }
-    Animated.timing(position, {
-      toValue: nextIndex,
-      duration: 180,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
+    setTransition(nextTransition);
+    requestAnimationFrame(() => {
+      if (transitionId.current !== id) return;
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 190,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished && transitionId.current === id) setTransition(null);
+      });
+    });
   };
 
   const measurePages = (event: LayoutChangeEvent) => {
@@ -49,30 +63,39 @@ export function MainScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
       <View style={styles.viewport} onLayout={measurePages}>
-        <Animated.View
-          style={[
-            styles.track,
-            { width: pageWidth * MAIN_TABS.length, transform: [{ translateX: Animated.multiply(position, -pageWidth) }] },
-          ]}
-        >
-          <TabPage width={pageWidth} active={tab === "chats"}><ChatsScreen embedded /></TabPage>
-          <TabPage width={pageWidth} active={tab === "servers"}><ServersScreen /></TabPage>
-          <TabPage width={pageWidth} active={tab === "profile"}><ProfileScreen embedded /></TabPage>
-          <TabPage width={pageWidth} active={tab === "settings"}><SettingsScreen embedded /></TabPage>
-        </Animated.View>
+        <TabPage id="chats" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ChatsScreen embedded /></TabPage>
+        <TabPage id="servers" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ServersScreen /></TabPage>
+        <TabPage id="profile" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ProfileScreen embedded /></TabPage>
+        <TabPage id="settings" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><SettingsScreen embedded /></TabPage>
       </View>
       <BottomNavigation selected={tab} onSelect={selectTab} />
     </View>
   );
 }
 
-function TabPage({ width, active, children }: { width: number; active: boolean; children: ReactNode }) {
-  return <View style={[styles.page, { width }]} accessibilityElementsHidden={!active} importantForAccessibility={active ? "auto" : "no-hide-descendants"}>{children}</View>;
+function TabPage({ id, activeTab, transition, progress, width, children }: { id: MainTab; activeTab: MainTab; transition: ReturnType<typeof mainTabTransition> | null; progress: Animated.Value; width: number; children: ReactNode }) {
+  const visible = id === activeTab || id === transition?.from;
+  const direction = transition?.direction ?? 0;
+  const translateX = transition?.from === id
+    ? progress.interpolate({ inputRange: [0, 1], outputRange: [0, -direction * width] })
+    : transition?.to === id
+      ? progress.interpolate({ inputRange: [0, 1], outputRange: [direction * width, 0] })
+      : 0;
+  return (
+    <Animated.View
+      pointerEvents={id === activeTab ? "auto" : "none"}
+      style={[styles.page, !visible && styles.hiddenPage, { transform: [{ translateX }] }]}
+      accessibilityElementsHidden={id !== activeTab}
+      importantForAccessibility={id === activeTab ? "auto" : "no-hide-descendants"}
+    >
+      {children}
+    </Animated.View>
+  );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   viewport: { flex: 1, overflow: "hidden" },
-  track: { flex: 1, flexDirection: "row" },
-  page: { height: "100%" },
+  page: { ...StyleSheet.absoluteFill },
+  hiddenPage: { display: "none" },
 });

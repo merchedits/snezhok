@@ -2,17 +2,20 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useState } from "react";
-import { Image, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { Attachment, Message } from "@snezhok/contracts";
 
 import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
+import { useTranslation } from "../i18n";
+import { voiceWaveformBars } from "../lib/voiceWaveform";
 import { Avatar } from "./Avatar";
+import { ImageViewer } from "./ImageViewer";
 
 export function MessageBubble({ message, mine, showSender, variant, onLongPress, onReact }: { message: Message; mine: boolean; showSender: boolean; variant: "bubble" | "channel"; onLongPress?: () => void; onReact?: (emoji: string) => void }) {
   const palette = usePalette();
-  if (message.deletedAt) return <Text style={[styles.deleted, { color: palette.faintText }]}>Message deleted</Text>;
+  if (message.deletedAt) return null;
   if (variant === "channel") {
     return (
       <Pressable delayLongPress={240} onLongPress={onLongPress} style={({ pressed }) => [styles.channelRow, { opacity: pressed ? 0.72 : 1 }]}>
@@ -35,9 +38,10 @@ export function MessageBubble({ message, mine, showSender, variant, onLongPress,
 
 function MessageContent({ message, mine, showSender, showTime, onReact }: { message: Message; mine: boolean; showSender: boolean; showTime: boolean; onReact?: ((emoji: string) => void) | undefined }) {
   const palette = usePalette();
+  const { t } = useTranslation();
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
-  return <>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{message.forwardedFrom ? <View style={styles.forwarded}><Ionicons name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}{attachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text selectable style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <Ionicons name={message.failed ? "alert-circle" : message.pending ? "time-outline" : "checkmark-done"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text><Text style={[styles.reactionCount, { color: reaction.reacted ? palette.accent : palette.secondaryText }]}>{reaction.count}</Text></Pressable>)}</View> : null}</>;
+  return <>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{message.forwardedFrom ? <View style={styles.forwarded}><Ionicons name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}{attachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text selectable style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.pinnedAt ? <View style={styles.pinned}><Ionicons name="pin" size={10} color={palette.accent} /><Text style={[styles.edited, { color: palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <Ionicons name={message.failed ? "alert-circle" : message.pending ? "time-outline" : "checkmark-done"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text><Text style={[styles.reactionCount, { color: reaction.reacted ? palette.accent : palette.secondaryText }]}>{reaction.count}</Text></Pressable>)}</View> : null}</>;
 }
 
 function AttachmentView({ attachment }: { attachment: Attachment }) {
@@ -55,11 +59,10 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 }
 
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
-  const palette = usePalette();
   const [open, setOpen] = useState(false);
   const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
-  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} style={styles.photo} resizeMode="cover" /></Pressable><Modal visible={open} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setOpen(false)}><View style={styles.viewer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} /><Image source={source} style={styles.viewerImage} resizeMode="contain" /><Pressable accessibilityLabel="Close" onPress={() => setOpen(false)} style={[styles.viewerClose, { backgroundColor: palette.overlay }]}><Ionicons name="close" size={26} color="white" /></Pressable></View></Modal></>;
+  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} style={styles.photo} resizeMode="cover" /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
 }
 
 function VoiceAttachment({ attachment }: { attachment: Attachment }) {
@@ -67,12 +70,18 @@ function VoiceAttachment({ attachment }: { attachment: Attachment }) {
   const source = useAuthorizedMedia(attachment.url);
   const player = useAudioPlayer(source, { updateInterval: 250 });
   const status = useAudioPlayerStatus(player);
+  const [waveWidth, setWaveWidth] = useState(1);
+  const bars = voiceWaveformBars(attachment.waveform);
+  const duration = status.duration || (attachment.durationMs ?? 0) / 1000;
+  const progress = Math.min(1, (status.currentTime || 0) / Math.max(duration, 1));
   const toggle = () => status.playing ? player.pause() : player.play();
   return (
     <View style={styles.voice}> 
       <Pressable onPress={toggle} style={[styles.play, { backgroundColor: palette.accent }]}><Ionicons name={status.playing ? "pause" : "play"} size={19} color="white" /></Pressable>
-      <View style={styles.wave}><View style={[styles.waveProgress, { width: `${Math.min(100, ((status.currentTime || 0) / Math.max(status.duration || 1, 1)) * 100)}%`, backgroundColor: palette.accent }]} /></View>
-      <Text style={[styles.duration, { color: palette.secondaryText }]}>{formatDuration(status.duration || (attachment.durationMs ?? 0) / 1000)}</Text>
+      <Pressable accessibilityRole="adjustable" onLayout={(event) => setWaveWidth(event.nativeEvent.layout.width)} onPress={(event) => void player.seekTo(Math.max(0, Math.min(1, event.nativeEvent.locationX / waveWidth)) * duration)} style={styles.wave}>
+        {bars.map((height, index) => <View key={index} style={[styles.waveBar, { height, backgroundColor: index / bars.length <= progress ? palette.accent : palette.faintText }]} />)}
+      </Pressable>
+      <Text style={[styles.duration, { color: palette.secondaryText }]}>{formatDuration(status.playing ? status.currentTime : duration)}</Text>
     </View>
   );
 }
@@ -114,13 +123,10 @@ const styles = StyleSheet.create({
   forwarded: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 5 },
   forwardedText: { fontSize: 12, fontWeight: "700" },
   meta: { alignSelf: "flex-end", flexDirection: "row", alignItems: "center", gap: 3, marginTop: 3, marginLeft: 12 },
+  pinned: { flexDirection: "row", alignItems: "center", gap: 2 },
   time: { fontSize: 10 },
   edited: { fontSize: 10 },
-  deleted: { fontSize: 13, fontStyle: "italic", marginHorizontal: 14, marginVertical: 5 },
   photo: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
-  viewer: { flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" },
-  viewerImage: { width: "100%", height: "100%" },
-  viewerClose: { position: "absolute", top: 44, right: 14, width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   video: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, overflow: "hidden" },
   file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
   fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
@@ -129,8 +135,8 @@ const styles = StyleSheet.create({
   filesize: { fontSize: 11, marginTop: 3 },
   voice: { width: 230, minHeight: 45, flexDirection: "row", alignItems: "center", gap: 8 },
   play: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  wave: { flex: 1, height: 3, borderRadius: 2, backgroundColor: "rgba(128,128,128,0.28)", overflow: "hidden" },
-  waveProgress: { height: "100%" },
+  wave: { flex: 1, height: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 1 },
+  waveBar: { width: 2, minHeight: 4, borderRadius: 1 },
   duration: { fontSize: 11, width: 30 },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 5 },
   reaction: { borderWidth: 1, borderRadius: 10, minHeight: 22, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 3 },

@@ -37,7 +37,9 @@ export async function conversationSummary(userId: string, conversationId: string
   const participants = participantRows.rows.map(mapUser);
   const last = await client.query<{ id: string; sender_id: string; sender_name: string; text: string; kind: MessagePreview["kind"]; created_at_ms: number }>(
     `SELECT m.id,m.sender_id,u.display_name sender_name,m.text,m.kind,(extract(epoch from m.created_at)*1000)::bigint::float8 created_at_ms
-     FROM messages m JOIN users u ON u.id=m.sender_id WHERE m.stream_kind='conversation' AND m.stream_id=$1 ORDER BY m.sequence DESC LIMIT 1`, [conversationId]);
+     FROM messages m JOIN users u ON u.id=m.sender_id
+     WHERE m.stream_kind='conversation' AND m.stream_id=$1 AND m.deleted_at IS NULL
+     ORDER BY m.sequence DESC LIMIT 1`, [conversationId]);
   const other = participants.find((user) => user.id !== userId);
   return { id: base.id, kind: base.kind, title: base.saved ? "Saved Messages" : base.kind === "direct" ? (other?.displayName ?? "Direct message") : base.title,
     avatarUrl: base.kind === "direct" ? (other?.avatarUrl ?? null) : null, participants,

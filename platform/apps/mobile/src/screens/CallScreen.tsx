@@ -10,7 +10,7 @@ import {
   useRoomContext,
   useTracks,
 } from "@livekit/react-native";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ConnectionState, Track, VideoPresets } from "livekit-client";
@@ -28,30 +28,49 @@ export function CallScreen({ navigation, route }: Props) {
   const settings = useAppStore((state) => state.settings);
   const [credentials, setCredentials] = useState<CallJoinResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const credentialsRef = useRef<CallJoinResponse | null>(null);
+  const endRequested = useRef(false);
+
+  const endOwnedCall = useCallback(() => {
+    const current = credentialsRef.current;
+    if (!current?.canEnd || endRequested.current) return;
+    endRequested.current = true;
+    void api.endCall(current.callId).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let active = true;
-    void api.joinCall(route.params.streamId).then((result) => {
-      if (active) setCredentials(result);
-    }).catch((reason: unknown) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Could not join this call");
-    });
-    return () => { active = false; };
-  }, [route.params.streamId]);
-
-  useEffect(() => {
-    let started = false;
+    let audioStarted = false;
     void (async () => {
       try {
+        if (!(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO))) {
+          throw new Error("Microphone permission is required to join a call");
+        }
         await AudioSession.configureAudio({ android: { audioTypeOptions: { manageAudioFocus: true, audioMode: "inCommunication", audioFocusMode: "gain", audioStreamType: "voiceCall", audioAttributesUsageType: "voiceCommunication", audioAttributesContentType: "speech" } } });
         await AudioSession.startAudioSession();
-        started = true;
-      } catch (reason) {
-        console.warn("Audio session could not start", reason);
+        audioStarted = true;
+        const result = await api.joinCall(route.params.streamId);
+        if (!active) {
+          if (result.canEnd) void api.endCall(result.callId).catch(() => undefined);
+          return;
+        }
+        credentialsRef.current = result;
+        setCredentials(result);
+      } catch (reason: unknown) {
+        if (audioStarted) {
+          audioStarted = false;
+          await AudioSession.stopAudioSession().catch(() => undefined);
+        }
+        if (active) setError(reason instanceof Error ? reason.message : "Could not join this call");
       }
     })();
-    return () => { if (started) void AudioSession.stopAudioSession().catch(() => undefined); };
-  }, []);
+    return () => {
+      active = false;
+      if (audioStarted) void AudioSession.stopAudioSession().catch(() => undefined);
+    };
+  }, [route.params.streamId]);
+
+  useEffect(() => () => endOwnedCall(), [endOwnedCall]);
 
   if (error) {
     return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><Ionicons name="warning-outline" size={42} color={palette.danger} /><Text style={[styles.errorTitle, { color: palette.text }]}>Call unavailable</Text><Text style={[styles.errorText, { color: palette.secondaryText }]}>{error}</Text><Pressable onPress={navigation.goBack} style={[styles.retry, { backgroundColor: palette.accent }]}><Text style={styles.retryText}>Go back</Text></Pressable></SafeAreaView>;
@@ -81,7 +100,7 @@ export function CallScreen({ navigation, route }: Props) {
       }}
       onError={(reason) => setError(reason.message)}
     >
-      <CallRoom title={route.params.title} onLeave={() => navigation.goBack()} />
+      <CallRoom title={route.params.title} onLeave={() => { endOwnedCall(); navigation.goBack(); }} />
     </LiveKitRoom>
   );
 }

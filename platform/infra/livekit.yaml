@@ -5,6 +5,11 @@ rtc:
   tcp_port: 7881
   udp_port: 7882
   use_external_ip: true
+  # Only advertise the host NIC. Advertising Docker bridge interfaces produces
+  # unreachable ICE candidates and delays/fails connection establishment.
+  ips:
+    includes:
+      - 192.168.2.0/24
   advertise_internal_ip: true
   skip_external_ip_validation: true
   use_ice_lite: false
@@ -14,6 +19,10 @@ turn:
   udp_port: 3478
   relay_range_start: 40000
   relay_range_end: 40100
+  # LiveKit 1.12+ blocks relays to private peers unless explicitly allowed.
+  # The SFU is on this private subnet because the server is behind the router.
+  allow_restricted_peer_cidrs:
+    - 192.168.2.0/24
 
 room:
   empty_timeout: 300

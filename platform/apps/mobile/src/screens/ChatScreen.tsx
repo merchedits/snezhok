@@ -17,6 +17,7 @@ import { SwipeReplyRow } from "../components/SwipeReplyRow";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { composerBottomPadding } from "../lib/keyboardLayout";
+import { visibleMessages } from "../store/messageReconciliation";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList, UploadInput } from "../types";
 
@@ -36,9 +37,12 @@ export function ChatScreen({ navigation, route }: Props) {
   const isGroup = useAppStore((state) => state.conversations.some((conversation) => conversation.id === streamId && conversation.kind === "group"));
   const online = useAppStore((state) => state.online);
   const loadMessages = useAppStore((state) => state.loadMessages);
+  const loadPinnedMessages = useAppStore((state) => state.loadPinnedMessages);
   const sendMessage = useAppStore((state) => state.sendMessage);
   const forwardMessage = useAppStore((state) => state.forwardMessage);
   const toggleReaction = useAppStore((state) => state.toggleReaction);
+  const deleteMessage = useAppStore((state) => state.deleteMessage);
+  const setMessagePinned = useAppStore((state) => state.setMessagePinned);
   const uploadAttachment = useAppStore((state) => state.uploadAttachment);
   const uploadProgress = useAppStore((state) => state.uploadProgress);
   const uploadQuality = useAppStore((state) => state.settings.defaultUploadQuality);
@@ -51,14 +55,23 @@ export function ChatScreen({ navigation, route }: Props) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
 
-  useEffect(() => { void loadMessages(streamId).catch(() => undefined); }, [loadMessages, streamId]);
+  useEffect(() => {
+    void Promise.all([loadMessages(streamId), loadPinnedMessages(streamId)]).catch(() => undefined);
+  }, [loadMessages, loadPinnedMessages, streamId]);
   useEffect(() => {
     const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
     const hidden = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
     return () => { shown.remove(); hidden.remove(); };
   }, []);
 
-  const sorted = useMemo(() => [...messages].sort((a, b) => a.sequence - b.sequence), [messages]);
+  const sorted = useMemo(() => visibleMessages(messages).sort((a, b) => a.sequence - b.sequence), [messages]);
+  const latestPin = useMemo(() => [...messages].filter((message) => message.pinnedAt && !message.deletedAt).sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))[0], [messages]);
+
+  const jumpToPinned = () => {
+    if (!latestPin) return;
+    const index = sorted.findIndex((message) => message.id === latestPin.id);
+    if (index >= 0) list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.25 });
+  };
 
   const sendText = async () => {
     const value = text.trim();
@@ -104,16 +117,32 @@ export function ChatScreen({ navigation, route }: Props) {
   return (
     <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.background }]} behavior="padding" enabled={Platform.OS === "ios"} keyboardVerticalOffset={0}>
       <ScreenHeader title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={streamKind === "conversation" ? [{ icon: "call-outline", label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : []} />
-      <FlatList ref={list} data={sorted} keyExtractor={(item) => item.id} renderItem={renderMessage} contentContainerStyle={styles.list} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" removeClippedSubviews={Platform.OS === "android"} initialNumToRender={18} maxToRenderPerBatch={12} windowSize={7} onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })} ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>} />
+      {latestPin ? <Pressable onPress={jumpToPinned} style={({ pressed }) => [styles.pinBanner, { borderColor: palette.border, backgroundColor: pressed ? palette.surface : palette.background }]}><View style={[styles.pinAccent, { backgroundColor: palette.accent }]} /><Ionicons name="pin" size={17} color={palette.accent} /><View style={styles.pinCopy}><Text style={[styles.pinLabel, { color: palette.accent }]}>{t("pinnedMessage")}</Text><Text numberOfLines={1} style={[styles.pinText, { color: palette.secondaryText }]}>{latestPin.text || t("attachment")}</Text></View></Pressable> : null}
+      <FlatList ref={list} data={sorted} keyExtractor={(item) => item.id} renderItem={renderMessage} contentContainerStyle={styles.list} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" removeClippedSubviews={Platform.OS === "android"} initialNumToRender={18} maxToRenderPerBatch={12} windowSize={7} onScrollToIndexFailed={({ index }) => list.current?.scrollToOffset({ offset: Math.max(0, index * 64), animated: true })} onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })} ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>} />
       {recording ? <View style={[styles.recording, { backgroundColor: palette.surface }]}><View style={[styles.recordDot, { backgroundColor: palette.danger }]} /><Text style={[styles.recordingText, { color: palette.text }]}>{t("recording")}</Text><Text style={[styles.recordHint, { color: palette.secondaryText }]}>{t("tapStop")}</Text></View> : null}
       {replyingTo ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{replyingTo.sender.displayName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{replyingTo.text || t("attachment")}</Text></View><Pressable onPress={() => setReplyingTo(null)} style={styles.replyClose}><Ionicons name="close" size={21} color={palette.secondaryText} /></Pressable></View> : null}
       <View style={[styles.composer, { borderColor: palette.border, backgroundColor: palette.background, paddingBottom: composerBottomPadding(insets.bottom, keyboardVisible) }]}>
         <Pressable disabled={uploading || recording} onPress={() => setAttachmentSheet(true)} style={styles.composerButton} accessibilityLabel={t("attachFile")}><Ionicons name="add-circle-outline" size={27} color={uploading || recording ? palette.faintText : palette.accent} /></Pressable>
-        <View style={[styles.inputWrap, { backgroundColor: palette.surface }]}><TextInput value={text} onChangeText={setText} editable={!recording} multiline maxLength={16_000} placeholder={recording ? t("recording") : t("message")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text }]} /></View>
+        <View style={[styles.inputWrap, { backgroundColor: palette.surface }]}><TextInput value={text} onChangeText={setText} onFocus={() => setKeyboardVisible(true)} editable={!recording} multiline maxLength={16_000} placeholder={recording ? t("recording") : t("message")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text }]} /></View>
         {uploading ? <View style={styles.composerButton}><ActivityIndicator color={palette.accent} /></View> : text.trim() ? <Pressable onPress={() => void sendText()} style={[styles.send, { backgroundColor: palette.accent }]} accessibilityLabel={t("sendMessage")}><Ionicons name="arrow-up" size={21} color="white" /></Pressable> : recorderMounted ? <VoiceRecorderControl quality={uploadQuality} onRecordingChange={setRecording} onCancel={() => { setRecording(false); setRecorderMounted(false); }} onComplete={async (input) => { setRecording(false); setRecorderMounted(false); await handleUpload(input, "voice"); }} /> : <Pressable onPress={() => void beginRecording()} style={[styles.send, { backgroundColor: palette.accent }]} accessibilityLabel={t("recordVoice")}><Ionicons name="mic" size={20} color="white" /></Pressable>}
       </View>
       <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadProgress} onClose={() => setAttachmentSheet(false)} onSelect={handleUpload} />
-      <MessageActionsSheet message={selectedMessage} conversations={conversations} onClose={() => setSelectedMessage(null)} onReply={(message) => { setSelectedMessage(null); setReplyingTo(message); }} onReact={(message, emoji) => { setSelectedMessage(null); void toggleReaction(message, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain"))); }} onForward={(message, conversation) => { setSelectedMessage(null); void forwardMessage(message.id, conversation.id).then(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)).catch(() => Alert.alert(t("requestFailed"), t("tryAgain"))); }} />
+      <MessageActionsSheet
+        message={selectedMessage}
+        conversations={conversations}
+        onClose={() => setSelectedMessage(null)}
+        onReply={(message) => { setSelectedMessage(null); setReplyingTo(message); }}
+        onReact={(message, emoji) => { setSelectedMessage(null); void toggleReaction(message, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain"))); }}
+        onForward={(message, conversation) => { setSelectedMessage(null); void forwardMessage(message.id, conversation.id).then(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)).catch(() => Alert.alert(t("requestFailed"), t("tryAgain"))); }}
+        onPin={(message, pinned) => { setSelectedMessage(null); void setMessagePinned(message, pinned).catch((error) => Alert.alert(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"))); }}
+        onDelete={(message) => {
+          setSelectedMessage(null);
+          Alert.alert(t("deleteMessage"), t("deleteMessageQuestion"), [
+            { text: t("cancel"), style: "cancel" },
+            { text: t("deleteMessage"), style: "destructive", onPress: () => void deleteMessage(message).catch((error) => Alert.alert(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"))) },
+          ]);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -163,6 +192,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1 }, list: { paddingVertical: 8, flexGrow: 1 },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 18 },
   headerCopy: { minWidth: 0, maxWidth: 150 }, headerTitle: { fontSize: 15, lineHeight: 18, fontWeight: "800" }, headerSubtitle: { fontSize: 11, lineHeight: 14, marginTop: 1 },
+  pinBanner: { minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  pinAccent: { width: 3, height: 29, borderRadius: 2 }, pinCopy: { flex: 1, minWidth: 0 }, pinLabel: { fontSize: 12, fontWeight: "800" }, pinText: { fontSize: 12, marginTop: 1 },
   day: { width: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, marginVertical: 10 }, dayLine: { flex: 1, height: StyleSheet.hairlineWidth }, dayText: { fontSize: 11, fontWeight: "700" },
   empty: { alignItems: "center", paddingTop: 90, paddingHorizontal: 24 }, emptyTitle: { fontSize: 20, fontWeight: "800" }, emptyText: { fontSize: 14, marginTop: 6 },
   recording: { minHeight: 38, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8 }, recordDot: { width: 9, height: 9, borderRadius: 5 }, recordingText: { fontSize: 13, fontWeight: "700" }, recordHint: { fontSize: 12, marginLeft: "auto" },

@@ -167,7 +167,9 @@ export async function setReaction(userId: string, messageId: string, emoji: stri
 
 export async function setPinned(userId: string, messageId: string, pinned: boolean) {
   return mutateMessage(userId, messageId, async (client, _row, access) => {
-    if (!canManageMessages(access.memberRole)) throw forbidden("You cannot pin messages in this stream");
+    // Every participant can curate a private/direct conversation. Server
+    // channels retain their moderation permission boundary.
+    if (access.streamKind === "channel" && !canManageMessages(access.memberRole)) throw forbidden("You cannot pin messages in this stream");
     await client.query("UPDATE messages SET pinned_at=CASE WHEN $2 THEN now() ELSE NULL END,pinned_by=CASE WHEN $2 THEN $3::uuid ELSE NULL END WHERE id=$1", [messageId, pinned, userId]);
     return "message:updated";
   });

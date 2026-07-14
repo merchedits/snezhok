@@ -3,7 +3,7 @@ import test from "node:test";
 
 import type { Message } from "@snezhok/contracts";
 
-import { mergeMessages } from "./messageReconciliation";
+import { markMessageDeleted, mergeMessages, reconcilePinnedMessages, visibleMessages } from "./messageReconciliation";
 
 function message(id: string, overrides: Partial<Message> = {}): Message {
   return {
@@ -46,4 +46,26 @@ test("reconciles cached legacy optimistic messages whose clientId is absent", ()
   delete optimistic.clientId;
   const saved = message("22222222-2222-4222-8222-222222222222", { clientId, sequence: 9, createdAt: 9 });
   assert.deepEqual(mergeMessages([optimistic], [saved]), [saved]);
+});
+
+test("reconciles realtime deletion without removing message order", () => {
+  const first = message("first", { sequence: 1 });
+  const second = message("second", { sequence: 2, text: "remove", editedAt: 5, pinnedAt: 6 });
+  const result = markMessageDeleted([first, second], second.id, 10);
+  assert.equal(result.length, 2);
+  assert.deepEqual(result[1], { ...second, text: "", deletedAt: 10, editedAt: null, pinnedAt: null });
+});
+
+test("Telegram-style history hides deletion tombstones", () => {
+  const live = message("live");
+  const deleted = message("deleted", { deletedAt: 10 });
+  assert.deepEqual(visibleMessages([deleted, live]), [live]);
+});
+
+test("pinned endpoint clears stale cached pins while preserving canonical ones", () => {
+  const stale = message("stale", { pinnedAt: 5 });
+  const current = message("current", { pinnedAt: 10 });
+  const result = reconcilePinnedMessages([stale], [current]);
+  assert.equal(result.find((item) => item.id === stale.id)?.pinnedAt, null);
+  assert.equal(result.find((item) => item.id === current.id)?.pinnedAt, 10);
 });

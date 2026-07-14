@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { AccessToken, WebhookReceiver } from "livekit-server-sdk";
 import { z } from "zod";
 import { config } from "../../config.js";
-import { pool, transaction } from "../../db/pool.js";
+import { pool, transaction, type DbClient } from "../../db/pool.js";
 import { forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { requireAuth } from "../auth/middleware.js";
@@ -26,13 +26,24 @@ export async function callRoutes(app: FastifyInstance) {
       );
       const recipients = await streamRecipients(access, client);
       for (const old of stale.rows) await storeEvent(client, recipients, "call:updated", { roomId: old.id, state: "ended", participantIds: [] });
-      let call = (await client.query<{ id: string; livekit_room: string }>("SELECT id,livekit_room FROM call_sessions WHERE stream_kind=$1 AND stream_id=$2 AND ended_at IS NULL LIMIT 1", [access.streamKind, streamId])).rows[0];
+      let call = (await client.query<{ id: string; livekit_room: string; started_by: string }>("SELECT id,livekit_room,started_by FROM call_sessions WHERE stream_kind=$1 AND stream_id=$2 AND ended_at IS NULL LIMIT 1", [access.streamKind, streamId])).rows[0];
       let event = null;
       if (!call) {
         const id = newId(); const livekitRoom = `snezhok-${id}`;
         await client.query("INSERT INTO call_sessions(id,stream_kind,stream_id,livekit_room,started_by) VALUES ($1,$2,$3,$4,$5)", [id, access.streamKind, streamId, livekitRoom, request.auth.id]);
-        const payload = { roomId: id, state: "started" as const, participantIds: [request.auth.id] };
-        event = await storeEvent(client, recipients, "call:updated", payload); call = { id, livekit_room: livekitRoom };
+        const title = await callTitle(access, request.auth.displayName, client);
+        const payload = {
+          roomId: id,
+          state: "started" as const,
+          participantIds: [request.auth.id],
+          streamId,
+          streamKind: access.streamKind,
+          title,
+          callerId: request.auth.id,
+          callerName: request.auth.displayName,
+          startedAt: Date.now(),
+        };
+        event = await storeEvent(client, recipients, "call:updated", payload); call = { id, livekit_room: livekitRoom, started_by: request.auth.id };
       }
       return { call, event };
     });
@@ -40,7 +51,7 @@ export async function callRoutes(app: FastifyInstance) {
     const call = result.call!;
     const token = new AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET, { identity: request.auth.id, name: request.auth.displayName, ttl: "5m" });
     token.addGrant({ roomJoin: true, room: call.livekit_room, canPublish: true, canSubscribe: true, canPublishData: true });
-    return { callId: call.id, roomName: call.livekit_room, url: config.LIVEKIT_URL, token: await token.toJwt() };
+    return { callId: call.id, roomName: call.livekit_room, url: config.LIVEKIT_URL, token: await token.toJwt(), canEnd: call.started_by === request.auth.id };
   });
 
   app.post("/calls/:id/end", { preHandler: requireAuth }, async (request) => {
@@ -63,6 +74,14 @@ export async function callRoutes(app: FastifyInstance) {
     if (event.event === "room_finished" && event.room?.name) await endCallByRoom(event.room.name);
     return { received: true };
   });
+}
+
+async function callTitle(access: StreamAccess, fallback: string, client: Pick<DbClient, "query">) {
+  if (access.streamKind === "channel") {
+    return (await client.query<{ name: string }>("SELECT name FROM channels WHERE id=$1", [access.streamId])).rows[0]?.name ?? fallback;
+  }
+  const conversation = (await client.query<{ kind: "direct" | "group"; title: string }>("SELECT kind,title FROM conversations WHERE id=$1", [access.streamId])).rows[0];
+  return conversation?.kind === "group" && conversation.title ? conversation.title : fallback;
 }
 export function canEndCall(actorId: string, startedBy: string, role: "owner" | "admin" | "moderator" | "member") { return actorId === startedBy || role === "owner" || role === "admin" || role === "moderator"; }
 

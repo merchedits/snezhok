@@ -17,3 +17,20 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
   }
   return merged.sort((a, b) => a.sequence - b.sequence || a.createdAt - b.createdAt);
 }
+
+export function markMessageDeleted(existing: Message[], id: string, deletedAt: number): Message[] {
+  return existing.map((message) => message.id === id
+    ? { ...message, text: "", deletedAt, editedAt: null, pinnedAt: null }
+    : message);
+}
+
+/** Tombstones stay cached for realtime ordering but are not rendered. */
+export function visibleMessages(messages: Message[]): Message[] {
+  return messages.filter((message) => message.deletedAt === null);
+}
+
+export function reconcilePinnedMessages(existing: Message[], pinned: Message[]): Message[] {
+  const pinnedIds = new Set(pinned.map((message) => message.id));
+  const canonicalized = existing.map((message) => message.pinnedAt && !pinnedIds.has(message.id) ? { ...message, pinnedAt: null } : message);
+  return mergeMessages(canonicalized, pinned);
+}

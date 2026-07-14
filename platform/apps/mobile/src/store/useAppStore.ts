@@ -20,7 +20,8 @@ import { clearLocalData, readCache, readOutbox, writeCache, writeOutbox } from "
 import { clearSession, readSession, writeSession } from "../lib/secureSession";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
 import { applyConversationPreview } from "./conversationPreview";
-import { mergeMessages } from "./messageReconciliation";
+import { upsertConversation } from "./conversationIdentity";
+import { markMessageDeleted, mergeMessages, reconcilePinnedMessages } from "./messageReconciliation";
 
 type Phase = "booting" | "signed-out" | "ready" | "error";
 
@@ -48,12 +49,18 @@ interface AppState {
   setOnline: (online: boolean) => void;
   refreshBootstrap: () => Promise<void>;
   loadMessages: (streamId: string, before?: number) => Promise<void>;
+  loadPinnedMessages: (streamId: string) => Promise<void>;
   uploadAttachment: (input: UploadInput) => Promise<Attachment>;
   sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">) => Promise<void>;
   forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
   toggleReaction: (message: Message, emoji: string) => Promise<void>;
+  deleteMessage: (message: Message) => Promise<void>;
+  setMessagePinned: (message: Message, pinned: boolean) => Promise<void>;
   retryOutbox: () => Promise<void>;
   applyMessage: (message: Message) => void;
+  applyMessageDeleted: (payload: { id: string; streamId: string; deletedAt: number }) => void;
+  applyConversation: (conversation: ConversationSummary) => void;
+  removeConversation: (conversationId: string) => void;
   applyPresence: (userId: string, presence: Presence, lastSeenAt: number) => void;
   updateSettings: (patch: SettingsPatch) => Promise<void>;
   setEventCursor: (cursor: number) => void;
@@ -247,6 +254,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     await persistState();
   },
 
+  loadPinnedMessages: async (streamId) => {
+    if (!get().online) return;
+    const pinned = await api.pinnedMessages(streamId);
+    set((state) => ({
+      messages: { ...state.messages, [streamId]: reconcilePinnedMessages(state.messages[streamId] ?? [], pinned) },
+    }));
+    await persistState();
+  },
+
   uploadAttachment: async (input) => {
     set({ uploadProgress: 0 });
     try {
@@ -341,6 +357,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     await persistState();
   },
 
+  deleteMessage: async (message) => {
+    if (!get().online) throw new Error("Deleting messages requires a connection");
+    const saved = await api.deleteMessage(message.id);
+    set((state) => ({
+      conversations: applyConversationPreview(state.conversations, saved),
+      messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
+    }));
+    await persistState();
+    // The server may reveal the previous message as the new conversation
+    // preview after deleting the latest one.
+    await get().refreshBootstrap();
+  },
+
+  setMessagePinned: async (message, pinned) => {
+    if (!get().online) throw new Error("Pinning messages requires a connection");
+    const saved = await api.setMessagePinned(message.id, pinned);
+    set((state) => ({
+      messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
+    }));
+    await persistState();
+  },
+
   retryOutbox: async () => {
     if (!get().online || get().outbox.length === 0) return;
     for (const entry of [...get().outbox]) {
@@ -374,6 +412,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]),
       },
     }));
+    void persistState();
+  },
+
+  applyMessageDeleted: ({ id, streamId, deletedAt }) => {
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [streamId]: markMessageDeleted(state.messages[streamId] ?? [], id, deletedAt),
+      },
+    }));
+    void persistState();
+    void get().refreshBootstrap();
+  },
+
+  applyConversation: (conversation) => {
+    set((state) => ({
+      conversations: upsertConversation(state.conversations, conversation),
+    }));
+    void persistState();
+  },
+
+  removeConversation: (conversationId) => {
+    set((state) => {
+      const { [conversationId]: _removed, ...messages } = state.messages;
+      return { conversations: state.conversations.filter((item) => item.id !== conversationId), messages };
+    });
     void persistState();
   },
 

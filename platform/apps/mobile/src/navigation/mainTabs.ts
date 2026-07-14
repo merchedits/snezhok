@@ -9,3 +9,11 @@ export function mainTabIndex(tab: MainTab): number {
 export function mainTabDirection(from: MainTab, to: MainTab): -1 | 0 | 1 {
   return Math.sign(mainTabIndex(to) - mainTabIndex(from)) as -1 | 0 | 1;
 }
+
+export function mainTabTransition(from: MainTab, to: MainTab) {
+  return {
+    from,
+    to,
+    direction: mainTabDirection(from, to),
+  } as const;
+}

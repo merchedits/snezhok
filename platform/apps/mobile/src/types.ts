@@ -41,6 +41,7 @@ export interface CallJoinResponse {
   url: string;
   token: string;
   roomName: string;
+  canEnd: boolean;
 }
 
 export interface AndroidReleaseManifest {

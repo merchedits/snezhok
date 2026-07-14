@@ -11,6 +11,8 @@ import { StatusBar } from "expo-status-bar";
 import { OfflineBar } from "./src/components/OfflineBar";
 import { usePalette } from "./src/hooks/usePalette";
 import { useRealtime } from "./src/hooks/useRealtime";
+import { navigationRef } from "./src/navigation/navigationRef";
+import { flushPendingNotificationNavigation } from "./src/notifications/androidNotifications";
 import { CallScreen } from "./src/screens/CallScreen";
 import { ChatScreen } from "./src/screens/ChatScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
@@ -72,7 +74,7 @@ function AppRoot() {
   };
 
   return (
-    <NavigationContainer theme={navigationTheme}>
+    <NavigationContainer ref={navigationRef} onReady={flushPendingNotificationNavigation} theme={navigationTheme}>
       <StatusBar style={palette.dark ? "light" : "dark"} />
       <OfflineBar />
       <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>

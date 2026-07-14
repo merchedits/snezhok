@@ -16,6 +16,8 @@ export function MessageActionsSheet({
   onReply,
   onReact,
   onForward,
+  onPin,
+  onDelete,
 }: {
   message: Message | null;
   conversations: ConversationSummary[];
@@ -23,9 +25,11 @@ export function MessageActionsSheet({
   onReply: (message: Message) => void;
   onReact: (message: Message, emoji: string) => void;
   onForward: (message: Message, conversation: ConversationSummary) => void;
+  onPin: (message: Message, pinned: boolean) => void;
+  onDelete: (message: Message) => void;
 }) {
   const palette = usePalette();
-  const { language } = useTranslation();
+  const { language, t } = useTranslation();
   const russian = language === "ru";
 
   return (
@@ -42,7 +46,9 @@ export function MessageActionsSheet({
                 </Pressable>
               ))}
             </View>
-            <Action icon="return-down-back-outline" label={russian ? "Ответить" : "Reply"} onPress={() => onReply(message)} />
+            <Action icon="return-down-back-outline" label={t("reply")} onPress={() => onReply(message)} />
+            <Action icon={message.pinnedAt ? "pin-outline" : "pin"} label={t(message.pinnedAt ? "unpinMessage" : "pinMessage")} onPress={() => onPin(message, !message.pinnedAt)} />
+            <Action icon="trash-outline" label={t("deleteMessage")} danger onPress={() => onDelete(message)} />
             <View style={[styles.divider, { backgroundColor: palette.border }]} />
             <Text style={[styles.section, { color: palette.secondaryText }]}>{russian ? "Переслать в…" : "Forward to…"}</Text>
             <ScrollView style={styles.targets} contentContainerStyle={styles.targetsContent} showsVerticalScrollIndicator={false}>
@@ -68,12 +74,12 @@ export function MessageActionsSheet({
   );
 }
 
-function Action({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+function Action({ icon, label, onPress, danger = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; danger?: boolean }) {
   const palette = usePalette();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: pressed ? palette.surface : "transparent" }]}>
-      <Ionicons name={icon} size={22} color={palette.accent} />
-      <Text style={[styles.actionText, { color: palette.text }]}>{label}</Text>
+      <Ionicons name={icon} size={22} color={danger ? palette.danger : palette.accent} />
+      <Text style={[styles.actionText, { color: danger ? palette.danger : palette.text }]}>{label}</Text>
     </Pressable>
   );
 }

@@ -1,16 +1,26 @@
 import { useEffect } from "react";
+import * as Notifications from "expo-notifications";
 import { io, type Socket } from "socket.io-client";
 
 import type { ClientToServerEvents, ServerToClientEvents } from "@snezhok/contracts";
 
 import { API_URL } from "../lib/api";
 import { readSession } from "../lib/secureSession";
+import {
+  handleCallUpdate,
+  handleNotificationResponse,
+  initializeAndroidNotifications,
+  notifyIncomingMessage,
+} from "../notifications/androidNotifications";
 import { useAppStore } from "../store/useAppStore";
 
 type RealtimeSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 export function useRealtime(enabled: boolean): void {
   const applyMessage = useAppStore((state) => state.applyMessage);
+  const applyMessageDeleted = useAppStore((state) => state.applyMessageDeleted);
+  const applyConversation = useAppStore((state) => state.applyConversation);
+  const removeConversation = useAppStore((state) => state.removeConversation);
   const applyPresence = useAppStore((state) => state.applyPresence);
   const refreshBootstrap = useAppStore((state) => state.refreshBootstrap);
   const setEventCursor = useAppStore((state) => state.setEventCursor);
@@ -19,6 +29,11 @@ export function useRealtime(enabled: boolean): void {
     if (!enabled) return;
     let socket: RealtimeSocket | null = null;
     let disposed = false;
+    void initializeAndroidNotifications();
+    const notificationResponse = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response && !disposed) handleNotificationResponse(response);
+    }).catch(() => undefined);
 
     void readSession().then((session) => {
       if (disposed || !session) return;
@@ -36,9 +51,17 @@ export function useRealtime(enabled: boolean): void {
         });
       });
       socket.on("sync:ready", ({ cursor }) => setEventCursor(cursor));
-      socket.on("message:created", applyMessage);
+      socket.on("message:created", (message) => {
+        applyMessage(message);
+        void notifyIncomingMessage(message).catch((error) => console.warn("Message notification failed", error));
+      });
       socket.on("message:updated", applyMessage);
-      socket.on("conversation:updated", () => void refreshBootstrap());
+      socket.on("call:updated", (payload) => {
+        void handleCallUpdate(payload).catch((error) => console.warn("Call notification failed", error));
+      });
+      socket.on("message:deleted", applyMessageDeleted);
+      socket.on("conversation:updated", applyConversation);
+      socket.on("conversation:removed", ({ id }) => removeConversation(id));
       socket.on("channel:updated", () => void refreshBootstrap());
       socket.on("friend:updated", () => void refreshBootstrap());
       socket.on("presence:updated", ({ userId, presence, lastSeenAt }) => applyPresence(userId, presence, lastSeenAt));
@@ -51,7 +74,8 @@ export function useRealtime(enabled: boolean): void {
 
     return () => {
       disposed = true;
+      notificationResponse.remove();
       socket?.disconnect();
     };
-  }, [applyMessage, applyPresence, enabled, refreshBootstrap, setEventCursor]);
+  }, [applyConversation, applyMessage, applyMessageDeleted, applyPresence, enabled, refreshBootstrap, removeConversation, setEventCursor]);
 }
