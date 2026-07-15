@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="SnezhokAppName" translatable="false">Snezhok Preview</string>
+    <string name="AppName">Snezhok Preview</string>
+    <string name="AppNameBeta">Snezhok Preview</string>
+</resources>

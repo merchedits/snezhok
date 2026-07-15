@@ -113,6 +113,15 @@ android {
         minSdkVersion 21
         targetSdkVersion 35
 
+        // Snezhok preview builds target physical Android devices only. Keep the
+        // upstream ABI matrix unchanged unless this explicit build property is
+        // supplied by the isolated preview wrapper.
+        if (project.hasProperty('SNEZHOK_PREVIEW_ABIS')) {
+            ndk {
+                abiFilters(*project.property('SNEZHOK_PREVIEW_ABIS').toString().split(','))
+            }
+        }
+
         vectorDrawables.generatedDensities = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi']
 
         multiDexEnabled true

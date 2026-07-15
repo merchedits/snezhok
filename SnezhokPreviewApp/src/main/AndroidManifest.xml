@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:installLocation="auto">
+
+    <!-- Preview builds must never request permission to replace the stable APK. -->
+    <uses-permission
+        android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:node="remove" />
+
+    <application
+        android:name="org.telegram.messenger.ApplicationLoaderImpl"
+        android:icon="@drawable/ic_snezhok_launcher"
+        android:roundIcon="@drawable/ic_snezhok_launcher"
+        android:label="@string/SnezhokAppName"
+        tools:replace="android:name,android:icon,android:roundIcon,android:label">
+
+        <activity-alias
+            android:name="org.telegram.messenger.DefaultIcon"
+            android:targetActivity="org.telegram.ui.LaunchActivity"
+            android:enabled="false"
+            android:exported="false"
+            android:icon="@drawable/ic_snezhok_launcher"
+            android:label="@string/SnezhokAppName"
+            android:roundIcon="@drawable/ic_snezhok_launcher"
+            tools:node="replace" />
+
+        <!-- Do not register Telegram's public deep links or share targets. -->
+        <activity
+            android:name="org.telegram.ui.LaunchActivity"
+            android:theme="@style/Theme.TMessages.Start"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode|smallestScreenSize|screenLayout"
+            android:supportsPictureInPicture="true"
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true"
+            tools:node="replace">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity-alias
+            android:name="org.telegram.ui.CallsActivity"
+            tools:node="remove" />
+        <activity
+            android:name="org.telegram.messenger.OpenChatReceiver"
+            tools:node="remove" />
+        <activity
+            android:name="org.telegram.messenger.OpenAttachedMenuBotReceiver"
+            tools:node="remove" />
+
+        <receiver
+            android:name="org.telegram.messenger.SmsReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="org.telegram.messenger.RefererReceiver"
+            tools:node="remove" />
+
+        <service
+            android:name="org.telegram.messenger.AuthenticatorService"
+            tools:node="remove" />
+        <service
+            android:name="org.telegram.messenger.ContactsSyncAdapterService"
+            tools:node="remove" />
+        <service
+            android:name="org.telegram.messenger.MusicBrowserService"
+            tools:node="remove" />
+        <service
+            android:name="org.telegram.messenger.voip.TelegramConnectionService"
+            tools:node="remove" />
+        <service
+            android:name="org.telegram.messenger.WearAuthListenerService"
+            tools:node="remove" />
+        <service
+            android:name="org.telegram.messenger.car.TelegramCarAppService"
+            android:enabled="false"
+            android:exported="false"
+            tools:replace="android:enabled,android:exported" />
+
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            tools:node="remove" />
+    </application>
+</manifest>
