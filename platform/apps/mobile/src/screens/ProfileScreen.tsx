@@ -4,12 +4,13 @@ import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ProfilePhoto, UserProfile } from "@snezhok/contracts";
 
 import { Avatar } from "../components/Avatar";
+import { useAppDialog } from "../components/AppDialogProvider";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { usePalette } from "../hooks/usePalette";
@@ -28,6 +29,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
   const palette = usePalette();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const showDialog = useAppDialog();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const me = useAppStore((state) => state.me);
   const friends = useAppStore((state) => state.friends);
@@ -56,7 +58,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
         setStatusText(next.user.statusText);
         setSelectedPhotoId(null);
       }).catch((error) => {
-        if (mounted && !profile) Alert.alert(t("profileLoadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+        if (mounted && !profile) showDialog(t("profileLoadFailed"), error instanceof Error ? error.message : t("tryAgain"));
       });
     }, embedded ? 220 : 0);
     return () => { mounted = false; clearTimeout(timer); };
@@ -74,14 +76,14 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       await refreshBootstrap();
       setEditing(false);
     } catch (error) {
-      Alert.alert(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain"));
     } finally { setBusy(false); }
   };
 
   const addPhoto = async () => {
     if (busy) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return Alert.alert(t("permissionPhotos"), t("allowPhotos"));
+    if (!permission.granted) return showDialog(t("permissionPhotos"), t("allowPhotos"));
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85, allowsEditing: true, aspect: [1, 1] });
     const asset = result.assets?.[0];
     if (!asset) return;
@@ -92,7 +94,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
     } catch (error) {
-      Alert.alert(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
     } finally { setBusy(false); }
   };
 
@@ -103,11 +105,11 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       const next = await api.reorderProfilePhotos([photo.id, ...profile.photos.filter((item) => item.id !== photo.id).map((item) => item.id)]);
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
-    } catch (error) { Alert.alert(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain")); }
+    } catch (error) { showDialog(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain")); }
     finally { setBusy(false); }
   };
 
-  const confirmDelete = (photo: ProfilePhoto) => Alert.alert(t("deletePhoto"), t("deletePhotoConfirm"), [
+  const confirmDelete = (photo: ProfilePhoto) => showDialog(t("deletePhoto"), t("deletePhotoConfirm"), [
     { text: t("cancel"), style: "cancel" },
     { text: t("deletePhoto"), style: "destructive", onPress: () => void removePhoto(photo.id) },
   ]);
@@ -118,7 +120,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       const next = await api.removeProfilePhoto(photoId);
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
-    } catch (error) { Alert.alert(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain")); }
+    } catch (error) { showDialog(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain")); }
     finally { setBusy(false); }
   };
 
@@ -129,7 +131,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       const conversation = direct ?? await api.createConversation([profile.user.id]);
       if (!direct) applyConversation(conversation);
       navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title });
-    } catch (error) { Alert.alert(t("openChatFailed"), error instanceof Error ? error.message : t("tryAgain")); }
+    } catch (error) { showDialog(t("openChatFailed"), error instanceof Error ? error.message : t("tryAgain")); }
   };
 
   const openContact = (contactId: string) => navigation.navigate("Profile", { userId: contactId });

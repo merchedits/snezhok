@@ -1,6 +1,6 @@
 {
   "name": "@snezhok/mobile",
-  "version": "3.5.4",
+  "version": "3.5.5",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -43,6 +43,7 @@
     "expo-media-library": "~56.0.9",
     "expo-notifications": "~56.0.20",
     "expo-secure-store": "~56.0.4",
+    "expo-sqlite": "56.0.5",
     "expo-status-bar": "~56.0.4",
     "expo-system-ui": "~56.0.5",
     "expo-video": "~56.1.4",

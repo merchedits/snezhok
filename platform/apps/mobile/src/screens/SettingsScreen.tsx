@@ -2,11 +2,12 @@ import { AppIcon, type AppIconName } from "../components/AppIcon";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { ReactNode } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 
 import type { AppSettings } from "@snezhok/contracts";
 
 import { ScreenHeader } from "../components/ScreenHeader";
+import { useAppDialog } from "../components/AppDialogProvider";
 import { usePalette } from "../hooks/usePalette";
 import { optionLabel, useTranslation } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
@@ -19,11 +20,12 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const palette = usePalette();
   const { t } = useTranslation();
+  const showDialog = useAppDialog();
   const settings = useAppStore((state) => state.settings);
   const update = useAppStore((state) => state.updateSettings);
   const signOut = useAppStore((state) => state.signOut);
   const appUpdate = useAndroidUpdate();
-  const patch = (value: Partial<AppSettings>) => void update(value).catch((error: unknown) => Alert.alert(t("saveFailed"), error instanceof Error ? error.message : t("tryAgain")));
+  const patch = (value: Partial<AppSettings>) => void update(value).catch((error: unknown) => showDialog(t("saveFailed"), error instanceof Error ? error.message : t("tryAgain")));
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.surface }]}> 
@@ -67,7 +69,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
           {appUpdate.manifest?.releaseNotes.length ? <View style={styles.releaseNotes}>{appUpdate.manifest.releaseNotes.map((note) => <Text key={note} style={[styles.releaseNote, { color: palette.secondaryText }]}>• {note}</Text>)}</View> : null}
         </SettingsSection>
 
-        <Pressable onPress={() => Alert.alert(t("signOut"), t("signOutQuestion"), [{ text: t("cancel"), style: "cancel" }, { text: t("signOut"), style: "destructive", onPress: () => void signOut() }])} style={[styles.signOut, { backgroundColor: palette.background }]}><Text style={[styles.signOutText, { color: palette.danger }]}>{t("signOut")}</Text></Pressable>
+        <Pressable onPress={() => showDialog(t("signOut"), t("signOutQuestion"), [{ text: t("cancel"), style: "cancel" }, { text: t("signOut"), style: "destructive", onPress: () => void signOut() }])} style={[styles.signOut, { backgroundColor: palette.background }]}><Text style={[styles.signOutText, { color: palette.danger }]}>{t("signOut")}</Text></Pressable>
       </ScrollView>
     </View>
   );

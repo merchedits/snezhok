@@ -5,13 +5,14 @@ import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, 
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { AppSettings, Message, UploadQuality } from "@snezhok/contracts";
 
 import { AttachmentSheet } from "../components/AttachmentSheet";
+import { useAppDialog } from "../components/AppDialogProvider";
 import { Avatar } from "../components/Avatar";
 import { ForwardPickerModal } from "../components/ForwardPickerModal";
 import { MessageBubble } from "../components/MessageBubble";
@@ -37,6 +38,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const { streamId, streamKind, title } = route.params;
   const palette = usePalette();
   const { t } = useTranslation();
+  const showDialog = useAppDialog();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<Message>>(null);
@@ -138,7 +140,7 @@ export function ChatScreen({ navigation, route }: Props) {
   };
 
   const handleUpload = useCallback(async (input: UploadInput, messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
-    if (!online) return Alert.alert(t("offline"), t("attachmentOnline"));
+    if (!online) return showDialog(t("offline"), t("attachmentOnline"));
     setUploading(true);
     try {
       const attachment = await uploadAttachment(input);
@@ -147,16 +149,16 @@ export function ChatScreen({ navigation, route }: Props) {
       await sendMessage(streamId, { text: "", kind: messageKind, replyToId, attachmentIds: [attachment.id] });
       setAttachmentSheet(false);
     } catch (error) {
-      Alert.alert(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
     } finally {
       setUploading(false);
     }
   }, [online, replyingTo?.id, sendMessage, streamId, t, uploadAttachment]);
 
   const beginRecording = async () => {
-    if (!online) return Alert.alert(t("offline"), t("voiceOnline"));
+    if (!online) return showDialog(t("offline"), t("voiceOnline"));
     const permission = await requestRecordingPermissionsAsync();
-    if (!permission.granted) return Alert.alert(t("microphoneRequired"), t("allowMicrophone"));
+    if (!permission.granted) return showDialog(t("microphoneRequired"), t("allowMicrophone"));
     setRecorderMounted(true);
   };
 
@@ -167,7 +169,7 @@ export function ChatScreen({ navigation, route }: Props) {
     const showDay = !previous || new Date(previous.createdAt).toDateString() !== new Date(item.createdAt).toDateString();
     const groupedWithPrevious = !showDay && previous?.sender.id === item.sender.id && item.createdAt - previous.createdAt <= 5 * 60_000;
     const showSender = (streamKind === "channel" || isGroup) && !groupedWithPrevious;
-    return <View>{showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}<SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}><MessageBubble message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain")))} /></SwipeReplyRow></View>;
+    return <View>{showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}<SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}><MessageBubble message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")))} /></SwipeReplyRow></View>;
   }, [displayMessages, isGroup, me?.id, palette.border, palette.secondaryText, selectedIds, selectionMode, selectionProgress, streamKind, t, toggleReaction, toggleSelected]);
 
   const handleScrollToIndexFailed = useCallback(({ index }: { index: number }) => {
@@ -183,7 +185,7 @@ export function ChatScreen({ navigation, route }: Props) {
       setSelectedIds(new Set());
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     } catch {
-      Alert.alert(t("requestFailed"), t("tryAgain"));
+      showDialog(t("requestFailed"), t("tryAgain"));
     } finally {
       setForwarding(false);
     }
@@ -203,10 +205,10 @@ export function ChatScreen({ navigation, route }: Props) {
         for (const message of selectedMessages) await deleteMessage(message, scope);
         setSelectedIds(new Set());
       } catch (error) {
-        Alert.alert(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"));
+        showDialog(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"));
       }
     };
-    Alert.alert(
+    showDialog(
       t("deleteMessagesTitle", { count: selectedMessages.length }),
       t("deleteMessagesAudience"),
       [
@@ -225,7 +227,7 @@ export function ChatScreen({ navigation, route }: Props) {
       for (const message of eligible) await setMessagePinned(message, pinned);
       setSelectedIds(new Set());
     } catch (error) {
-      Alert.alert(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"));
     }
   };
 
@@ -245,7 +247,7 @@ export function ChatScreen({ navigation, route }: Props) {
     setReactionTarget(null);
     if (!target) return;
     void Haptics.selectionAsync().catch(() => undefined);
-    void toggleReaction(target.message, emoji).catch(() => Alert.alert(t("requestFailed"), t("tryAgain")));
+    void toggleReaction(target.message, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")));
   }, [reactionTarget, t, toggleReaction]);
 
   return (
@@ -285,6 +287,7 @@ export function ChatScreen({ navigation, route }: Props) {
 function VoiceRecorderControl({ quality, microphoneMode, onRecordingChange, onMetering, onCancel, onComplete }: { quality: UploadQuality; microphoneMode: AppSettings["microphoneMode"]; onRecordingChange: (value: boolean) => void; onMetering: (metering: number | undefined, durationMillis: number) => void; onCancel: () => void; onComplete: (input: UploadInput) => Promise<void> }) {
   const palette = usePalette();
   const { t } = useTranslation();
+  const showDialog = useAppDialog();
   const recordingOptions = useMemo(() => ({
     ...RecordingPresets.HIGH_QUALITY,
     isMeteringEnabled: true,
@@ -323,7 +326,7 @@ function VoiceRecorderControl({ quality, microphoneMode, onRecordingChange, onMe
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
       } catch (error) {
         await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
-        Alert.alert(t("microphoneRequired"), error instanceof Error ? error.message : t("tryAgain"));
+        showDialog(t("microphoneRequired"), error instanceof Error ? error.message : t("tryAgain"));
         onCancel();
       }
     })();
@@ -341,7 +344,7 @@ function VoiceRecorderControl({ quality, microphoneMode, onRecordingChange, onMe
       if (!recorder.uri) throw new Error(t("tryAgain"));
       await onComplete({ uri: recorder.uri, filename: `voice-${Date.now()}.m4a`, mimeType: "audio/mp4", kind: "audio", quality, purpose: "voice" });
     } catch (error) {
-      Alert.alert(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
       onCancel();
     }
   };

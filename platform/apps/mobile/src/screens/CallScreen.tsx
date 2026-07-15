@@ -11,12 +11,14 @@ import {
   useTracks,
 } from "@livekit/react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, PermissionsAndroid, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ConnectionState, Track, VideoPresets } from "livekit-client";
 
 import { Avatar } from "../components/Avatar";
+import { useAppDialog } from "../components/AppDialogProvider";
 import { usePalette } from "../hooks/usePalette";
+import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
 import { useAppStore } from "../store/useAppStore";
 import type { CallJoinResponse, RootStackParamList } from "../types";
@@ -107,6 +109,8 @@ export function CallScreen({ navigation, route }: Props) {
 
 function CallRoom({ title, onLeave }: { title: string; onLeave: () => void }) {
   const palette = usePalette();
+  const showDialog = useAppDialog();
+  const { t } = useTranslation();
   const room = useRoomContext();
   const connection = useConnectionState();
   const participants = useParticipants();
@@ -114,7 +118,7 @@ function CallRoom({ title, onLeave }: { title: string; onLeave: () => void }) {
   const videoTracks = useTracks([Track.Source.ScreenShare, Track.Source.Camera], { onlySubscribed: false });
   const [speaker, setSpeaker] = useState(true);
 
-  const toggle = async (action: () => Promise<unknown>, failure: string) => action().catch((error: unknown) => Alert.alert(failure, error instanceof Error ? error.message : "Try again."));
+  const toggle = async (action: () => Promise<unknown>, failure: string) => action().catch((error: unknown) => showDialog(failure, error instanceof Error ? error.message : t("tryAgain")));
   const leave = () => { room.disconnect(); onLeave(); };
   const toggleSpeaker = async () => {
     const next = !speaker;
@@ -146,11 +150,11 @@ function CallRoom({ title, onLeave }: { title: string; onLeave: () => void }) {
       </ScrollView>
 
       <View style={styles.controls}>
-        <CallButton icon={isMicrophoneEnabled ? "mic" : "mic-off"} label={isMicrophoneEnabled ? "Mute" : "Unmute"} active={!isMicrophoneEnabled} onPress={() => void toggle(async () => { if (!isMicrophoneEnabled && !(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO))) throw new Error("Microphone permission denied"); return localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled); }, "Microphone unavailable")} />
-        <CallButton icon={isCameraEnabled ? "videocam" : "videocam-off"} label="Camera" active={isCameraEnabled} onPress={() => void toggle(async () => { if (!isCameraEnabled && !(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.CAMERA))) throw new Error("Camera permission denied"); return localParticipant.setCameraEnabled(!isCameraEnabled); }, "Camera unavailable")} />
-        <CallButton icon="phone-portrait-outline" label="Share" active={isScreenShareEnabled} onPress={() => void toggle(() => localParticipant.setScreenShareEnabled(!isScreenShareEnabled), "Screen share unavailable")} />
+        <CallButton icon={isMicrophoneEnabled ? "mic" : "mic-off"} label={isMicrophoneEnabled ? "Mute" : "Unmute"} active={!isMicrophoneEnabled} onPress={() => void toggle(async () => { if (!isMicrophoneEnabled && !(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO))) throw new Error(t("microphonePermissionDenied")); return localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled); }, t("microphoneUnavailable"))} />
+        <CallButton icon={isCameraEnabled ? "videocam" : "videocam-off"} label="Camera" active={isCameraEnabled} onPress={() => void toggle(async () => { if (!isCameraEnabled && !(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.CAMERA))) throw new Error(t("cameraPermissionDenied")); return localParticipant.setCameraEnabled(!isCameraEnabled); }, t("cameraUnavailable"))} />
+        <CallButton icon="phone-portrait-outline" label="Share" active={isScreenShareEnabled} onPress={() => void toggle(() => localParticipant.setScreenShareEnabled(!isScreenShareEnabled), t("screenShareUnavailable"))} />
         <CallButton icon={speaker ? "volume-high" : "ear-outline"} label={speaker ? "Speaker" : "Earpiece"} active={speaker} onPress={() => void toggleSpeaker()} />
-        <CallButton icon="ellipsis-horizontal" label="More" onPress={() => Alert.alert("Call settings", "Audio processing follows Voice and video settings. Media quality adapts to the connection.")} />
+        <CallButton icon="ellipsis-horizontal" label="More" onPress={() => showDialog(t("callSettings"), t("callSettingsDescription"))} />
         <CallButton icon="call" label="Leave" danger onPress={leave} />
       </View>
     </SafeAreaView>

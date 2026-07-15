@@ -13,8 +13,9 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
 - Coalesce realtime cache writes. Presence changes are ephemeral and are not
   written to disk.
 - Persist only the latest 80 messages per stream, plus pinned, pending, and
-  failed messages. Older history remains authoritative on the server and is
-  fetched by cursor.
+  failed messages, in the WAL-backed SQLite offline store. The store exposes
+  sequence-cursor pages and migrates the former AsyncStorage v2 snapshot in one
+  transaction. Older history remains authoritative on the server.
 - Deduplicate concurrent history requests and consider a freshly loaded stream
   valid for 15 seconds. Start the request on chat-row press-in so the gesture and
   network latency overlap.
@@ -22,11 +23,18 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
   `FlatList` windows deliberately small on Android.
 - Images use the native Glide-backed `expo-image` memory/disk cache. Do not
   prefetch the entire inbox; load visible assets and the selected destination.
+- Image and video attachments carry server-derived dimensions and a compact
+  thumbnail variant. Reserve layout from dimensions and decode the thumbnail in
+  message cells; the full-resolution object is for the viewer only.
 - Audio and video players are created only after the user presses play. A chat
   containing many media messages must not instantiate one native decoder per
   visible attachment.
 - Animations should use transforms and opacity on the UI thread. Network or
   storage work starts after the navigation animation, never inside it.
+- Bootstrap conversation summaries use three recipient-scoped batch queries
+  for membership/state, participants, and visible previews plus unread counts.
+  Query count must remain constant as the inbox grows; do not reintroduce
+  per-conversation participant or last-message lookups.
 
 ## Reference clients
 
@@ -52,18 +60,41 @@ The implementation is informed by, but does not copy code from, these projects:
 
 ## Next measurements
 
-1. Add an Android Macrobenchmark/baseline-profile companion project and record
-   cold start, inbox-to-chat, and a 200-message scroll on the target device.
-2. Replace the JSON message cache with a paged SQLite store once typical accounts
-   exceed the bounded cache or need reliable full-history offline search.
-3. Batch the API bootstrap conversation-summary queries; the current server
-   implementation is acceptable for a few users but performs repeated queries
-   per conversation and will not scale linearly.
-4. Add generated media thumbnails and dimensions to every attachment so list
-   layout never waits for a full-resolution decode.
-5. Profile JS and UI frame time in release builds before changing transition
+1. Record the checked-in Android Macrobenchmark suite on the target device. It
+   covers cold start with and without a Baseline Profile, inbox-to-chat frame
+   time, and a repeated long-chat scroll. Generate the production profile from
+   an authenticated physical-device run; never fabricate one in CI without the
+   real app path.
+2. Measure SQLite page-read and write-amplification costs on a large synthetic
+   inbox before considering a larger offline projection or full-history search.
+3. Measure thumbnail cache hit rate and decoded-memory pressure on media-heavy
+   chats before changing thumbnail dimensions or cache policy.
+4. Profile JS and UI frame time in release builds before changing transition
    durations. A shorter dropped-frame animation is still a dropped-frame
    animation.
+
+## Android benchmark workflow
+
+The mobile config plugin creates an isolated `:macrobenchmark` module during
+Expo prebuild, marks the release app profileable, and installs AndroidX
+ProfileInstaller for sideloaded APKs. The benchmark dependency is not linked
+into the application.
+
+1. Connect an Android 9+ physical device, keep animations enabled, and sign the
+   benchmark build into a private test account. Seed Saved Messages with enough
+   rows to scroll.
+2. Run `npm run prebuild` from `platform/apps/mobile`.
+3. From the generated `android` directory run
+   `./gradlew :macrobenchmark:connectedBenchmarkAndroidTest` (or
+   `gradlew.bat` on Windows).
+4. Copy the generated `*-baseline-prof.txt` from
+   `macrobenchmark/build/outputs/connected_android_test_additional_output` to
+   `performance/baseline-prof.txt`, prebuild again, and compare the profiled and
+   unprofiled cold-start results before publishing.
+
+`performance/baseline-prof.txt` is intentionally absent until a physical-device
+run produces it. ProfileInstaller improves first-run compilation for direct APK
+installs once that measured profile is present.
 
 ## Anti-patterns
 

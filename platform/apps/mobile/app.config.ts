@@ -7,7 +7,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.5.4",
+  version: "3.5.5",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -17,6 +17,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   runtimeVersion: { policy: "appVersion" },
   plugins: [
     "./plugins/withReleaseSigning.cjs",
+    "./plugins/withAndroidPerformance.cjs",
     "expo-image",
     [
       "@livekit/react-native-expo-plugin",
@@ -60,7 +61,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 12,
+    versionCode: 13,
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
       foregroundImage: "./assets/snezhok-icon.png",

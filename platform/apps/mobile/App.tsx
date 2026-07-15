@@ -10,6 +10,7 @@ import { enableFreeze } from "react-native-screens";
 import { StatusBar } from "expo-status-bar";
 
 import { OfflineBar } from "./src/components/OfflineBar";
+import { AppDialogProvider } from "./src/components/AppDialogProvider";
 import { usePalette } from "./src/hooks/usePalette";
 import { useRealtime } from "./src/hooks/useRealtime";
 import { navigationRef } from "./src/navigation/navigationRef";
@@ -35,7 +36,7 @@ export default function App() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <AndroidUpdateProvider>
-          <AppRoot />
+          <AppDialogProvider><AppRoot /></AppDialogProvider>
         </AndroidUpdateProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

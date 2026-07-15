@@ -25,39 +25,111 @@ export async function bootstrap(userId: string): Promise<BootstrapPayload> {
 }
 
 export async function conversationSummary(userId: string, conversationId: string, client: Pick<DbClient, "query"> = pool): Promise<ConversationSummary> {
-  const base = (await client.query<{ id: string; kind: "direct" | "group"; title: string; saved: boolean; updated_at_ms: number; muted: boolean; pinned: boolean; archived: boolean; unread_count: number }>(
-    `SELECT c.id,c.kind,c.title,coalesce(c.saved_owner_id=$1,false) saved,(extract(epoch from c.updated_at)*1000)::bigint::float8 updated_at_ms,
-      (cm.muted_until IS NOT NULL AND cm.muted_until>now()) muted,cm.pinned_at IS NOT NULL pinned,cm.archived_at IS NOT NULL archived,
-      (SELECT count(*)::int FROM messages m WHERE m.stream_kind='conversation' AND m.stream_id=c.id AND m.deleted_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id)
-       AND m.sender_id<>$1
-       AND m.sequence > coalesce((SELECT last_read_sequence FROM read_states WHERE user_id=$1 AND stream_kind='conversation' AND stream_id=c.id),0)) unread_count
-     FROM conversations c JOIN conversation_members cm ON cm.conversation_id=c.id WHERE c.id=$2 AND cm.user_id=$1`, [userId, conversationId])).rows[0];
-  if (!base) throw new Error("Conversation not found");
-  const participantRows = await client.query<PublicUserRow>(`SELECT ${publicUserSelect} FROM conversation_members cm JOIN users u ON u.id=cm.user_id WHERE cm.conversation_id=$1 ORDER BY u.display_name`, [conversationId]);
-  const participants = participantRows.rows.map(mapUser);
-  const last = await client.query<{ id: string; sender_id: string; sender_name: string; text: string; kind: MessagePreview["kind"]; created_at_ms: number }>(
-    `SELECT m.id,m.sender_id,u.display_name sender_name,m.text,m.kind,(extract(epoch from m.created_at)*1000)::bigint::float8 created_at_ms
-     FROM messages m JOIN users u ON u.id=m.sender_id
-     WHERE m.stream_kind='conversation' AND m.stream_id=$1 AND m.deleted_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$2 AND hm.message_id=m.id)
-     ORDER BY m.sequence DESC LIMIT 1`, [conversationId, userId]);
-  const other = participants.find((user) => user.id !== userId);
-  return { id: base.id, kind: base.kind, title: base.saved ? "Saved Messages" : base.kind === "direct" ? (other?.displayName ?? "Direct message") : base.title,
-    avatarUrl: base.kind === "direct" ? (other?.avatarUrl ?? null) : null, participants,
-    lastMessage: last.rows[0] ? mapPreview(last.rows[0]) : null, unreadCount: base.unread_count, mentionCount: 0,
-    muted: base.muted, pinned: base.pinned, archived: base.archived, saved: base.saved, updatedAt: Number(base.updated_at_ms) };
+  const summary = (await loadConversationSummaries(userId, client, [conversationId]))[0];
+  if (!summary) throw new Error("Conversation not found");
+  return summary;
 }
 
-async function conversationSummaries(userId: string, client: DbClient) {
-  const ids = await client.query<{ id: string }>(
-    `SELECT cm.conversation_id id FROM conversation_members cm JOIN conversations c ON c.id=cm.conversation_id
-     WHERE cm.user_id=$1 ORDER BY (c.saved_owner_id=$1) DESC,coalesce(cm.pinned_at,'epoch') DESC`,
-    [userId],
+type ConversationBaseRow = {
+  id: string;
+  kind: "direct" | "group";
+  title: string;
+  saved: boolean;
+  updated_at_ms: number;
+  muted: boolean;
+  pinned: boolean;
+  archived: boolean;
+};
+
+type ConversationParticipantRow = PublicUserRow & { conversation_id: string };
+type ConversationPreviewRow = {
+  stream_id: string;
+  id: string;
+  sender_id: string;
+  sender_name: string;
+  text: string;
+  kind: MessagePreview["kind"];
+  created_at_ms: number;
+  unread_count: number;
+};
+
+export async function conversationSummaries(userId: string, client: Pick<DbClient, "query"> = pool): Promise<ConversationSummary[]> {
+  return loadConversationSummaries(userId, client, null);
+}
+
+async function loadConversationSummaries(userId: string, client: Pick<DbClient, "query">, conversationIds: string[] | null): Promise<ConversationSummary[]> {
+  // Keep recipient-specific membership, read-state, mute/pin/archive, and hidden
+  // message predicates in SQL, but batch the three projections. Bootstrap now
+  // performs a fixed three queries instead of 1 + (3 * conversation count).
+  const baseRows = await client.query<ConversationBaseRow>(
+    `SELECT c.id,c.kind,c.title,coalesce(c.saved_owner_id=$1,false) saved,
+      (extract(epoch from c.updated_at)*1000)::bigint::float8 updated_at_ms,
+      (cm.muted_until IS NOT NULL AND cm.muted_until>now()) muted,
+      cm.pinned_at IS NOT NULL pinned,cm.archived_at IS NOT NULL archived
+     FROM conversations c
+     JOIN conversation_members cm ON cm.conversation_id=c.id
+     WHERE cm.user_id=$1 AND ($2::uuid[] IS NULL OR c.id=ANY($2::uuid[]))
+     ORDER BY (c.saved_owner_id=$1) DESC,coalesce(cm.pinned_at,'epoch') DESC`,
+    [userId, conversationIds],
   );
-  const summaries: ConversationSummary[] = [];
-  for (const row of ids.rows) summaries.push(await conversationSummary(userId, row.id, client));
-  return summaries;
+  if (!baseRows.rows.length) return [];
+
+  const ids = baseRows.rows.map((row) => row.id);
+  const participantRows = await client.query<ConversationParticipantRow>(
+    `SELECT cm.conversation_id,${publicUserSelect}
+     FROM conversation_members cm JOIN users u ON u.id=cm.user_id
+     WHERE cm.conversation_id=ANY($1::uuid[])
+     ORDER BY cm.conversation_id,u.display_name`,
+    [ids],
+  );
+  const previewRows = await client.query<ConversationPreviewRow>(
+    `WITH visible_messages AS MATERIALIZED (
+       SELECT m.* FROM messages m
+       WHERE m.stream_kind='conversation' AND m.stream_id=ANY($1::uuid[]) AND m.deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$2 AND hm.message_id=m.id)
+     ), unread AS (
+       SELECT m.stream_id,count(*)::int unread_count
+       FROM visible_messages m
+       LEFT JOIN read_states rs ON rs.user_id=$2 AND rs.stream_kind='conversation' AND rs.stream_id=m.stream_id
+       WHERE m.sender_id<>$2 AND m.sequence>coalesce(rs.last_read_sequence,0)
+       GROUP BY m.stream_id
+     )
+     SELECT DISTINCT ON (m.stream_id) m.stream_id,m.id,m.sender_id,u.display_name sender_name,m.text,m.kind,
+       (extract(epoch from m.created_at)*1000)::bigint::float8 created_at_ms,coalesce(unread.unread_count,0)::int unread_count
+     FROM visible_messages m JOIN users u ON u.id=m.sender_id
+     LEFT JOIN unread ON unread.stream_id=m.stream_id
+     ORDER BY m.stream_id,m.sequence DESC`,
+    [ids, userId],
+  );
+
+  const participantsByConversation = new Map<string, ReturnType<typeof mapUser>[]>();
+  for (const row of participantRows.rows) {
+    const participants = participantsByConversation.get(row.conversation_id) ?? [];
+    participants.push(mapUser(row));
+    participantsByConversation.set(row.conversation_id, participants);
+  }
+  const previewByConversation = new Map(previewRows.rows.map((row) => [row.stream_id, mapPreview(row)]));
+  const unreadByConversation = new Map(previewRows.rows.map((row) => [row.stream_id, row.unread_count]));
+
+  return baseRows.rows.map((base) => {
+    const participants = participantsByConversation.get(base.id) ?? [];
+    const other = participants.find((user) => user.id !== userId);
+    return {
+      id: base.id,
+      kind: base.kind,
+      title: base.saved ? "Saved Messages" : base.kind === "direct" ? (other?.displayName ?? "Direct message") : base.title,
+      avatarUrl: base.kind === "direct" ? (other?.avatarUrl ?? null) : null,
+      participants,
+      lastMessage: previewByConversation.get(base.id) ?? null,
+      unreadCount: unreadByConversation.get(base.id) ?? 0,
+      mentionCount: 0,
+      muted: base.muted,
+      pinned: base.pinned,
+      archived: base.archived,
+      saved: base.saved,
+      updatedAt: Number(base.updated_at_ms),
+    };
+  });
 }
 
 async function serverSummaries(userId: string, client: DbClient) {

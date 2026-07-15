@@ -1,49 +1,141 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
+
+import type { Message } from "@snezhok/contracts";
 
 import type { CachedState, OutboxEntry } from "../types";
-import { normalizeCachedMessages } from "./cachePolicy";
+import {
+  boundedCachedState,
+  clampCachePageSize,
+  decodeMessageRows,
+  parseLegacyCache,
+  type CachedMessageRow,
+} from "./offlineCachePolicy";
 
+const DATABASE_NAME = "snezhok-offline.db";
 const CACHE_KEY = "@snezhok/cache/v2";
 const LEGACY_CACHE_KEY = "@snezhok/cache/v1";
 const OUTBOX_KEY = "@snezhok/outbox/v1";
+const MIGRATION_KEY = "async_storage_v2_migrated";
 
 const EMPTY_CACHE: CachedState = { bootstrap: null, messages: {}, cachedAt: 0 };
 
+let databasePromise: Promise<SQLiteDatabase> | null = null;
+
+function database(): Promise<SQLiteDatabase> {
+  databasePromise ??= openDatabaseAsync(DATABASE_NAME).then(async (db) => {
+    await db.execAsync(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      CREATE TABLE IF NOT EXISTS cache_metadata (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS cached_messages (
+        stream_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        write_generation INTEGER NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (stream_id, message_id)
+      );
+      CREATE INDEX IF NOT EXISTS cached_messages_stream_sequence
+        ON cached_messages (stream_id, sequence DESC);
+      PRAGMA user_version = 1;
+    `);
+    await migrateAsyncStorageCache(db);
+    return db;
+  });
+  return databasePromise;
+}
+
+async function migrateAsyncStorageCache(db: SQLiteDatabase): Promise<void> {
+  const migrated = await db.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = ?", MIGRATION_KEY);
+  if (migrated) return;
+
+  const [currentRaw, legacyRaw] = await AsyncStorage.multiGet([CACHE_KEY, LEGACY_CACHE_KEY]);
+  const raw = currentRaw?.[1] ?? legacyRaw?.[1];
+  if (raw) {
+    await replaceCache(db, parseLegacyCache(raw) ?? EMPTY_CACHE, true);
+  } else {
+    await db.runAsync("INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)", MIGRATION_KEY, "1");
+  }
+
+  // Remove JSON only after the SQLite transaction and its migration marker commit.
+  await AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY]);
+}
+
+async function replaceCache(db: SQLiteDatabase, input: CachedState, markMigrated = false): Promise<void> {
+  const cache = boundedCachedState(input);
+  await db.withExclusiveTransactionAsync(async (transaction) => {
+    const previous = await transaction.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = 'write_generation'");
+    const generation = (Number(previous?.value) || 0) + 1;
+
+    await transaction.runAsync("INSERT OR REPLACE INTO cache_metadata (key, value) VALUES ('bootstrap', ?)", JSON.stringify(cache.bootstrap));
+    await transaction.runAsync("INSERT OR REPLACE INTO cache_metadata (key, value) VALUES ('cached_at', ?)", String(cache.cachedAt));
+    await transaction.runAsync("INSERT OR REPLACE INTO cache_metadata (key, value) VALUES ('write_generation', ?)", String(generation));
+
+    const upsert = await transaction.prepareAsync(
+      `INSERT INTO cached_messages (stream_id, message_id, sequence, created_at, write_generation, payload)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(stream_id, message_id) DO UPDATE SET
+         sequence = excluded.sequence,
+         created_at = excluded.created_at,
+         write_generation = excluded.write_generation,
+         payload = excluded.payload`,
+    );
+    try {
+      for (const [streamId, messages] of Object.entries(cache.messages)) {
+        for (const message of messages) {
+          await upsert.executeAsync(streamId, message.id, message.sequence, message.createdAt, generation, JSON.stringify(message));
+        }
+      }
+    } finally {
+      await upsert.finalizeAsync();
+    }
+
+    // Rows outside the bounded projection disappear without a large NOT IN list.
+    await transaction.runAsync("DELETE FROM cached_messages WHERE write_generation <> ?", generation);
+    if (markMigrated) await transaction.runAsync("INSERT OR REPLACE INTO cache_metadata (key, value) VALUES (?, ?)", MIGRATION_KEY, "1");
+  });
+}
+
 export async function readCache(): Promise<CachedState> {
-  const raw = await AsyncStorage.getItem(CACHE_KEY);
-  if (!raw) return migrateLegacyCache();
-  return parseCache(raw);
-}
-
-function parseCache(raw: string): CachedState {
-  if (!raw) return EMPTY_CACHE;
   try {
-    const parsed = JSON.parse(raw) as CachedState;
-    if (!parsed.messages || typeof parsed.messages !== "object" || typeof parsed.cachedAt !== "number") return EMPTY_CACHE;
-    const messages = normalizeCachedMessages(parsed.messages);
-    return { ...parsed, messages };
-  } catch {
-    return EMPTY_CACHE;
+    const db = await database();
+    const [bootstrapRow, cachedAtRow, messageRows] = await Promise.all([
+      db.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = 'bootstrap'"),
+      db.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = 'cached_at'"),
+      db.getAllAsync<CachedMessageRow>("SELECT stream_id, payload FROM cached_messages ORDER BY stream_id, sequence ASC"),
+    ]);
+    let bootstrap: CachedState["bootstrap"] = null;
+    if (bootstrapRow) {
+      try { bootstrap = JSON.parse(bootstrapRow.value) as CachedState["bootstrap"]; } catch { bootstrap = null; }
+    }
+    return {
+      bootstrap,
+      messages: decodeMessageRows(messageRows),
+      cachedAt: Number(cachedAtRow?.value) || 0,
+    };
+  } catch (error) {
+    console.warn("Could not read SQLite offline cache", error);
+    const [currentRaw, legacyRaw] = await AsyncStorage.multiGet([CACHE_KEY, LEGACY_CACHE_KEY]);
+    return parseLegacyCache(currentRaw?.[1] ?? legacyRaw?.[1] ?? null) ?? EMPTY_CACHE;
   }
 }
 
-async function migrateLegacyCache(): Promise<CachedState> {
-  const raw = await AsyncStorage.getItem(LEGACY_CACHE_KEY);
-  if (!raw) return EMPTY_CACHE;
-  try {
-    const parsed = JSON.parse(raw) as Partial<CachedState>;
-    const migrated: CachedState = { bootstrap: parsed.bootstrap ?? null, messages: {}, cachedAt: typeof parsed.cachedAt === "number" ? parsed.cachedAt : 0 };
-    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(migrated));
-    await AsyncStorage.removeItem(LEGACY_CACHE_KEY);
-    return migrated;
-  } catch {
-    await AsyncStorage.removeItem(LEGACY_CACHE_KEY);
-    return EMPTY_CACHE;
-  }
+export async function readCachedMessagePage(streamId: string, before?: number, limit?: number): Promise<Message[]> {
+  const db = await database();
+  const pageSize = clampCachePageSize(limit);
+  const rows = before === undefined
+    ? await db.getAllAsync<CachedMessageRow>("SELECT stream_id, payload FROM cached_messages WHERE stream_id = ? ORDER BY sequence DESC LIMIT ?", streamId, pageSize)
+    : await db.getAllAsync<CachedMessageRow>("SELECT stream_id, payload FROM cached_messages WHERE stream_id = ? AND sequence < ? ORDER BY sequence DESC LIMIT ?", streamId, before, pageSize);
+  return (decodeMessageRows([...rows].reverse())[streamId] ?? []);
 }
 
 export async function writeCache(cache: CachedState): Promise<void> {
-  await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  await replaceCache(await database(), cache);
 }
 
 export async function readOutbox(): Promise<OutboxEntry[]> {
@@ -62,5 +154,8 @@ export async function writeOutbox(entries: OutboxEntry[]): Promise<void> {
 }
 
 export async function clearLocalData(): Promise<void> {
-  await Promise.all([AsyncStorage.removeItem(CACHE_KEY), AsyncStorage.removeItem(LEGACY_CACHE_KEY), AsyncStorage.removeItem(OUTBOX_KEY)]);
+  const clearDatabase = database().then((db) => db.withExclusiveTransactionAsync(async (transaction) => {
+    await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
+  })).catch((error) => console.warn("Could not clear SQLite offline cache", error));
+  await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY])]);
 }

@@ -11,6 +11,7 @@ import type { Attachment, Message } from "@snezhok/contracts";
 import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
+import { messageMediaSize } from "../lib/mediaLayout";
 import { voiceWaveformBars } from "../lib/voiceWaveform";
 import { Avatar } from "./Avatar";
 import { ImageViewer } from "./ImageViewer";
@@ -161,7 +162,8 @@ function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [open, setOpen] = useState(false);
   const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
-  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={styles.photo} /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
+  const size = messageMediaSize(attachment.width, attachment.height);
+  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={[styles.photo, size]} /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
 }
 
 function VoiceAttachment({ attachment }: { attachment: Attachment }) {
@@ -201,16 +203,17 @@ function InlineVideo({ attachment }: { attachment: Attachment }) {
   const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? "");
   const [active, setActive] = useState(false);
-  if (active) return <ActiveInlineVideo source={source} />;
-  return <Pressable onPress={() => setActive(true)} style={styles.videoPreview}>
-    {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
+  const size = messageMediaSize(attachment.width, attachment.height);
+  if (active) return <ActiveInlineVideo source={source} size={size} />;
+  return <Pressable onPress={() => setActive(true)} style={[styles.videoPreview, size]}>
+    {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={[styles.video, size]} /> : <View style={[styles.video, styles.videoPlaceholder, size]} />}
     <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
   </Pressable>;
 }
 
-function ActiveInlineVideo({ source }: { source: ReturnType<typeof useAuthorizedMedia> }) {
+function ActiveInlineVideo({ source, size }: { source: ReturnType<typeof useAuthorizedMedia>; size: ReturnType<typeof messageMediaSize> }) {
   const player = useVideoPlayer(source, (instance) => { instance.loop = false; });
-  return <VideoView player={player} style={styles.video} nativeControls contentFit="cover" />;
+  return <VideoView player={player} style={[styles.video, size]} nativeControls contentFit="cover" />;
 }
 
 function formatBytes(bytes: number): string {
@@ -251,11 +254,11 @@ const styles = StyleSheet.create({
   pinned: { flexDirection: "row", alignItems: "center", gap: 2 },
   time: { fontSize: 10 },
   edited: { fontSize: 10 },
-  photo: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
-  video: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, overflow: "hidden" },
-  videoPreview: { width: 250, height: 190, marginBottom: 5 },
+  photo: { borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
+  video: { borderRadius: 11, marginBottom: 5, overflow: "hidden" },
+  videoPreview: { marginBottom: 5 },
   videoPlaceholder: { backgroundColor: "#202329" },
-  videoPlay: { position: "absolute", left: 103, top: 73, width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
+  videoPlay: { position: "absolute", left: "50%", top: "50%", width: 44, height: 44, marginLeft: -22, marginTop: -22, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
   file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
   fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   fileText: { flex: 1 },

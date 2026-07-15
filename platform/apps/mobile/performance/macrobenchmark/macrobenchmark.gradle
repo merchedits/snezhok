@@ -1,0 +1,31 @@
+plugins {
+    id 'com.android.test'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'xyz.merchedits.snezhok.benchmark'
+    compileSdk rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        minSdk 28
+        targetSdk rootProject.ext.targetSdkVersion
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    targetProjectPath = ':app'
+    experimentalProperties['android.experimental.self-instrumenting'] = true
+
+    buildTypes {
+        benchmark {
+            debuggable = true
+            matchingFallbacks = ['release']
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.test.ext:junit:1.3.0'
+    implementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+    implementation 'androidx.benchmark:benchmark-macro-junit4:1.4.1'
+}

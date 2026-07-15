@@ -2,12 +2,13 @@ import { AppIcon } from "./AppIcon";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTranslation } from "../i18n";
+import { useAppDialog } from "./AppDialogProvider";
 
 type AuthorizedImageSource = {
   uri: string;
@@ -16,6 +17,7 @@ type AuthorizedImageSource = {
 
 export function ImageViewer({ visible, source, filename, mimeType, onClose }: { visible: boolean; source: AuthorizedImageSource; filename: string; mimeType: string; onClose: () => void }) {
   const { t } = useTranslation();
+  const showDialog = useAppDialog();
   const insets = useSafeAreaInsets();
   const [saving, setSaving] = useState(false);
   const scale = useSharedValue(1);
@@ -121,7 +123,7 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
     try {
       const permission = await MediaLibrary.requestPermissionsAsync(true, ["photo"]);
       if (!permission.granted) {
-        Alert.alert(t("photoPermissionRequired"), t("allowPhotoSave"));
+        showDialog(t("photoPermissionRequired"), t("allowPhotoSave"));
         return;
       }
       const extension = imageExtension(filename, mimeType);
@@ -134,9 +136,9 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
       } finally {
         task.release();
       }
-      Alert.alert(t("photoSaved"));
+      showDialog(t("photoSaved"));
     } catch (error) {
-      Alert.alert(t("photoSaveFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("photoSaveFailed"), error instanceof Error ? error.message : t("tryAgain"));
     } finally {
       if (temporaryFile?.exists) temporaryFile.delete();
       setSaving(false);

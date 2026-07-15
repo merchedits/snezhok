@@ -2,11 +2,12 @@ import { AppIcon, type AppIconName } from "./AppIcon";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { memo, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import { useAppDialog } from "./AppDialogProvider";
 import type { UploadInput } from "../types";
 
 interface AttachmentSheetProps {
@@ -20,12 +21,13 @@ interface AttachmentSheetProps {
 export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onSelect }: AttachmentSheetProps) {
   const palette = usePalette();
   const { t } = useTranslation();
+  const showDialog = useAppDialog();
   const insets = useSafeAreaInsets();
   const [showMore, setShowMore] = useState(false);
 
   const pickMedia = async (quality: "auto" | "high") => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return Alert.alert(t("permissionPhotos"), t("allowPhotos"));
+    if (!permission.granted) return showDialog(t("permissionPhotos"), t("allowPhotos"));
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images", "videos"], quality: quality === "high" ? 0.92 : 0.72 });
     const asset = result.assets?.[0];
     if (!asset) return;

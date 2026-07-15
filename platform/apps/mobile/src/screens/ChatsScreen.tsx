@@ -2,11 +2,12 @@ import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { ConversationSummary } from "@snezhok/contracts";
 
 import { AppIcon } from "../components/AppIcon";
+import { useAppDialog } from "../components/AppDialogProvider";
 import { Avatar } from "../components/Avatar";
 import { ConversationActionsSheet } from "../components/ConversationActionsSheet";
 import { NewConversationModal } from "../components/NewConversationModal";
@@ -27,6 +28,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const palette = usePalette();
   const { language, t } = useTranslation();
+  const showDialog = useAppDialog();
   const conversations = useAppStore((state) => state.conversations);
   const me = useAppStore((state) => state.me);
   const applyConversation = useAppStore((state) => state.applyConversation);
@@ -77,7 +79,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const confirmDelete = useCallback(() => {
     const conversation = selectedConversation;
     if (!conversation || deleting) return;
-    Alert.alert(t("deleteChatTitle"), t("deleteChatDescription"), [
+    showDialog(t("deleteChatTitle"), t("deleteChatDescription"), [
       { text: t("cancel"), style: "cancel" },
       {
         text: t("deleteChat"),
@@ -86,12 +88,12 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
           setDeleting(true);
           void deleteConversation(conversation.id)
             .then(() => setSelectedConversation(null))
-            .catch(() => Alert.alert(t("requestFailed"), t("tryAgain")))
+            .catch(() => showDialog(t("requestFailed"), t("tryAgain")))
             .finally(() => setDeleting(false));
         },
       },
     ]);
-  }, [deleteConversation, deleting, selectedConversation, t]);
+  }, [deleteConversation, deleting, selectedConversation, showDialog, t]);
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
