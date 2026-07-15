@@ -16,6 +16,7 @@ import type {
 } from "@snezhok/contracts";
 
 import { api } from "../lib/api";
+import { messagesForCache } from "../lib/cachePolicy";
 import { clearLocalData, readCache, readOutbox, writeCache, writeOutbox } from "../lib/offlineRepository";
 import { clearSession, readSession, writeSession } from "../lib/secureSession";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
@@ -47,7 +48,7 @@ interface AppState {
   clearError: () => void;
   signOut: () => Promise<void>;
   setOnline: (online: boolean) => void;
-  refreshBootstrap: () => Promise<void>;
+  refreshBootstrap: (options?: { force?: boolean; silent?: boolean }) => Promise<void>;
   loadMessages: (streamId: string, before?: number) => Promise<void>;
   markStreamRead: (streamId: string, sequence: number) => Promise<void>;
   loadPinnedMessages: (streamId: string) => Promise<void>;
@@ -61,6 +62,7 @@ interface AppState {
   applyMessage: (message: Message) => void;
   applyMessageDeleted: (payload: { id: string; streamId: string; deletedAt: number }) => void;
   applyConversation: (conversation: ConversationSummary) => void;
+  deleteConversation: (conversationId: string) => Promise<void>;
   removeConversation: (conversationId: string) => void;
   applyPresence: (userId: string, presence: Presence, lastSeenAt: number) => void;
   updateSettings: (patch: SettingsPatch) => Promise<void>;
@@ -103,15 +105,36 @@ function toBootstrap(state: AppState): BootstrapPayload | null {
   };
 }
 
-async function persistState(): Promise<void> {
+let persistenceQueue: Promise<void> = Promise.resolve();
+
+function persistState(): Promise<void> {
   const state = useAppStore.getState();
-  await Promise.all([
-    writeCache({ bootstrap: toBootstrap(state), messages: state.messages, cachedAt: Date.now() }),
-    writeOutbox(state.outbox),
-  ]);
+  const snapshot = { bootstrap: toBootstrap(state), messages: messagesForCache(state.messages), cachedAt: Date.now() };
+  const outbox = state.outbox;
+  persistenceQueue = persistenceQueue.catch(() => undefined).then(async () => {
+    await Promise.all([writeCache(snapshot), writeOutbox(outbox)]);
+  });
+  return persistenceQueue;
 }
 
 let bootstrapRefresh: Promise<void> | null = null;
+let lastBootstrapCompletedAt = 0;
+let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+const messageLoads = new Map<string, Promise<void>>();
+const latestMessageLoads = new Map<string, number>();
+
+function schedulePersistence(): void {
+  if (persistenceTimer) clearTimeout(persistenceTimer);
+  persistenceTimer = setTimeout(() => {
+    persistenceTimer = null;
+    void persistState().catch((error) => console.warn("Could not persist offline cache", error));
+  }, 250);
+}
+
+function cancelScheduledPersistence(): void {
+  if (persistenceTimer) clearTimeout(persistenceTimer);
+  persistenceTimer = null;
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
   phase: "booting",
@@ -151,7 +174,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       eventCursor: cached?.eventCursor ?? 0,
     });
     try {
-      await get().refreshBootstrap();
+      await get().refreshBootstrap({ force: true });
       await get().retryOutbox();
     } catch (error) {
       if (!cached) set({ phase: "error", error: error instanceof Error ? error.message : "Unable to load Snezhok" });
@@ -168,7 +191,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         expiresAt: Date.now() + result.expiresIn * 1_000,
       });
       set({ me: result.user });
-      await get().refreshBootstrap();
+      await get().refreshBootstrap({ force: true });
     } catch (error) {
       await clearSession();
       set({ phase: "signed-out", error: error instanceof Error ? error.message : "Sign in failed" });
@@ -182,7 +205,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const result = await api.register(input);
       await writeSession({ accessToken: result.accessToken, refreshToken: result.refreshToken, expiresAt: Date.now() + result.expiresIn * 1_000 });
       set({ me: result.user });
-      await get().refreshBootstrap();
+      await get().refreshBootstrap({ force: true });
     } catch (error) {
       await clearSession();
       set({ phase: "signed-out", error: error instanceof Error ? error.message : "Registration failed" });
@@ -193,6 +216,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   signOut: async () => {
+    cancelScheduledPersistence();
+    lastBootstrapCompletedAt = 0;
+    latestMessageLoads.clear();
+    await persistenceQueue.catch(() => undefined);
     await Promise.all([clearSession(), clearLocalData()]);
     set({
       phase: "signed-out",
@@ -214,15 +241,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   setOnline: (online) => {
     set({ online });
     if (online) {
-      void get().refreshBootstrap();
+      void get().refreshBootstrap({ force: true, silent: true });
       void get().retryOutbox();
     }
   },
 
-  refreshBootstrap: () => {
+  refreshBootstrap: (options = {}) => {
     if (!get().online) return Promise.resolve();
     if (bootstrapRefresh) return bootstrapRefresh;
-    set({ syncing: true });
+    if (!options.force && Date.now() - lastBootstrapCompletedAt < 30_000) return Promise.resolve();
+    if (!options.silent) set({ syncing: true });
     bootstrapRefresh = (async () => {
       try {
         const payload = await api.bootstrap();
@@ -239,6 +267,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           settings: payload.settings,
           eventCursor: payload.eventCursor,
         });
+        lastBootstrapCompletedAt = Date.now();
         await persistState();
       } catch (error) {
         set({ syncing: false });
@@ -252,16 +281,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     return bootstrapRefresh;
   },
 
-  loadMessages: async (streamId, before) => {
-    if (!get().online) return;
-    const page = await api.messages(streamId, before);
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [streamId]: mergeMessages(state.messages[streamId] ?? [], page.items),
-      },
-    }));
-    await persistState();
+  loadMessages: (streamId, before) => {
+    if (!get().online) return Promise.resolve();
+    const key = `${streamId}:${before ?? "latest"}`;
+    const active = messageLoads.get(key);
+    if (active) return active;
+    if (before === undefined && (get().messages[streamId]?.length ?? 0) > 0 && Date.now() - (latestMessageLoads.get(streamId) ?? 0) < 15_000) return Promise.resolve();
+    const loading = (async () => {
+      const page = await api.messages(streamId, before);
+      set((state) => ({
+        messages: {
+          ...state.messages,
+          [streamId]: mergeMessages(state.messages[streamId] ?? [], page.items),
+        },
+      }));
+      if (before === undefined) latestMessageLoads.set(streamId, Date.now());
+      await persistState();
+    })().finally(() => messageLoads.delete(key));
+    messageLoads.set(key, loading);
+    return loading;
   },
 
   markStreamRead: async (streamId, sequence) => {
@@ -451,7 +489,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]),
       },
     }));
-    void persistState();
+    latestMessageLoads.set(message.streamId, Date.now());
+    schedulePersistence();
   },
 
   applyMessageDeleted: ({ id, streamId, deletedAt }) => {
@@ -461,15 +500,21 @@ export const useAppStore = create<AppState>((set, get) => ({
         [streamId]: markMessageDeleted(state.messages[streamId] ?? [], id, deletedAt),
       },
     }));
-    void persistState();
-    void get().refreshBootstrap();
+    schedulePersistence();
+    void get().refreshBootstrap({ force: true, silent: true });
   },
 
   applyConversation: (conversation) => {
     set((state) => ({
       conversations: upsertConversation(state.conversations, conversation),
     }));
-    void persistState();
+    schedulePersistence();
+  },
+
+  deleteConversation: async (conversationId) => {
+    if (!get().online) throw new Error("Deleting a chat requires a connection");
+    await api.deleteConversation(conversationId);
+    get().removeConversation(conversationId);
   },
 
   removeConversation: (conversationId) => {
@@ -477,18 +522,30 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { [conversationId]: _removed, ...messages } = state.messages;
       return { conversations: state.conversations.filter((item) => item.id !== conversationId), messages };
     });
-    void persistState();
+    latestMessageLoads.delete(conversationId);
+    schedulePersistence();
   },
 
   applyPresence: (userId, presence, lastSeenAt) => {
-    const updateUser = (user: UserSummary): UserSummary => user.id === userId ? { ...user, presence, lastSeenAt } : user;
+    const updateUser = (user: UserSummary): UserSummary => {
+      if (user.id !== userId || (user.presence === presence && user.lastSeenAt === lastSeenAt)) return user;
+      return { ...user, presence, lastSeenAt };
+    };
     set((state) => ({
       me: state.me ? updateUser(state.me) : null,
-      conversations: state.conversations.map((conversation) => ({ ...conversation, participants: conversation.participants.map(updateUser) })),
-      friends: state.friends.map((entry) => ({ ...entry, user: updateUser(entry.user) })),
-      channels: state.channels.map((channel) => ({ ...channel, connectedMembers: channel.connectedMembers.map(updateUser) })),
+      conversations: state.conversations.map((conversation) => {
+        const participants = conversation.participants.map(updateUser);
+        return participants.some((participant, index) => participant !== conversation.participants[index]) ? { ...conversation, participants } : conversation;
+      }),
+      friends: state.friends.map((entry) => {
+        const user = updateUser(entry.user);
+        return user === entry.user ? entry : { ...entry, user };
+      }),
+      channels: state.channels.map((channel) => {
+        const connectedMembers = channel.connectedMembers.map(updateUser);
+        return connectedMembers.some((member, index) => member !== channel.connectedMembers[index]) ? { ...channel, connectedMembers } : channel;
+      }),
     }));
-    void persistState();
   },
 
   updateSettings: async (patch) => {
@@ -507,5 +564,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setEventCursor: (cursor) => set((state) => ({ eventCursor: Math.max(state.eventCursor, cursor) })),
+  setEventCursor: (cursor) => {
+    set((state) => ({ eventCursor: Math.max(state.eventCursor, cursor) }));
+    schedulePersistence();
+  },
 }));

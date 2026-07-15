@@ -1,9 +1,10 @@
 import { AppIcon } from "../components/AppIcon";
+import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ProfilePhoto, UserProfile } from "@snezhok/contracts";
@@ -17,13 +18,13 @@ import { api } from "../lib/api";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 
-interface ProfileScreenProps { embedded?: boolean; userId?: string; onBack?: () => void }
+interface ProfileScreenProps { embedded?: boolean; active?: boolean; userId?: string; onBack?: () => void }
 
 export function PublicProfileScreen({ route, navigation }: NativeStackScreenProps<RootStackParamList, "Profile">) {
   return <ProfileScreen userId={route.params.userId} onBack={navigation.goBack} />;
 }
 
-export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScreenProps) {
+export function ProfileScreen({ embedded = false, active = true, userId, onBack }: ProfileScreenProps) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
@@ -44,20 +45,22 @@ export function ProfileScreen({ embedded = false, userId, onBack }: ProfileScree
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!targetId) return;
-    let active = true;
-    void api.profile(targetId).then((next) => {
-      if (!active) return;
-      setProfile(next);
-      setDisplayName(next.user.displayName);
-      setBio(next.user.bio);
-      setStatusText(next.user.statusText);
-      setSelectedPhotoId(null);
-    }).catch((error) => {
-      if (active && !profile) Alert.alert(t("profileLoadFailed"), error instanceof Error ? error.message : t("tryAgain"));
-    });
-    return () => { active = false; };
-  }, [targetId]);
+    if (!active || !targetId) return;
+    let mounted = true;
+    const timer = setTimeout(() => {
+      void api.profile(targetId).then((next) => {
+        if (!mounted) return;
+        setProfile(next);
+        setDisplayName(next.user.displayName);
+        setBio(next.user.bio);
+        setStatusText(next.user.statusText);
+        setSelectedPhotoId(null);
+      }).catch((error) => {
+        if (mounted && !profile) Alert.alert(t("profileLoadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      });
+    }, embedded ? 220 : 0);
+    return () => { mounted = false; clearTimeout(timer); };
+  }, [active, embedded, targetId]);
 
   const selectedPhoto = profile?.photos.find((photo) => photo.id === selectedPhotoId) ?? profile?.photos[0];
   const contactEntries = useMemo(() => own ? friends.filter((entry) => entry.relationship === "friend") : [], [friends, own]);
@@ -183,7 +186,7 @@ function ProfileInput({ label, ...props }: { label: string; value: string; onCha
 function PhotoThumbnail({ photo, selected, primary, onPress, onLongPress }: { photo: ProfilePhoto; selected: boolean; primary: boolean; onPress: () => void; onLongPress?: () => void }) {
   const palette = usePalette();
   const source = useAuthorizedMedia(photo.thumbnailUrl ?? photo.url);
-  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><Image source={source} style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><AppIcon name="checkmark" size={11} color="white" strokeWidth={2} /></View> : null}</Pressable>;
+  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><Image source={source} cachePolicy="memory-disk" contentFit="cover" recyclingKey={photo.id} style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><AppIcon name="checkmark" size={11} color="white" strokeWidth={2} /></View> : null}</Pressable>;
 }
 
 const styles = StyleSheet.create({

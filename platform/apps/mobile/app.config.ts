@@ -17,6 +17,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   runtimeVersion: { policy: "appVersion" },
   plugins: [
     "./plugins/withReleaseSigning.cjs",
+    "expo-image",
     [
       "@livekit/react-native-expo-plugin",
       {

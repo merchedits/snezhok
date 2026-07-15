@@ -47,7 +47,7 @@ export function useRealtime(enabled: boolean): void {
       });
       socket.on("connect", () => {
         socket?.emit("sync:resume", { cursor: useAppStore.getState().eventCursor }, (accepted) => {
-          if (!accepted) void refreshBootstrap();
+          if (!accepted) void refreshBootstrap({ force: true, silent: true });
         });
       });
       socket.on("sync:ready", ({ cursor }) => setEventCursor(cursor));
@@ -62,8 +62,8 @@ export function useRealtime(enabled: boolean): void {
       socket.on("message:deleted", applyMessageDeleted);
       socket.on("conversation:updated", applyConversation);
       socket.on("conversation:removed", ({ id }) => removeConversation(id));
-      socket.on("channel:updated", () => void refreshBootstrap());
-      socket.on("friend:updated", () => void refreshBootstrap());
+      socket.on("channel:updated", () => void refreshBootstrap({ force: true, silent: true }));
+      socket.on("friend:updated", () => void refreshBootstrap({ force: true, silent: true }));
       socket.on("presence:updated", ({ userId, presence, lastSeenAt }) => applyPresence(userId, presence, lastSeenAt));
       socket.io.on("reconnect_attempt", () => {
         void readSession().then((latest) => {

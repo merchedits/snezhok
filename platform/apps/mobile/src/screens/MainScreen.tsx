@@ -71,7 +71,7 @@ export function MainScreen() {
       <View style={styles.viewport} onLayout={measurePages}>
         <TabPage id="chats" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ChatsScreen embedded active={tab === "chats"} /></TabPage>
         <TabPage id="servers" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ServersScreen /></TabPage>
-        <TabPage id="profile" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ProfileScreen embedded /></TabPage>
+        <TabPage id="profile" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ProfileScreen embedded active={tab === "profile"} /></TabPage>
         <TabPage id="settings" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><SettingsScreen embedded /></TabPage>
       </View>
       <BottomNavigation selected={tab} onSelect={selectTab} />

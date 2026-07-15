@@ -1,5 +1,6 @@
 import { memo } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
+import { StyleSheet, Text, View } from "react-native";
 
 import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
@@ -19,7 +20,7 @@ export const Avatar = memo(function Avatar({ uri, label, color = "#637184", size
   return (
     <View style={{ width: size, height: size }}>
       {uri ? (
-        <Image source={source} style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]} />
+        <Image source={source} cachePolicy="memory-disk" contentFit="cover" recyclingKey={uri} style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]} />
       ) : (
         <View style={[styles.fallback, { width: size, height: size, borderRadius: size / 2, backgroundColor: color }]}>
           <Text style={[styles.initial, { fontSize: size * 0.4 }]}>{initial}</Text>
@@ -44,7 +45,7 @@ export const Avatar = memo(function Avatar({ uri, label, color = "#637184", size
 });
 
 const styles = StyleSheet.create({
-  image: { resizeMode: "cover" },
+  image: {},
   fallback: { alignItems: "center", justifyContent: "center" },
   initial: { color: "white", fontWeight: "700" },
   presence: { position: "absolute", right: 0, bottom: 0, borderWidth: 2 },

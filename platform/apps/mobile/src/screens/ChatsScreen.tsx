@@ -1,12 +1,14 @@
-import { AppIcon } from "../components/AppIcon";
+import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useEffect, useMemo, useState } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { ConversationSummary } from "@snezhok/contracts";
 
+import { AppIcon } from "../components/AppIcon";
 import { Avatar } from "../components/Avatar";
+import { ConversationActionsSheet } from "../components/ConversationActionsSheet";
 import { NewConversationModal } from "../components/NewConversationModal";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { usePalette } from "../hooks/usePalette";
@@ -15,6 +17,11 @@ import { visibleConversationSummaries } from "../lib/conversationList";
 import { directPeer, startsRegularConversationSection } from "../store/conversationIdentity";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
+
+interface ConversationListRow {
+  conversation: ConversationSummary;
+  sectionBreak: boolean;
+}
 
 export function ChatsScreen({ embedded: _embedded = false, active = true }: { embedded?: boolean; active?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -25,43 +32,90 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const applyConversation = useAppStore((state) => state.applyConversation);
   const syncing = useAppStore((state) => state.syncing);
   const refresh = useAppStore((state) => state.refreshBootstrap);
+  const loadMessages = useAppStore((state) => state.loadMessages);
+  const deleteConversation = useAppStore((state) => state.deleteConversation);
   const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState(false);
+  const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
-    if (active) void refresh().catch(() => undefined);
+    if (!active) return;
+    // Let the native tab animation finish before background synchronization.
+    const timer = setTimeout(() => void refresh({ silent: true }).catch(() => undefined), 220);
+    return () => clearTimeout(timer);
   }, [active, refresh]);
+
   const filtered = useMemo(
     () => visibleConversationSummaries(conversations, search, (conversation) => conversationTitle(conversation, language)),
     [conversations, language, search],
   );
+  const rows = useMemo(() => filtered.map((conversation, index) => ({
+    conversation,
+    sectionBreak: startsRegularConversationSection(filtered, index),
+  })), [filtered]);
+
+  const openConversation = useCallback((conversation: ConversationSummary) => {
+    navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversationTitle(conversation, language) });
+  }, [language, navigation]);
+  const prefetchConversation = useCallback((conversation: ConversationSummary) => {
+    void loadMessages(conversation.id).catch(() => undefined);
+  }, [loadMessages]);
+  const selectConversation = useCallback((conversation: ConversationSummary) => {
+    if (conversation.saved) return;
+    setSelectedConversation(conversation);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+  }, []);
+  const renderConversation = useCallback(({ item }: { item: ConversationListRow }) => <ConversationRow
+    conversation={item.conversation}
+    currentUserId={me?.id}
+    sectionBreak={item.sectionBreak}
+    onPress={openConversation}
+    onPressIn={prefetchConversation}
+    onLongPress={selectConversation}
+  />, [me?.id, openConversation, prefetchConversation, selectConversation]);
+  const confirmDelete = useCallback(() => {
+    const conversation = selectedConversation;
+    if (!conversation || deleting) return;
+    Alert.alert(t("deleteChatTitle"), t("deleteChatDescription"), [
+      { text: t("cancel"), style: "cancel" },
+      {
+        text: t("deleteChat"),
+        style: "destructive",
+        onPress: () => {
+          setDeleting(true);
+          void deleteConversation(conversation.id)
+            .then(() => setSelectedConversation(null))
+            .catch(() => Alert.alert(t("requestFailed"), t("tryAgain")))
+            .finally(() => setDeleting(false));
+        },
+      },
+    ]);
+  }, [deleteConversation, deleting, selectedConversation, t]);
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
       <ScreenHeader title={t("chats")} />
       <View style={[styles.search, { backgroundColor: palette.surface }]}> 
         <AppIcon name="search" size={18} color={palette.faintText} />
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder={t("search")}
-          placeholderTextColor={palette.faintText}
-          style={[styles.searchInput, { color: palette.text }]}
-        />
+        <TextInput value={search} onChangeText={setSearch} placeholder={t("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} />
       </View>
       <FlatList
         style={styles.list}
         contentContainerStyle={styles.listContent}
-        data={filtered}
-        keyExtractor={(item) => item.id}
+        data={rows}
+        keyExtractor={(item) => item.conversation.id}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={Platform.OS === "android"}
-        initialNumToRender={12}
-        maxToRenderPerBatch={10}
-        windowSize={7}
-        refreshControl={<RefreshControl refreshing={syncing} tintColor={palette.accent} onRefresh={() => void refresh()} />}
-        renderItem={({ item, index }) => <ConversationRow conversation={item} currentUserId={me?.id} sectionBreak={startsRegularConversationSection(filtered, index)} onPress={() => navigation.navigate("Chat", { streamId: item.id, streamKind: "conversation", title: conversationTitle(item, language) })} />}
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        updateCellsBatchingPeriod={40}
+        windowSize={5}
+        getItemLayout={(_data, index) => ({ length: 72, offset: 72 * index, index })}
+        refreshControl={<RefreshControl refreshing={syncing} tintColor={palette.accent} onRefresh={() => void refresh({ force: true })} />}
+        renderItem={renderConversation}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
       />
       <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.accent, opacity: pressed ? 0.78 : 1 }]}><AppIcon name="create-outline" size={24} color="white" /></Pressable>
@@ -74,17 +128,37 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
           navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title });
         }}
       />
+      <ConversationActionsSheet
+        visible={Boolean(selectedConversation)}
+        title={selectedConversation ? conversationTitle(selectedConversation, language) : ""}
+        busy={deleting}
+        onClose={() => { if (!deleting) setSelectedConversation(null); }}
+        onDelete={confirmDelete}
+      />
     </View>
   );
 }
 
-function ConversationRow({ conversation, currentUserId, sectionBreak, onPress }: { conversation: ConversationSummary; currentUserId: string | undefined; sectionBreak: boolean; onPress: () => void }) {
+interface ConversationRowProps extends ConversationListRow {
+  currentUserId: string | undefined;
+  onPress: (conversation: ConversationSummary) => void;
+  onPressIn: (conversation: ConversationSummary) => void;
+  onLongPress: (conversation: ConversationSummary) => void;
+}
+
+const ConversationRow = memo(function ConversationRow({ conversation, currentUserId, sectionBreak, onPress, onPressIn, onLongPress }: ConversationRowProps) {
   const palette = usePalette();
   const { language, t } = useTranslation();
   const title = conversationTitle(conversation, language);
   const peer = directPeer(conversation, currentUserId);
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { backgroundColor: pressed ? palette.surface : palette.background }]}>
+    <Pressable
+      delayLongPress={320}
+      onPress={() => onPress(conversation)}
+      onPressIn={() => onPressIn(conversation)}
+      onLongPress={() => onLongPress(conversation)}
+      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { backgroundColor: pressed ? palette.surface : palette.background }]}
+    >
       {conversation.saved
         ? <View style={[styles.savedAvatar, { backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color="white" /></View>
         : <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={title} color={peer?.avatarColor} online={peer?.presence === "online"} size={52} />}
@@ -103,7 +177,7 @@ function ConversationRow({ conversation, currentUserId, sectionBreak, onPress }:
       </View>
     </Pressable>
   );
-}
+});
 
 function conversationTitle(conversation: ConversationSummary, language: "en" | "ru"): string {
   if (!conversation.saved) return conversation.title;

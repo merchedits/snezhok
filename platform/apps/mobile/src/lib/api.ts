@@ -276,6 +276,10 @@ class ApiClient {
     }).then((result) => result.conversation);
   }
 
+  deleteConversation(conversationId: string): Promise<void> {
+    return this.request(`/conversations/${encodeURIComponent(conversationId)}/members/me`, { method: "DELETE" }).then(() => undefined);
+  }
+
   createServer(name: string): Promise<ServerSummary> {
     return this.request<{ server: ServerSummary }>("/servers", { method: "POST", body: { name } }).then((result) => result.server);
   }

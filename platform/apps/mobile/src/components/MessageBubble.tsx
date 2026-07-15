@@ -1,8 +1,9 @@
 import { AppIcon } from "./AppIcon";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { Image } from "expo-image";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { memo, useEffect, useRef, useState } from "react";
-import { type GestureResponderEvent, Image, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 import type { Attachment, Message } from "@snezhok/contracts";
@@ -160,19 +161,31 @@ function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [open, setOpen] = useState(false);
   const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
-  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} style={styles.photo} resizeMode="cover" /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
+  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={styles.photo} /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
 }
 
 function VoiceAttachment({ attachment }: { attachment: Attachment }) {
+  const [active, setActive] = useState(false);
   const palette = usePalette();
   const source = useAuthorizedMedia(attachment.url);
+  const bars = voiceWaveformBars(attachment.waveform);
+  if (active) return <ActiveVoiceAttachment attachment={attachment} source={source} bars={bars} />;
+  return <View style={styles.voice}>
+    <Pressable onPress={() => setActive(true)} style={[styles.play, { backgroundColor: palette.accent }]}><AppIcon name="play" size={19} color="white" /></Pressable>
+    <View style={styles.wave}>{bars.map((height, index) => <View key={index} style={[styles.waveBar, { height, backgroundColor: palette.faintText }]} />)}</View>
+    <Text style={[styles.duration, { color: palette.secondaryText }]}>{formatDuration((attachment.durationMs ?? 0) / 1000)}</Text>
+  </View>;
+}
+
+function ActiveVoiceAttachment({ attachment, source, bars }: { attachment: Attachment; source: ReturnType<typeof useAuthorizedMedia>; bars: number[] }) {
+  const palette = usePalette();
   const player = useAudioPlayer(source, { updateInterval: 250 });
   const status = useAudioPlayerStatus(player);
   const [waveWidth, setWaveWidth] = useState(1);
-  const bars = voiceWaveformBars(attachment.waveform);
   const duration = status.duration || (attachment.durationMs ?? 0) / 1000;
   const progress = Math.min(1, (status.currentTime || 0) / Math.max(duration, 1));
   const toggle = () => status.playing ? player.pause() : player.play();
+  useEffect(() => { player.play(); }, [player]);
   return (
     <View style={styles.voice}> 
       <Pressable onPress={toggle} style={[styles.play, { backgroundColor: palette.accent }]}><AppIcon name={status.playing ? "pause" : "play"} size={19} color="white" /></Pressable>
@@ -186,6 +199,16 @@ function VoiceAttachment({ attachment }: { attachment: Attachment }) {
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
   const source = useAuthorizedMedia(attachment.url);
+  const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? "");
+  const [active, setActive] = useState(false);
+  if (active) return <ActiveInlineVideo source={source} />;
+  return <Pressable onPress={() => setActive(true)} style={styles.videoPreview}>
+    {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
+    <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
+  </Pressable>;
+}
+
+function ActiveInlineVideo({ source }: { source: ReturnType<typeof useAuthorizedMedia> }) {
   const player = useVideoPlayer(source, (instance) => { instance.loop = false; });
   return <VideoView player={player} style={styles.video} nativeControls contentFit="cover" />;
 }
@@ -230,6 +253,9 @@ const styles = StyleSheet.create({
   edited: { fontSize: 10 },
   photo: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
   video: { width: 250, height: 190, borderRadius: 11, marginBottom: 5, overflow: "hidden" },
+  videoPreview: { width: 250, height: 190, marginBottom: 5 },
+  videoPlaceholder: { backgroundColor: "#202329" },
+  videoPlay: { position: "absolute", left: 103, top: 73, width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
   file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
   fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   fileText: { flex: 1 },
