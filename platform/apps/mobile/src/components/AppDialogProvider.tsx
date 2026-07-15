@@ -1,4 +1,5 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import * as Haptics from "expo-haptics";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -64,7 +65,12 @@ export function useAppDialog(): ShowAppDialog {
 function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; onDismiss: () => void }) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
+  const actionLocked = useRef(false);
+  useEffect(() => { actionLocked.current = false; }, [dialog?.id]);
   const activate = (action: AppDialogAction) => {
+    if (actionLocked.current) return;
+    actionLocked.current = true;
+    void Haptics.selectionAsync().catch(() => undefined);
     onDismiss();
     action.onPress?.();
   };

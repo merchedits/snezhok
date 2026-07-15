@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Component, type ComponentProps, type ErrorInfo, type ReactNode, useEffect } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { enableFreeze } from "react-native-screens";
 import { StatusBar } from "expo-status-bar";
@@ -34,11 +35,13 @@ enableFreeze(true);
 export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <AndroidUpdateProvider>
-          <AppDialogProvider><AppRoot /></AppDialogProvider>
-        </AndroidUpdateProvider>
-      </SafeAreaProvider>
+      <KeyboardProvider>
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <AndroidUpdateProvider>
+            <AppDialogProvider><AppRoot /></AppDialogProvider>
+          </AndroidUpdateProvider>
+        </SafeAreaProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

@@ -19,6 +19,7 @@ import { api } from "../lib/api";
 import { messagesForCache } from "../lib/cachePolicy";
 import { clearLocalData, readCache, readOutbox, writeCache, writeOutbox } from "../lib/offlineRepository";
 import { clearSession, readSession, writeSession } from "../lib/secureSession";
+import { mergeAcknowledgedPatch, rollbackRejectedPatch } from "../lib/settingsSync";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
 import { applyConversationPreview } from "./conversationPreview";
 import { upsertConversation } from "./conversationIdentity";
@@ -107,6 +108,7 @@ function toBootstrap(state: AppState): BootstrapPayload | null {
 }
 
 let persistenceQueue: Promise<void> = Promise.resolve();
+let settingsSyncQueue: Promise<void> = Promise.resolve();
 
 function persistState(): Promise<void> {
   const state = useAppStore.getState();
@@ -123,6 +125,7 @@ let lastBootstrapCompletedAt = 0;
 let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
 const messageLoads = new Map<string, Promise<void>>();
 const latestMessageLoads = new Map<string, number>();
+const reactionSyncQueues = new Map<string, Promise<void>>();
 
 function schedulePersistence(): void {
   if (persistenceTimer) clearTimeout(persistenceTimer);
@@ -453,20 +456,34 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   toggleReaction: async (message, emoji) => {
     if (!get().online) throw new Error("Reactions require a connection");
-    const active = !message.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
-    const optimistic = { ...message, reactions: updateOptimisticReaction(message.reactions, emoji, active, get().me?.id) };
-    set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) } }));
+    const current = (get().messages[message.streamId] ?? []).find((candidate) => candidate.id === message.id) ?? message;
+    const active = !current.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
+    const optimistic = { ...current, reactions: updateOptimisticReaction(current.reactions, emoji, active, get().me?.id) };
+    set((state) => ({ messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [optimistic]) } }));
     schedulePersistence();
-    let saved: Message;
-    try {
-      saved = await api.setReaction(message.id, emoji, active);
-    } catch (error) {
-      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
-      schedulePersistence();
-      throw error;
-    }
-    set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) } }));
-    await persistState();
+    const queueKey = `${current.id}\u0000${emoji}`;
+    const previousOperation = reactionSyncQueues.get(queueKey) ?? Promise.resolve();
+    const operation = previousOperation.then(async () => {
+      try {
+        const saved = await api.setReaction(current.id, emoji, active);
+        set((state) => {
+          const live = (state.messages[current.streamId] ?? []).find((candidate) => candidate.id === current.id);
+          if (!live || hasActiveReaction(live, emoji) !== active) return state;
+          return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [saved]) } };
+        });
+        schedulePersistence();
+      } catch (error) {
+        set((state) => {
+          const live = (state.messages[current.streamId] ?? []).find((candidate) => candidate.id === current.id);
+          if (!live || hasActiveReaction(live, emoji) !== active) return state;
+          return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [current]) } };
+        });
+        schedulePersistence();
+        throw error;
+      }
+    });
+    reactionSyncQueues.set(queueKey, operation.catch(() => undefined));
+    await operation;
   },
 
   deleteMessage: async (message, scope) => {
@@ -634,20 +651,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  updateSettings: async (patch) => {
+  updateSettings: (patch) => {
     const previous = get().settings;
     const next = { ...previous, ...patch };
     set({ settings: next });
-    await persistState();
-    if (!get().online) return;
-    try {
-      const saved = await api.updateSettings(patch);
-      set({ settings: saved });
-      await persistState();
-    } catch (error) {
-      set({ settings: previous });
-      throw error;
-    }
+    schedulePersistence();
+    if (!get().online) return Promise.resolve();
+
+    const operation = settingsSyncQueue.then(async () => {
+      try {
+        const saved = await api.updateSettings(patch);
+        set((state) => ({ settings: mergeAcknowledgedPatch(state.settings, patch, saved) }));
+        schedulePersistence();
+      } catch (error) {
+        set((state) => ({ settings: rollbackRejectedPatch(state.settings, patch, previous) }));
+        schedulePersistence();
+        throw error;
+      }
+    });
+    settingsSyncQueue = operation.catch(() => undefined);
+    return operation;
   },
 
   setEventCursor: (cursor) => {
@@ -675,4 +698,8 @@ function updateOptimisticReaction(reactions: Message["reactions"], emoji: string
     reacted: false,
     userIds: userId ? reaction.userIds.filter((id) => id !== userId) : reaction.userIds,
   } : reaction);
+}
+
+function hasActiveReaction(message: Message, emoji: string): boolean {
+  return message.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
 }

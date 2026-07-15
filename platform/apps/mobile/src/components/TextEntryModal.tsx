@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
@@ -20,17 +21,19 @@ export function TextEntryModal({ visible, title, placeholder, submitLabel, onClo
   const { t } = useTranslation();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { if (visible) { setValue(""); setError(null); } }, [visible]);
   const submit = async () => {
-    if (!value.trim() || busy) return;
+    if (!value.trim() || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
-    try { await onSubmit(value.trim()); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : t("requestFailed")); } finally { setBusy(false); }
+    try { await onSubmit(value.trim()); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : t("requestFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   return (
     <Modal visible={visible} transparent animationType="fade" navigationBarTranslucent={false} onRequestClose={busy ? undefined : onClose}>
-      <KeyboardAvoidingView style={[styles.overlay, { backgroundColor: palette.overlay, paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 4, 24) }]} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={[styles.overlay, { backgroundColor: palette.overlay, paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 4, 24) }]} behavior="height" automaticOffset>
         <View style={[styles.card, { backgroundColor: palette.elevated }]}> 
           <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
           <TextInput autoFocus autoCapitalize="none" value={value} onChangeText={setValue} placeholder={placeholder} placeholderTextColor={palette.faintText} onSubmitEditing={() => void submit()} style={[styles.input, { color: palette.text, backgroundColor: palette.surface, borderColor: palette.border }]} />

@@ -2,7 +2,7 @@ import { AppIcon } from "./AppIcon";
 import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
 import * as MediaLibrary from "expo-media-library";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -37,6 +37,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
   const [loading, setLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [resolving, setResolving] = useState(false);
+  const resolvingRef = useRef(false);
   const [showMore, setShowMore] = useState(false);
   const [quality, setQuality] = useState<"auto" | "high">("auto");
 
@@ -68,22 +69,29 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     setQuality("auto");
     setSelectedIds([]);
     setResolving(false);
+    resolvingRef.current = false;
     void refreshAssets();
   }, [refreshAssets, visible]);
 
   const pickOriginalFile = useCallback(async () => {
-    const result = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
-    const asset = result.assets?.[0];
-    if (!asset) return;
-    await onSelect([{
-      uri: asset.uri,
-      filename: asset.name,
-      mimeType: asset.mimeType ?? "application/octet-stream",
-      kind: kindFromMimeType(asset.mimeType),
-      quality: "original",
-      purpose: "standard",
-      stripLocation: false,
-    }], "file");
+    if (resolvingRef.current) return;
+    resolvingRef.current = true;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
+      const asset = result.assets?.[0];
+      if (!asset) return;
+      await onSelect([{
+        uri: asset.uri,
+        filename: asset.name,
+        mimeType: asset.mimeType ?? "application/octet-stream",
+        kind: kindFromMimeType(asset.mimeType),
+        quality: "original",
+        purpose: "standard",
+        stripLocation: false,
+      }], "file");
+    } finally {
+      resolvingRef.current = false;
+    }
   }, [onSelect]);
 
   const toggleRecentAsset = useCallback((asset: RecentAsset) => {
@@ -92,8 +100,9 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
   }, [busy, resolving]);
 
   const sendSelection = useCallback(async () => {
-    if (!selectedIds.length || busy || resolving) return;
+    if (!selectedIds.length || busy || resolvingRef.current) return;
     const selected = selectedIds.map((id) => assets.find((asset) => asset.id === id)).filter((asset): asset is RecentAsset => Boolean(asset));
+    resolvingRef.current = true;
     setResolving(true);
     try {
       const infos = await Promise.all(selected.map(async (asset) => ({ asset, info: await new MediaLibrary.Asset(asset.id).getInfo() })));
@@ -105,6 +114,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     } catch (error) {
       showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
     } finally {
+      resolvingRef.current = false;
       setResolving(false);
     }
   }, [assets, busy, onSelect, quality, resolving, selectedIds, showDialog, t]);

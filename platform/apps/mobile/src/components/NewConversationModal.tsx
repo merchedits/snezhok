@@ -1,5 +1,5 @@
 import { AppIcon } from "./AppIcon";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -16,16 +16,20 @@ export function NewConversationModal({ visible, onClose, onCreated }: { visible:
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserSummary[]>([]);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { if (!visible) { setQuery(""); setResults([]); setError(null); } }, [visible]);
   const search = async () => {
-    if (!query.trim() || busy) return;
+    if (!query.trim() || busyRef.current) return;
+    busyRef.current = true;
     setBusy(true); setError(null);
-    try { setResults(await api.searchUsers(query.trim())); } catch (reason) { setError(reason instanceof Error ? reason.message : t("searchFailed")); } finally { setBusy(false); }
+    try { setResults(await api.searchUsers(query.trim())); } catch (reason) { setError(reason instanceof Error ? reason.message : t("searchFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   const create = async (user: UserSummary) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true); setError(null);
-    try { onCreated(await api.createConversation([user.id])); } catch (reason) { setError(reason instanceof Error ? reason.message : t("openChatFailed")); } finally { setBusy(false); }
+    try { onCreated(await api.createConversation([user.id])); } catch (reason) { setError(reason instanceof Error ? reason.message : t("openChatFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

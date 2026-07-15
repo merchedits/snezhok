@@ -55,6 +55,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
   const activeDownloadId = useRef(0);
   const lastCheck = useRef(0);
   const downloadedFile = useRef<File | null>(null);
+  const autoUpdateWriteQueue = useRef<Promise<void>>(Promise.resolve());
 
   const openInstaller = useCallback(async () => {
     const file = downloadedFile.current;
@@ -171,9 +172,11 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     }
   }, [checkForUpdate, downloadRelease, state.manifest, t]);
 
-  const setAutoUpdate = useCallback(async (enabled: boolean) => {
+  const setAutoUpdate = useCallback((enabled: boolean) => {
     setAutoUpdateState(enabled);
-    await AsyncStorage.setItem(AUTO_UPDATE_KEY, enabled ? "true" : "false");
+    const operation = autoUpdateWriteQueue.current.then(() => AsyncStorage.setItem(AUTO_UPDATE_KEY, enabled ? "true" : "false"));
+    autoUpdateWriteQueue.current = operation.catch(() => undefined);
+    return operation;
   }, []);
 
   useEffect(() => {

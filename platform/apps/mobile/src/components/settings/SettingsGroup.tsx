@@ -1,5 +1,6 @@
-import { Children, Fragment, type ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import * as Haptics from "expo-haptics";
+import { Children, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import { Animated, Easing, Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../../hooks/usePalette";
@@ -70,13 +71,17 @@ export function SettingsRow({
   );
 
   if (!onPress) return <View style={[styles.row, disabled && styles.disabled]}>{content}</View>;
+  const activate = () => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    onPress();
+  };
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityValue={value ? { text: value } : undefined}
       disabled={disabled}
-      onPress={onPress}
+      onPress={activate}
       android_ripple={{ color: palette.accentSoft }}
       style={({ pressed }) => [styles.row, disabled && styles.disabled, pressed && styles.pressed]}
     >
@@ -87,12 +92,20 @@ export function SettingsRow({
 
 export function SettingsSwitchRow({ icon, label, value, onChange }: { icon: AppIconName; label: string; value: boolean; onChange: (value: boolean) => void }) {
   const palette = usePalette();
+  const immediateValue = useRef(value);
+  useEffect(() => { immediateValue.current = value; }, [value]);
+  const toggle = () => {
+    const next = !immediateValue.current;
+    immediateValue.current = next;
+    void Haptics.selectionAsync().catch(() => undefined);
+    onChange(next);
+  };
   return (
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={label}
       accessibilityState={{ checked: value }}
-      onPress={() => onChange(!value)}
+      onPress={toggle}
       android_ripple={{ color: palette.accentSoft }}
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
@@ -131,30 +144,74 @@ export function SettingsChoiceSheet({
 }) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
+  const [presented, setPresented] = useState(visible);
+  const [display, setDisplay] = useState({ title, selected, options });
+  const latestDisplay = useRef({ title, selected, options });
+  latestDisplay.current = { title, selected, options };
+  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  const selecting = useRef(false);
+
+  useEffect(() => {
+    selecting.current = false;
+    progress.stopAnimation();
+    if (visible) {
+      setDisplay(latestDisplay.current);
+      setPresented(true);
+      if (reducedMotion) {
+        progress.setValue(1);
+        return;
+      }
+      progress.setValue(0);
+      requestAnimationFrame(() => {
+        Animated.timing(progress, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      });
+      return;
+    }
+    if (reducedMotion) {
+      progress.setValue(0);
+      setPresented(false);
+      return;
+    }
+    Animated.timing(progress, { toValue: 0, duration: 170, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
+      if (finished) setPresented(false);
+    });
+  }, [progress, reducedMotion, visible]);
+
+  if (!presented) return null;
+  const choose = (value: string) => {
+    if (selecting.current) return;
+    selecting.current = true;
+    void Haptics.selectionAsync().catch(() => undefined);
+    onSelect(value);
+  };
+  const sheetTranslateY = progress.interpolate({ inputRange: [0, 1], outputRange: [36, 0] });
+  const sheetScale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.99, 1] });
   return (
     <Modal
-      visible={visible}
+      visible={presented}
       transparent
       statusBarTranslucent
-      navigationBarTranslucent
+      navigationBarTranslucent={false}
       hardwareAccelerated
-      animationType={reducedMotion ? "none" : "slide"}
+      animationType="none"
+      presentationStyle="overFullScreen"
       onRequestClose={onClose}
     >
       <View style={styles.modalLayer}>
-        <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 12), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border }]}>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: progress, backgroundColor: palette.overlay }]} />
+        <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={StyleSheet.absoluteFill} />
+        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border, opacity: progress, transform: [{ translateY: sheetTranslateY }, { scale: sheetScale }] }]}>
           <View style={[styles.grabber, { backgroundColor: palette.faintText }]} />
-          <Text style={[styles.sheetTitle, { color: palette.text }]}>{title}</Text>
+          <Text style={[styles.sheetTitle, { color: palette.text }]}>{display.title}</Text>
           <View style={styles.options}>
-            {options.map((option, index) => {
-              const active = option.value === selected;
+            {display.options.map((option, index) => {
+              const active = option.value === display.selected;
               return (
                 <Pressable
                   key={option.value}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: active }}
-                  onPress={() => onSelect(option.value)}
+                  onPress={() => choose(option.value)}
                   android_ripple={{ color: palette.accentSoft }}
                   style={({ pressed }) => [
                     styles.choice,
@@ -172,7 +229,7 @@ export function SettingsChoiceSheet({
           <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.cancel, { backgroundColor: palette.surface }, pressed && styles.pressed]}>
             <Text style={[styles.cancelText, { color: palette.accent }]}>{cancelLabel}</Text>
           </Pressable>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );

@@ -1,4 +1,5 @@
 import { AppIcon, type AppIconName } from "./AppIcon";
+import * as Haptics from "expo-haptics";
 import { memo, useCallback, useEffect } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
@@ -43,7 +44,10 @@ const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { ta
     backgroundColor: interpolateColor(progress.value, [0, 1], ["transparent", palette.accentSoft]),
     transform: [{ translateY: 1 - progress.value }, { scale: 0.94 + progress.value * 0.06 }],
   }), [palette.accentSoft]);
-  const onPress = useCallback(() => onSelect(tab.id), [onSelect, tab.id]);
+  const onPress = useCallback(() => {
+    void Haptics.selectionAsync().catch(() => undefined);
+    onSelect(tab.id);
+  }, [onSelect, tab.id]);
   return (
     <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={label} onPress={onPress} style={styles.tab} android_ripple={{ color: palette.accentSoft, borderless: false }}>
       <Animated.View style={[styles.iconWrap, iconStyle]}>

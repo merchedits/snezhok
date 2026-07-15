@@ -20,6 +20,7 @@ export function MainScreen() {
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
   const progress = useSharedValue(1);
   const transitionId = useRef(0);
+  const activeTab = useRef<MainTab>(tab);
 
   const finishTransition = useCallback((id: number) => {
     if (transitionId.current === id) setTransition(null);
@@ -48,8 +49,10 @@ export function MainScreen() {
   }, [finishTransition, pageWidth, progress, reducedMotion, transition]);
 
   const selectTab = useCallback((next: MainTab) => {
-    if (next === tab) return;
-    const nextTransition = mainTabTransition(tab, next);
+    const previous = activeTab.current;
+    if (next === previous) return;
+    activeTab.current = next;
+    const nextTransition = mainTabTransition(previous, next);
     const id = transitionId.current + 1;
     transitionId.current = id;
     setTab(next);
@@ -59,7 +62,7 @@ export function MainScreen() {
       return;
     }
     setTransition(nextTransition);
-  }, [pageWidth, progress, reducedMotion, tab]);
+  }, [pageWidth, progress, reducedMotion]);
 
   const measurePages = useCallback((event: LayoutChangeEvent) => {
     const width = Math.round(event.nativeEvent.layout.width);
