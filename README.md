@@ -1,39 +1,39 @@
-## Telegram messenger for Android
+# Snezhok for Android
 
-[Telegram](https://telegram.org) is a messaging app with a focus on speed and security. It’s superfast, simple and free.
-This repo contains the official source code for [Telegram App for Android](https://play.google.com/store/apps/details?id=org.telegram.messenger).
+Snezhok is a private messaging, file-sharing, voice and video client for the
+Snezhok service. This repository is the native Android successor to the current
+React Native client.
 
-## Creating your Telegram Application
+The project is derived from the official
+[Telegram Android](https://github.com/DrKLO/Telegram) source so that mature
+message-list, media, accessibility and low-end-device techniques can be retained
+instead of recreated. Snezhok is independent from Telegram, is not endorsed by
+Telegram, does not use the Telegram name or logo, and will connect only to the
+Snezhok service.
 
-We welcome all developers to use our API and source code to create applications on our platform.
-There are several things we require from **all developers** for the moment.
+## Current status
 
-1. [**Obtain your own api_id**](https://core.telegram.org/api/obtaining_api_id) for your application.
-2. Please **do not** use the name Telegram for your app — or make sure your users understand that it is unofficial.
-3. Kindly **do not** use our standard logo (white paper plane in a blue circle) as your app's logo.
-3. Please study our [**security guidelines**](https://core.telegram.org/mtproto/security_guidelines) and take good care of your users' data and privacy.
-4. Please remember to publish **your** code too in order to comply with the licences.
+The `master` history is the preserved upstream Telegram history. Active Snezhok
+work starts on `codex/snezhok-foundation`.
 
-### API, Protocol documentation
+This branch is an engineering foundation, not a distributable Snezhok build.
+The inherited MTProto domain and Telegram credentials must be removed before
+the application can use Snezhok's production package ID or signing key. Until
+the native parity gates pass, the existing Snezhok Android application remains
+the production client.
 
-Telegram API manuals: https://core.telegram.org/api
+See:
 
-MTproto protocol manuals: https://core.telegram.org/mtproto
+- [Porting plan](docs/PORTING_PLAN.md)
+- [Dependency and licensing audit](docs/DEPENDENCY_LICENSES.md)
+- [Release and source policy](docs/RELEASE_POLICY.md)
+- [Provenance](docs/PROVENANCE.md)
 
-### Compilation Guide
+## License
 
-**Note**: In order to support [reproducible builds](https://core.telegram.org/reproducible-builds), this repo contains dummy release.keystore,  google-services.json and filled variables inside BuildVars.java. Before publishing your own APKs please make sure to replace all these files with your own.
+This derivative is distributed under GNU GPL version 2, consistent with its
+upstream. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Individual third-party
+components retain their own notices and licenses.
 
-You will require Android Studio 3.4, Android NDK rev. 20 and Android SDK 8.1
-
-1. Download the Telegram source code from https://github.com/DrKLO/Telegram ( git clone https://github.com/DrKLO/Telegram.git )
-2. Copy your release.keystore into TMessagesProj/config
-3. Fill out RELEASE_KEY_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_STORE_PASSWORD in gradle.properties to access your  release.keystore
-4.  Go to https://console.firebase.google.com/, create two android apps with application IDs org.telegram.messenger and org.telegram.messenger.beta, turn on firebase messaging and download google-services.json, which should be copied to the same folder as TMessagesProj.
-5. Open the project in the Studio (note that it should be opened, NOT imported).
-6. Fill out values in TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java – there’s a link for each of the variables showing where and which data to obtain.
-7. You are ready to compile Telegram.
-
-### Localization
-
-We moved all translations to https://translations.telegram.org/en/android/. Please use it.
+No production credentials, signing keys, user data, server secrets or private
+deployment configuration belong in this repository.
