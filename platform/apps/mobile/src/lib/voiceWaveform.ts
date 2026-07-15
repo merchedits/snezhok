@@ -17,11 +17,11 @@ const MIN_REFERENCE_PEAK = 2_500 / 32_767 * 100;
  * keeps normal speech readable without turning digital silence into activity.
  */
 export function voiceWaveformBars(
-  waveform: readonly number[] | undefined,
+  waveform: readonly number[] | null | undefined,
   targetBars = VOICE_WAVEFORM_BAR_COUNT,
 ): number[] {
   const count = clampBarCount(targetBars);
-  const supplied = waveform !== undefined && waveform.length > 0;
+  const supplied = Array.isArray(waveform) && waveform.length > 0;
   const sanitized = (supplied ? waveform : PLACEHOLDER_WAVEFORM).map(clampPeak);
   const normalized = supplied ? normalizeLikeTelegram(sanitized) : sanitized;
   return resamplePeaks(normalized, count).map((peak) => (

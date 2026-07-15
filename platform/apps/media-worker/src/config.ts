@@ -11,6 +11,7 @@ const schema = z.object({
   PROCESS_NICENESS: z.coerce.number().int().min(0).max(19).default(10),
   FFMPEG_THREADS: z.coerce.number().int().min(1).max(8).default(2),
   PAUSE_DURING_CALLS: z.preprocess((value) => value !== "false", z.boolean()).default(true),
+  CALL_STALE_HOURS: z.coerce.number().int().min(1).max(168).default(12),
   MIN_FREE_MEMORY_MB: z.coerce.number().int().min(64).default(384),
   MAX_LOAD_PER_CPU: z.coerce.number().min(0.1).default(0.9),
 });

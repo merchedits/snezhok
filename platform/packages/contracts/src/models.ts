@@ -124,7 +124,8 @@ export interface Attachment {
   checksum: string;
   /** Optimized derivative checksum; the top-level checksum remains the original for compatibility. */
   primaryChecksum?: string;
-  waveform?: number[];
+  /** Audio envelope; null while the media worker is still processing. */
+  waveform?: number[] | null;
 }
 
 export interface ReactionSummary {

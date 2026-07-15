@@ -4,7 +4,11 @@ import test from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
-import { claimJobSql, pool } from "./database.js";
+import { activeCallSql, claimJobSql, pool } from "./database.js";
+
+test("media work ignores abandoned call sessions after the configured window", () => {
+  assert.match(activeCallSql, /started_at\s*>=\s*now\(\)-\(\$1::text\s*\|\|\s*' hours'\)::interval/i);
+});
 
 test("SKIP LOCKED claim atomically leases one eligible media job", async () => {
   const here = path.dirname(fileURLToPath(import.meta.url)); const migrations = path.resolve(here, "../../api/migrations");

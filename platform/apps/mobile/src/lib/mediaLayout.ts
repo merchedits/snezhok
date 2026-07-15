@@ -5,20 +5,18 @@ export interface MessageMediaSize {
 
 const DEFAULT_WIDTH = 250;
 const DEFAULT_HEIGHT = 190;
-const MIN_HEIGHT = 120;
-const MAX_HEIGHT = 300;
+const MAX_WIDTH = 250;
+const MAX_HEIGHT = 320;
 
 /**
- * Reserves a stable message-cell frame before the thumbnail is decoded. Very
- * wide and very tall media is bounded to keep one attachment from monopolising
- * the viewport; the full aspect ratio remains available in the media viewer.
+ * Reserves a stable message-cell frame before the thumbnail is decoded. Both
+ * dimensions are scaled together, so portrait and panoramic media never get
+ * stretched merely to satisfy a minimum cell height.
  */
 export function messageMediaSize(width: number | null, height: number | null): MessageMediaSize {
   if (!width || !height || width <= 0 || height <= 0 || !Number.isFinite(width) || !Number.isFinite(height)) {
     return { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
   }
-  return {
-    width: DEFAULT_WIDTH,
-    height: Math.round(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, DEFAULT_WIDTH * height / width))),
-  };
+  const scale = Math.min(MAX_WIDTH / width, MAX_HEIGHT / height);
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }

@@ -26,6 +26,7 @@ test("upsamples short and placeholder waveforms to a stable dense bar count", ()
   const first = voiceWaveformBars(undefined, 48);
   assert.equal(first.length, 48);
   assert.deepEqual(first, voiceWaveformBars([], 48));
+  assert.deepEqual(first, voiceWaveformBars(null, 48));
 });
 
 test("builds one SVG path with a stroke for every bar", () => {

@@ -16,6 +16,9 @@ LEFT JOIN upload_sessions us ON us.id=a.id
 WHERE j.id=c.id AND a.id=j.attachment_id
 RETURNING j.id,j.attachment_id,a.owner_id,j.profile,coalesce(us.media_purpose,'standard') purpose,a.kind,a.mime_type,b.storage_key,a.filename,j.attempts,j.max_attempts`;
 
+export const activeCallSql = `SELECT 1 FROM call_sessions
+  WHERE ended_at IS NULL AND started_at >= now()-($1::text || ' hours')::interval LIMIT 1`;
+
 export async function recoverInterruptedJobs() {
   await pool.query(
     `UPDATE media_jobs SET status='pending',locked_by=NULL,started_at=NULL,heartbeat_at=NULL,available_at=now(),
@@ -100,5 +103,7 @@ export async function failJob(job: MediaJob, error: unknown) {
 
 export async function callsAreActive() {
   if (!config.PAUSE_DURING_CALLS) return false;
-  return Boolean((await pool.query("SELECT 1 FROM call_sessions WHERE ended_at IS NULL LIMIT 1")).rowCount);
+  // A lost LiveKit webhook must not stop every thumbnail and transcode job
+  // forever. The API uses the same stale-call window when issuing tokens.
+  return Boolean((await pool.query(activeCallSql, [config.CALL_STALE_HOURS])).rowCount);
 }

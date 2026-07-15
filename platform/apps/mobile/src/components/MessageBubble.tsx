@@ -172,7 +172,7 @@ function InlineVideo({ attachment }: { attachment: Attachment }) {
   const size = messageMediaSize(attachment.width, attachment.height);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={[styles.videoPreview, size]}>
-      {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={[styles.video, size]} /> : <View style={[styles.video, styles.videoPlaceholder, size]} />}
+      {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
       <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
       {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
     </Pressable>
@@ -219,11 +219,11 @@ const styles = StyleSheet.create({
   time: { fontSize: 10 },
   edited: { fontSize: 10 },
   photo: { borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
-  video: { borderRadius: 11, marginBottom: 5, overflow: "hidden" },
-  videoPreview: { marginBottom: 5 },
+  video: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
+  videoPreview: { marginBottom: 5, borderRadius: 11, overflow: "hidden", backgroundColor: "#202329" },
   videoPlaceholder: { backgroundColor: "#202329" },
   videoPlay: { position: "absolute", left: "50%", top: "50%", width: 44, height: 44, marginLeft: -22, marginTop: -22, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
-  videoDurationBadge: { position: "absolute", right: 7, bottom: 12, minWidth: 34, height: 20, paddingHorizontal: 6, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
+  videoDurationBadge: { position: "absolute", right: 7, bottom: 7, minWidth: 34, height: 20, paddingHorizontal: 6, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
   videoDurationText: { color: "white", fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
   file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
   fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
