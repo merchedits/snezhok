@@ -12,10 +12,10 @@ test("image profiles use the documented size and quality bounds", () => {
   assert.deepEqual(internals.imageProfiles.high, { size: 3840, quality: 90 });
 });
 
-test("video profiles map to bounded 720p, 1080p and 2160p derivatives", () => {
-  assert.equal(internals.videoProfiles["data-saver"].height, 720);
-  assert.equal(internals.videoProfiles.auto.height, 1080);
-  assert.equal(internals.videoProfiles.high.height, 2160);
+test("video profiles use Telegram-style long-edge bounds and constrained rates", () => {
+  assert.deepEqual(internals.videoProfiles["data-saver"], { maxDimension: 854, crf: 27, maxRate: "900k", bufferSize: "1800k", audio: "64k" });
+  assert.deepEqual(internals.videoProfiles.auto, { maxDimension: 1280, crf: 24, maxRate: "1800k", bufferSize: "3600k", audio: "96k" });
+  assert.deepEqual(internals.videoProfiles.high, { maxDimension: 1920, crf: 22, maxRate: "3500k", bufferSize: "7000k", audio: "128k" });
 });
 
 test("waveform produces stable normalized bins", () => {

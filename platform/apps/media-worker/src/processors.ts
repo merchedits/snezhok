@@ -13,8 +13,13 @@ export interface ProcessContext {
 const imageProfiles: Record<Exclude<Quality, "original">, { size: number; quality: number }> = {
   "data-saver": { size: 1280, quality: 72 }, auto: { size: 2560, quality: 82 }, high: { size: 3840, quality: 90 },
 };
-const videoProfiles: Record<Exclude<Quality, "original">, { height: number; crf: number; audio: string }> = {
-  "data-saver": { height: 720, crf: 25, audio: "96k" }, auto: { height: 1080, crf: 22, audio: "128k" }, high: { height: 2160, crf: 19, audio: "192k" },
+const videoProfiles: Record<Exclude<Quality, "original">, { maxDimension: number; crf: number; maxRate: string; bufferSize: string; audio: string }> = {
+  // Telegram Android exposes 854, 1280 and 1920-pixel long-edge tiers. The
+  // capped CRF encode preserves easy scenes efficiently while bounding bursts
+  // so a message can begin playing quickly on mobile data.
+  "data-saver": { maxDimension: 854, crf: 27, maxRate: "900k", bufferSize: "1800k", audio: "64k" },
+  auto: { maxDimension: 1280, crf: 24, maxRate: "1800k", bufferSize: "3600k", audio: "96k" },
+  high: { maxDimension: 1920, crf: 22, maxRate: "3500k", bufferSize: "7000k", audio: "128k" },
 };
 
 export async function processMedia(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
@@ -52,16 +57,17 @@ async function processImage(job: MediaJob, input: string, directory: string): Pr
 async function processVideo(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
   const profile = videoProfiles[job.profile === "original" ? "high" : job.profile];
   const primary = path.join(directory, "primary.mp4");
-  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-map_chapters", "-1", "-vf", `scale=-2:'min(${profile.height},ih)':flags=lanczos`, "-c:v", "libx264", "-preset", "medium", "-crf", String(profile.crf), "-pix_fmt", "yuv420p", "-threads", String(config.FFMPEG_THREADS), "-c:a", "aac", "-b:a", profile.audio, "-movflags", "+faststart", primary], context);
+  const scale = `scale=w='min(iw,${profile.maxDimension})':h='min(ih,${profile.maxDimension})':force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos`;
+  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-map_chapters", "-1", "-vf", scale, "-c:v", "libx264", "-preset", "medium", "-profile:v", "main", "-level:v", "4.0", "-crf", String(profile.crf), "-maxrate", profile.maxRate, "-bufsize", profile.bufferSize, "-force_key_frames", "expr:gte(t,n_forced*1)", "-pix_fmt", "yuv420p", "-threads", String(config.FFMPEG_THREADS), "-c:a", "aac", "-b:a", profile.audio, "-movflags", "+faststart", primary], context);
   const metadata = await probe(primary, context); const thumb = await videoThumbnail(primary, directory, context);
   return [variant("primary", job.profile, primary, "video/mp4", metadata.width, metadata.height, metadata.durationMs), thumb];
 }
 
 async function processVideoNote(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
   const primary = path.join(directory, "video-note.mp4");
-  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-map_chapters", "-1", "-vf", "scale=720:720:force_original_aspect_ratio=increase:flags=lanczos,crop=720:720", "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p", "-threads", String(config.FFMPEG_THREADS), "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", primary], context);
+  await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-map_chapters", "-1", "-vf", "scale=480:480:force_original_aspect_ratio=increase:flags=lanczos,crop=480:480", "-c:v", "libx264", "-preset", "medium", "-profile:v", "main", "-level:v", "3.1", "-crf", "25", "-maxrate", "900k", "-bufsize", "1800k", "-force_key_frames", "expr:gte(t,n_forced*1)", "-pix_fmt", "yuv420p", "-threads", String(config.FFMPEG_THREADS), "-c:a", "aac", "-b:a", "64k", "-movflags", "+faststart", primary], context);
   const metadata = await probe(primary, context); const thumb = await videoThumbnail(primary, directory, context);
-  return [variant("primary", "video-note-720", primary, "video/mp4", 720, 720, metadata.durationMs), thumb];
+  return [variant("primary", "video-note-480", primary, "video/mp4", 480, 480, metadata.durationMs), thumb];
 }
 
 async function processVoice(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
