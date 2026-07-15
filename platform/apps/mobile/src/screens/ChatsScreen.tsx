@@ -13,7 +13,9 @@ import { ConversationActionsSheet } from "../components/ConversationActionsSheet
 import { NewConversationModal } from "../components/NewConversationModal";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { usePalette } from "../hooks/usePalette";
+import { prefetchAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
+import { recentMediaPreviewUris } from "../lib/chatWarmup";
 import { visibleConversationSummaries } from "../lib/conversationList";
 import { directPeer, startsRegularConversationSection } from "../store/conversationIdentity";
 import { useAppStore } from "../store/useAppStore";
@@ -40,6 +42,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const [newMessage, setNewMessage] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const warmConversationKey = useMemo(() => conversations.slice(0, 6).map((conversation) => conversation.id).join(","), [conversations]);
 
   useEffect(() => {
     if (!active) return;
@@ -47,6 +50,24 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     const timer = setTimeout(() => void refresh({ silent: true }).catch(() => undefined), 220);
     return () => clearTimeout(timer);
   }, [active, refresh]);
+
+  useEffect(() => {
+    if (!active || !warmConversationKey) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const streamIds = warmConversationKey.split(",").filter(Boolean);
+      void (async () => {
+        // Limit concurrency so warming cannot compete with a chat the user opens.
+        for (let index = 0; index < streamIds.length && !cancelled; index += 3) {
+          await Promise.all(streamIds.slice(index, index + 3).map((streamId) => loadMessages(streamId).catch(() => undefined)));
+        }
+        if (cancelled) return;
+        const previews = recentMediaPreviewUris(useAppStore.getState().messages, streamIds);
+        await prefetchAuthorizedMedia(previews).catch(() => false);
+      })();
+    }, 320);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [active, loadMessages, warmConversationKey]);
 
   const filtered = useMemo(
     () => visibleConversationSummaries(conversations, search, (conversation) => conversationTitle(conversation, language)),

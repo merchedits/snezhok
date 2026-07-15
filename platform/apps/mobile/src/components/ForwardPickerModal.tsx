@@ -7,11 +7,11 @@ import type { ConversationSummary } from "@snezhok/contracts";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import { useAppStore } from "../store/useAppStore";
 import { Avatar } from "./Avatar";
 
-export const ForwardPickerModal = memo(function ForwardPickerModal({ visible, conversations, busy, onClose, onSelect }: {
+export const ForwardPickerModal = memo(function ForwardPickerModal({ visible, busy, onClose, onSelect }: {
   visible: boolean;
-  conversations: ConversationSummary[];
   busy: boolean;
   onClose: () => void;
   onSelect: (conversation: ConversationSummary) => void;
@@ -19,6 +19,7 @@ export const ForwardPickerModal = memo(function ForwardPickerModal({ visible, co
   const palette = usePalette();
   const insets = useSafeAreaInsets();
   const { language, t } = useTranslation();
+  const conversations = useAppStore((state) => state.conversations);
   const russian = language === "ru";
   const targets = useMemo(() => conversations.filter((conversation) => !conversation.archived), [conversations]);
   return (

@@ -8,6 +8,7 @@ import { usePalette } from "../hooks/usePalette";
 import { type TranslationKey, useTranslation } from "../i18n";
 import { ApiError } from "../lib/api";
 import { validEmail, validPassword, validUsername } from "../lib/authValidation";
+import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 
 export function LoginScreen() {
@@ -70,7 +71,7 @@ export function LoginScreen() {
             {password && !passwordIsValid ? <Text style={[styles.fieldHint, { color: palette.danger }]}>{t("passwordRules")}</Text> : null}
             {registering ? <AuthField icon="shield-checkmark-outline" autoCapitalize="none" placeholder={t("confirmPassword")} secureTextEntry={!showPassword} value={confirmPassword} onChangeText={edit(setConfirmPassword)} onSubmitEditing={() => void submit()} invalid={Boolean(confirmPassword && confirmPassword !== password)} /> : null}
             {registering && confirmPassword && confirmPassword !== password ? <Text style={[styles.error, { color: palette.danger }]}>{t("passwordsMismatch")}</Text> : null}
-            {localError || error ? <Text style={[styles.error, { color: palette.danger }]}>{localError ?? error}</Text> : null}
+            {localError || error ? <Text style={[styles.error, { color: palette.danger }]}>{localError ?? t("networkUnavailable")}</Text> : null}
             <Pressable accessibilityRole="button" onPress={() => void submit()} disabled={busy || !valid} style={({ pressed }) => [styles.submit, { backgroundColor: palette.accent, opacity: pressed || busy || !valid ? 0.58 : 1 }]}>
               {busy ? <ActivityIndicator color="white" /> : <Text style={styles.submitText}>{registering ? t("createAccount") : t("signIn")}</Text>}
             </Pressable>
@@ -113,5 +114,5 @@ function authErrorMessage(error: unknown, t: (key: TranslationKey) => string): s
     if (error.details?.username) return t("usernameRules");
     if (error.details?.password) return t("passwordRules");
   }
-  return error instanceof Error ? error.message : t("requestFailed");
+  return userFacingError(error, t, "requestFailed");
 }

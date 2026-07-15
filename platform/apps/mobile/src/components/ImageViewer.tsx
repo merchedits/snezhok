@@ -8,6 +8,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTranslation } from "../i18n";
+import { userFacingError } from "../lib/userFacingError";
 import { useAppDialog } from "./AppDialogProvider";
 
 type AuthorizedImageSource = {
@@ -138,7 +139,7 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
       }
       showDialog(t("photoSaved"));
     } catch (error) {
-      showDialog(t("photoSaveFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("photoSaveFailed"), userFacingError(error, t));
     } finally {
       if (temporaryFile?.exists) temporaryFile.delete();
       setSaving(false);

@@ -20,6 +20,7 @@ import { useAppDialog } from "../components/AppDialogProvider";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
+import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import type { CallJoinResponse, RootStackParamList } from "../types";
 
@@ -27,6 +28,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Call">;
 
 export function CallScreen({ navigation, route }: Props) {
   const palette = usePalette();
+  const { t } = useTranslation();
   const settings = useAppStore((state) => state.settings);
   const [credentials, setCredentials] = useState<CallJoinResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,8 @@ export function CallScreen({ navigation, route }: Props) {
     void (async () => {
       try {
         if (!(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO))) {
-          throw new Error("Microphone permission is required to join a call");
+          if (active) setError(t("microphonePermissionDenied"));
+          return;
         }
         await AudioSession.configureAudio({ android: { audioTypeOptions: { manageAudioFocus: true, audioMode: "inCommunication", audioFocusMode: "gain", audioStreamType: "voiceCall", audioAttributesUsageType: "voiceCommunication", audioAttributesContentType: "speech" } } });
         await AudioSession.startAudioSession();
@@ -63,21 +66,21 @@ export function CallScreen({ navigation, route }: Props) {
           audioStarted = false;
           await AudioSession.stopAudioSession().catch(() => undefined);
         }
-        if (active) setError(reason instanceof Error ? reason.message : "Could not join this call");
+        if (active) setError(userFacingError(reason, t));
       }
     })();
     return () => {
       active = false;
       if (audioStarted) void AudioSession.stopAudioSession().catch(() => undefined);
     };
-  }, [route.params.streamId]);
+  }, [route.params.streamId, t]);
 
   useEffect(() => () => endOwnedCall(), [endOwnedCall]);
 
   if (error) {
-    return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><AppIcon name="warning-outline" size={42} color={palette.danger} /><Text style={[styles.errorTitle, { color: palette.text }]}>Call unavailable</Text><Text style={[styles.errorText, { color: palette.secondaryText }]}>{error}</Text><Pressable onPress={navigation.goBack} style={[styles.retry, { backgroundColor: palette.accent }]}><Text style={styles.retryText}>Go back</Text></Pressable></SafeAreaView>;
+    return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><AppIcon name="warning-outline" size={42} color={palette.danger} /><Text style={[styles.errorTitle, { color: palette.text }]}>{t("callUnavailable")}</Text><Text style={[styles.errorText, { color: palette.secondaryText }]}>{error}</Text><Pressable onPress={navigation.goBack} style={[styles.retry, { backgroundColor: palette.accent }]}><Text style={styles.retryText}>{t("goBack")}</Text></Pressable></SafeAreaView>;
   }
-  if (!credentials) return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><ActivityIndicator size="large" color={palette.accent} /><Text style={[styles.connecting, { color: palette.secondaryText }]}>Joining {route.params.title}…</Text></SafeAreaView>;
+  if (!credentials) return <SafeAreaView style={[styles.loading, { backgroundColor: palette.background }]}><ActivityIndicator size="large" color={palette.accent} /><Text style={[styles.connecting, { color: palette.secondaryText }]}>{t("joiningCall", { title: route.params.title })}</Text></SafeAreaView>;
 
   return (
     <LiveKitRoom
@@ -118,7 +121,7 @@ function CallRoom({ title, onLeave }: { title: string; onLeave: () => void }) {
   const videoTracks = useTracks([Track.Source.ScreenShare, Track.Source.Camera], { onlySubscribed: false });
   const [speaker, setSpeaker] = useState(true);
 
-  const toggle = async (action: () => Promise<unknown>, failure: string) => action().catch((error: unknown) => showDialog(failure, error instanceof Error ? error.message : t("tryAgain")));
+  const toggle = async (action: () => Promise<unknown>, failure: string) => action().catch((error: unknown) => showDialog(failure, userFacingError(error, t)));
   const leave = () => { room.disconnect(); onLeave(); };
   const toggleSpeaker = async () => {
     const next = !speaker;

@@ -40,6 +40,14 @@ export const MessageBubble = memo(function MessageBubble({ message, mine, showSe
     if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
   }, []);
   useEffect(() => {
+    // FlashList recycles the native row for another message. Gesture state must
+    // never leak from the previously displayed item into the recycled cell.
+    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+    singleTapTimer.current = null;
+    lastTapAt.current = 0;
+    longPressTriggered.current = false;
+  }, [message.id]);
+  useEffect(() => {
     if (!selectionMode || !singleTapTimer.current) return;
     clearTimeout(singleTapTimer.current);
     singleTapTimer.current = null;
@@ -154,16 +162,13 @@ function MediaAlbum({ attachments }: { attachments: Attachment[] }) {
 
 function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
   const [open, setOpen] = useState(false);
-  const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={styles.albumTile}>
       <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={StyleSheet.absoluteFill} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </Pressable>
-    {attachment.kind === "video"
-      ? <VideoViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={() => setOpen(false)} />
-      : <ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} />}
+    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}
   </>;
 }
 
@@ -184,14 +189,13 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [open, setOpen] = useState(false);
   const [decodedSize, setDecodedSize] = useState<{ width: number; height: number } | null>(null);
-  const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
   const size = decodedSize ?? messageMediaSize(attachment.width, attachment.height);
-  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} onLoad={({ source: loaded }) => setDecodedSize(messageMediaSize(loaded.width, loaded.height))} style={[styles.photo, size]} /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
+  const measurement = attachment.width && attachment.height ? {} : { onLoad: ({ source: loaded }: { source: { width: number; height: number } }) => setDecodedSize(messageMediaSize(loaded.width, loaded.height)) };
+  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} {...measurement} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
-  const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? "");
   const [open, setOpen] = useState(false);
   const size = messageMediaSize(attachment.width, attachment.height);
@@ -201,8 +205,15 @@ function InlineVideo({ attachment }: { attachment: Attachment }) {
       <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
       {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
     </Pressable>
-    <VideoViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={() => setOpen(false)} />
+    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}
   </>;
+}
+
+function AttachmentViewer({ attachment, onClose }: { attachment: Attachment; onClose: () => void }) {
+  const source = useAuthorizedMedia(attachment.url);
+  return attachment.kind === "video"
+    ? <VideoViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={onClose} />
+    : <ImageViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={onClose} />;
 }
 
 function formatBytes(bytes: number): string {

@@ -125,6 +125,8 @@ let lastBootstrapCompletedAt = 0;
 let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
 const messageLoads = new Map<string, Promise<void>>();
 const latestMessageLoads = new Map<string, number>();
+const pinnedMessageLoads = new Map<string, Promise<void>>();
+const latestPinnedMessageLoads = new Map<string, number>();
 const reactionSyncQueues = new Map<string, Promise<void>>();
 
 function schedulePersistence(): void {
@@ -132,7 +134,10 @@ function schedulePersistence(): void {
   persistenceTimer = setTimeout(() => {
     persistenceTimer = null;
     void persistState().catch((error) => console.warn("Could not persist offline cache", error));
-  }, 250);
+  // Cache I/O is deliberately kept outside navigation and interaction frames.
+  // Realtime bursts coalesce into one SQLite transaction instead of repeatedly
+  // serializing the entire offline window while the user is opening a chat.
+  }, 700);
 }
 
 function cancelScheduledPersistence(): void {
@@ -223,6 +228,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     cancelScheduledPersistence();
     lastBootstrapCompletedAt = 0;
     latestMessageLoads.clear();
+    latestPinnedMessageLoads.clear();
     await persistenceQueue.catch(() => undefined);
     await Promise.all([clearSession(), clearLocalData()]);
     set({
@@ -272,7 +278,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           eventCursor: payload.eventCursor,
         });
         lastBootstrapCompletedAt = Date.now();
-        await persistState();
+        schedulePersistence();
       } catch (error) {
         set({ syncing: false });
         const session = await readSession();
@@ -300,7 +306,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
       if (before === undefined) latestMessageLoads.set(streamId, Date.now());
-      await persistState();
+      schedulePersistence();
     })().finally(() => messageLoads.delete(key));
     messageLoads.set(key, loading);
     return loading;
@@ -310,26 +316,38 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (sequence < 0) return;
     // Clear the badge immediately. The server write remains idempotent and is
     // retried whenever the focused chat receives another message.
-    set((state) => ({
-      conversations: state.conversations.map((conversation) => conversation.id === streamId
-        ? { ...conversation, unreadCount: 0, mentionCount: 0 }
-        : conversation),
-      channels: state.channels.map((channel) => channel.id === streamId
-        ? { ...channel, unreadCount: 0, mentionCount: 0 }
-        : channel),
-    }));
-    await persistState();
+    const shouldPersist = get().conversations.some((conversation) => conversation.id === streamId && (conversation.unreadCount > 0 || conversation.mentionCount > 0))
+      || get().channels.some((channel) => channel.id === streamId && (channel.unreadCount > 0 || channel.mentionCount > 0));
+    if (shouldPersist) {
+      set((state) => ({
+        conversations: state.conversations.map((conversation) => conversation.id === streamId
+          ? { ...conversation, unreadCount: 0, mentionCount: 0 }
+          : conversation),
+        channels: state.channels.map((channel) => channel.id === streamId
+          ? { ...channel, unreadCount: 0, mentionCount: 0 }
+          : channel),
+      }));
+      schedulePersistence();
+    }
     if (!get().online) return;
     await api.markRead(streamId, sequence);
   },
 
-  loadPinnedMessages: async (streamId) => {
-    if (!get().online) return;
-    const pinned = await api.pinnedMessages(streamId);
-    set((state) => ({
-      messages: { ...state.messages, [streamId]: reconcilePinnedMessages(state.messages[streamId] ?? [], pinned) },
-    }));
-    await persistState();
+  loadPinnedMessages: (streamId) => {
+    if (!get().online) return Promise.resolve();
+    const active = pinnedMessageLoads.get(streamId);
+    if (active) return active;
+    if (Date.now() - (latestPinnedMessageLoads.get(streamId) ?? 0) < 30_000) return Promise.resolve();
+    const loading = (async () => {
+      const pinned = await api.pinnedMessages(streamId);
+      set((state) => ({
+        messages: { ...state.messages, [streamId]: reconcilePinnedMessages(state.messages[streamId] ?? [], pinned) },
+      }));
+      latestPinnedMessageLoads.set(streamId, Date.now());
+      schedulePersistence();
+    })().finally(() => pinnedMessageLoads.delete(streamId));
+    pinnedMessageLoads.set(streamId, loading);
+    return loading;
   },
 
   uploadAttachment: async (input) => {
@@ -405,7 +423,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
     }
-    await persistState();
+    schedulePersistence();
   },
 
   forwardMessage: async (messageId, targetStreamId) => {
@@ -450,7 +468,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       conversations: applyConversationPreview(state.conversations, saved),
       messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [saved]) },
     }));
-    await persistState();
+    schedulePersistence();
     return saved;
   },
 
@@ -542,7 +560,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
     }));
-    await persistState();
+    schedulePersistence();
   },
 
   retryOutbox: async () => {

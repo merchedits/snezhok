@@ -13,6 +13,7 @@ import { StatusBar } from "expo-status-bar";
 import { OfflineBar } from "./src/components/OfflineBar";
 import { AppDialogProvider } from "./src/components/AppDialogProvider";
 import { usePalette } from "./src/hooks/usePalette";
+import { useTranslation } from "./src/i18n";
 import { useRealtime } from "./src/hooks/useRealtime";
 import { navigationRef } from "./src/navigation/navigationRef";
 import { flushPendingNotificationNavigation } from "./src/notifications/androidNotifications";
@@ -98,10 +99,11 @@ function AppRoot() {
 }
 
 function SafeChatScreen(props: ComponentProps<typeof ChatScreen>) {
-  return <ChatErrorBoundary key={props.route.params.streamId} onBack={props.navigation.goBack}><ChatScreen {...props} /></ChatErrorBoundary>;
+  const { t } = useTranslation();
+  return <ChatErrorBoundary key={props.route.params.streamId} onBack={props.navigation.goBack} title={t("openChatFailed")} message={t("tryAgain")} backLabel={t("back")}><ChatScreen {...props} /></ChatErrorBoundary>;
 }
 
-class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => void }, { failed: boolean }> {
+class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => void; title: string; message: string; backLabel: string }, { failed: boolean }> {
   state = { failed: false };
 
   static getDerivedStateFromError() { return { failed: true }; }
@@ -115,9 +117,9 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => v
     if (!this.state.failed) return this.props.children;
     return (
       <SafeAreaView style={styles.crash}>
-        <Text style={styles.crashTitle}>Не удалось открыть чат</Text>
-        <Text style={styles.crashText}>Ошибка сохранена в журнале. Вернитесь назад и попробуйте снова.</Text>
-        <Pressable onPress={this.props.onBack} style={styles.crashButton}><Text style={styles.crashButtonText}>Назад</Text></Pressable>
+        <Text style={styles.crashTitle}>{this.props.title}</Text>
+        <Text style={styles.crashText}>{this.props.message}</Text>
+        <Pressable onPress={this.props.onBack} style={styles.crashButton}><Text style={styles.crashButtonText}>{this.props.backLabel}</Text></Pressable>
       </SafeAreaView>
     );
   }

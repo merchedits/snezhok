@@ -7,13 +7,26 @@ import type { Message } from "@snezhok/contracts";
  */
 export function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
   const merged: Message[] = [];
+  const byId = new Map<string, number>();
+  const byClientId = new Map<string, number>();
+
   for (const message of [...existing, ...incoming]) {
     const clientId = message.clientId ?? (message.pending || message.failed ? message.id : null);
-    const index = merged.findIndex((candidate) =>
-      candidate.id === message.id || Boolean(clientId && (candidate.clientId === clientId || ((candidate.pending || candidate.failed) && candidate.id === clientId))),
-    );
-    if (index >= 0) merged[index] = message;
-    else merged.push(message);
+    const index = byId.get(message.id) ?? (clientId ? byClientId.get(clientId) : undefined);
+    if (index !== undefined) {
+      const previous = merged[index]!;
+      const previousClientId = previous.clientId ?? (previous.pending || previous.failed ? previous.id : null);
+      if (previous.id !== message.id) byId.delete(previous.id);
+      if (previousClientId && previousClientId !== clientId) byClientId.delete(previousClientId);
+      merged[index] = message;
+      byId.set(message.id, index);
+      if (clientId) byClientId.set(clientId, index);
+      continue;
+    }
+    const nextIndex = merged.length;
+    merged.push(message);
+    byId.set(message.id, nextIndex);
+    if (clientId) byClientId.set(clientId, nextIndex);
   }
   return merged.sort((a, b) => a.sequence - b.sequence || a.createdAt - b.createdAt);
 }

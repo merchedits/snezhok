@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import { userFacingError } from "../lib/userFacingError";
 
 interface TextEntryModalProps {
   visible: boolean;
@@ -29,7 +30,7 @@ export function TextEntryModal({ visible, title, placeholder, submitLabel, onClo
     busyRef.current = true;
     setBusy(true);
     setError(null);
-    try { await onSubmit(value.trim()); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : t("requestFailed")); } finally { busyRef.current = false; setBusy(false); }
+    try { await onSubmit(value.trim()); onClose(); } catch (reason) { setError(userFacingError(reason, t, "requestFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   return (
     <Modal visible={visible} transparent animationType="fade" navigationBarTranslucent={false} onRequestClose={busy ? undefined : onClose}>

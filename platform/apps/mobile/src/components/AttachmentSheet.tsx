@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import { userFacingError } from "../lib/userFacingError";
 import type { UploadInput } from "../types";
 import { useAppDialog } from "./AppDialogProvider";
 
@@ -57,7 +58,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
       recentAssetCache = next;
       setAssets(next);
     } catch (error) {
-      showDialog(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("requestFailed"), userFacingError(error, t));
     } finally {
       setLoading(false);
     }
@@ -112,7 +113,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
         return { uri: info.uri, filename, mimeType: mimeTypeFor(filename, video), kind: video ? "video" : "image", quality, purpose: "standard" };
       }), "media");
     } catch (error) {
-      showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("uploadFailed"), userFacingError(error, t));
     } finally {
       resolvingRef.current = false;
       setResolving(false);

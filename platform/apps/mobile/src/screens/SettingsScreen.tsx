@@ -18,6 +18,7 @@ import {
 } from "../components/settings/SettingsGroup";
 import { usePalette } from "../hooks/usePalette";
 import { optionLabel, useTranslation } from "../i18n";
+import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 import { useAndroidUpdate } from "../updates/UpdateProvider";
@@ -52,7 +53,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const [choice, setChoice] = useState<ChoiceRequest | null>(null);
 
   const patch = useCallback((value: Partial<AppSettings>) => {
-    void update(value).catch((error: unknown) => showDialog(t("saveFailed"), error instanceof Error ? error.message : t("tryAgain")));
+    void update(value).catch((error: unknown) => showDialog(t("saveFailed"), userFacingError(error, t)));
   }, [showDialog, t, update]);
 
   const openChoice = useCallback((key: ChoiceSetting, title: string, selected: string, options: SettingsChoiceOption[]) => {

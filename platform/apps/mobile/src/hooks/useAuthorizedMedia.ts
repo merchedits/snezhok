@@ -1,4 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
+import { Image } from "expo-image";
 
 import { API_URL } from "../lib/api";
 import { getRuntimeSession, subscribeToSession } from "../lib/secureSession";
@@ -20,4 +21,14 @@ export function useAuthorizedMedia(uri: string) {
     uri: resolveMediaUrl(uri),
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   }), [token, uri]);
+}
+
+export function prefetchAuthorizedMedia(uris: readonly string[]): Promise<boolean> {
+  const urls = [...new Set(uris.filter(Boolean).map(resolveMediaUrl))];
+  if (!urls.length) return Promise.resolve(true);
+  const token = getRuntimeSession()?.accessToken;
+  return Image.prefetch(urls, {
+    cachePolicy: "memory-disk",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
 }

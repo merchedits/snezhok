@@ -8,6 +8,7 @@ import type { ConversationSummary, UserSummary } from "@snezhok/contracts";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
+import { userFacingError } from "../lib/userFacingError";
 import { Avatar } from "./Avatar";
 
 export function NewConversationModal({ visible, onClose, onCreated }: { visible: boolean; onClose: () => void; onCreated: (conversation: ConversationSummary) => void }) {
@@ -23,13 +24,13 @@ export function NewConversationModal({ visible, onClose, onCreated }: { visible:
     if (!query.trim() || busyRef.current) return;
     busyRef.current = true;
     setBusy(true); setError(null);
-    try { setResults(await api.searchUsers(query.trim())); } catch (reason) { setError(reason instanceof Error ? reason.message : t("searchFailed")); } finally { busyRef.current = false; setBusy(false); }
+    try { setResults(await api.searchUsers(query.trim())); } catch (reason) { setError(userFacingError(reason, t, "searchFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   const create = async (user: UserSummary) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true); setError(null);
-    try { onCreated(await api.createConversation([user.id])); } catch (reason) { setError(reason instanceof Error ? reason.message : t("openChatFailed")); } finally { busyRef.current = false; setBusy(false); }
+    try { onCreated(await api.createConversation([user.id])); } catch (reason) { setError(userFacingError(reason, t, "openChatFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

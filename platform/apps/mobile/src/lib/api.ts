@@ -15,22 +15,13 @@ import type {
   UploadProgressCallback,
   UploadResponse,
 } from "../types";
+import { ApiError } from "./apiError";
 import { clearSession, readSession, writeSession } from "./secureSession";
 import { uploadPercent } from "./uploadProgress";
 
-type RequestOptions = Omit<RequestInit, "body"> & { body?: BodyInit | object; authenticated?: boolean };
+export { ApiError } from "./apiError";
 
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-    public readonly code?: string,
-    public readonly details?: Record<string, string[]>,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+type RequestOptions = Omit<RequestInit, "body"> & { body?: BodyInit | object; authenticated?: boolean };
 
 const configuredUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
 export const API_URL = (configuredUrl ?? "https://merchedits.xyz/chat/api/v1").replace(/\/$/, "");

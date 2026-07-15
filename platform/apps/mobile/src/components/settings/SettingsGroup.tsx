@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
-import { Children, Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { Animated, Easing, Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Children, Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Animated, Easing, Modal, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../../hooks/usePalette";
@@ -144,27 +144,39 @@ export function SettingsChoiceSheet({
 }) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
+  const { height: viewportHeight } = useWindowDimensions();
   const [presented, setPresented] = useState(visible);
   const [display, setDisplay] = useState({ title, selected, options });
   const latestDisplay = useRef({ title, selected, options });
   latestDisplay.current = { title, selected, options };
-  const progress = useRef(new Animated.Value(visible ? 1 : 0)).current;
+  // Keep the sheet completely below the native modal until `onShow` confirms
+  // that Android has attached the modal window. Animating before that callback
+  // produces a few frames in the old React root above the app tab bar.
+  const progress = useRef(new Animated.Value(0)).current;
   const selecting = useRef(false);
+  const presentedRef = useRef(presented);
+  presentedRef.current = presented;
+
+  const enter = useCallback(() => {
+    progress.stopAnimation();
+    if (reducedMotion) {
+      progress.setValue(1);
+      return;
+    }
+    progress.setValue(0);
+    requestAnimationFrame(() => {
+      Animated.timing(progress, { toValue: 1, duration: 260, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    });
+  }, [progress, reducedMotion]);
 
   useEffect(() => {
     selecting.current = false;
     progress.stopAnimation();
     if (visible) {
       setDisplay(latestDisplay.current);
-      setPresented(true);
-      if (reducedMotion) {
-        progress.setValue(1);
-        return;
-      }
       progress.setValue(0);
-      requestAnimationFrame(() => {
-        Animated.timing(progress, { toValue: 1, duration: 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-      });
+      if (presentedRef.current) enter();
+      else setPresented(true);
       return;
     }
     if (reducedMotion) {
@@ -173,9 +185,12 @@ export function SettingsChoiceSheet({
       return;
     }
     Animated.timing(progress, { toValue: 0, duration: 170, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
-      if (finished) setPresented(false);
+      if (finished) {
+        presentedRef.current = false;
+        setPresented(false);
+      }
     });
-  }, [progress, reducedMotion, visible]);
+  }, [enter, progress, reducedMotion, visible]);
 
   if (!presented) return null;
   const choose = (value: string) => {
@@ -184,8 +199,7 @@ export function SettingsChoiceSheet({
     void Haptics.selectionAsync().catch(() => undefined);
     onSelect(value);
   };
-  const sheetTranslateY = progress.interpolate({ inputRange: [0, 1], outputRange: [36, 0] });
-  const sheetScale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.99, 1] });
+  const sheetTranslateY = progress.interpolate({ inputRange: [0, 1], outputRange: [Math.max(viewportHeight, 480), 0] });
   return (
     <Modal
       visible={presented}
@@ -195,12 +209,13 @@ export function SettingsChoiceSheet({
       hardwareAccelerated
       animationType="none"
       presentationStyle="overFullScreen"
+      onShow={enter}
       onRequestClose={onClose}
     >
       <View style={styles.modalLayer}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: progress, backgroundColor: palette.overlay }]} />
         <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={StyleSheet.absoluteFill} />
-        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border, opacity: progress, transform: [{ translateY: sheetTranslateY }, { scale: sheetScale }] }]}>
+        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border, transform: [{ translateY: sheetTranslateY }] }]}>
           <View style={[styles.grabber, { backgroundColor: palette.faintText }]} />
           <Text style={[styles.sheetTitle, { color: palette.text }]}>{display.title}</Text>
           <View style={styles.options}>

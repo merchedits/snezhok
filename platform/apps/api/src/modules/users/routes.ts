@@ -39,7 +39,7 @@ export async function userRoutes(app: FastifyInstance) {
     await transaction(async (client) => {
       await lockProfile(request.auth.id, client);
       const attachment = await client.query<{ id: string }>(
-        `SELECT id FROM attachments WHERE id=$1 AND owner_id=$2 AND kind='image' AND mime_type LIKE 'image/%' AND status='ready'`,
+        `SELECT id FROM attachments WHERE id=$1 AND owner_id=$2 AND kind='image' AND mime_type LIKE 'image/%' AND status IN ('processing','ready')`,
         [attachmentId, request.auth.id],
       );
       if (!attachment.rowCount) throw forbidden("Profile photo must be an image uploaded by this account");

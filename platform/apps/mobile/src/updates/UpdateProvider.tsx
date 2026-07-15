@@ -10,6 +10,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import type { AndroidReleaseManifest } from "../types";
 import { api, resolveApiResource } from "../lib/api";
+import { ApiError } from "../lib/apiError";
+import { userFacingError } from "../lib/userFacingError";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
 import { arrayBufferToHex, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
@@ -153,7 +155,8 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
         if (autoUpdate && (network.type === "wifi" || network.type === "ethernet")) await downloadRelease(manifest);
       } catch (error) {
         if (manual || foundRelease) {
-          setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : t("updateFailed") }));
+          const message = error instanceof ApiError || error instanceof TypeError ? userFacingError(error, t, "updateFailed") : error instanceof Error ? error.message : t("updateFailed");
+          setState((current) => ({ ...current, phase: "error", message }));
         }
       }
     })().finally(() => {
@@ -168,7 +171,8 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     try {
       await downloadRelease(state.manifest);
     } catch (error) {
-      setState((current) => ({ ...current, phase: "error", message: error instanceof Error ? error.message : t("updateFailed") }));
+      const message = error instanceof ApiError || error instanceof TypeError ? userFacingError(error, t, "updateFailed") : error instanceof Error ? error.message : t("updateFailed");
+      setState((current) => ({ ...current, phase: "error", message }));
     }
   }, [checkForUpdate, downloadRelease, state.manifest, t]);
 

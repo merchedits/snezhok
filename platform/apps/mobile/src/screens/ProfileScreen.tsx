@@ -16,6 +16,7 @@ import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
+import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 
@@ -58,7 +59,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
         setStatusText(next.user.statusText);
         setSelectedPhotoId(null);
       }).catch((error) => {
-        if (mounted && !profile) showDialog(t("profileLoadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+        if (mounted && !profile) showDialog(t("profileLoadFailed"), userFacingError(error, t));
       });
     }, embedded ? 220 : 0);
     return () => { mounted = false; clearTimeout(timer); };
@@ -76,7 +77,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       await refreshBootstrap();
       setEditing(false);
     } catch (error) {
-      showDialog(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("profileSaveFailed"), userFacingError(error, t));
     } finally { setBusy(false); }
   };
 
@@ -94,7 +95,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
     } catch (error) {
-      showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("uploadFailed"), userFacingError(error, t));
     } finally { setBusy(false); }
   };
 
@@ -105,7 +106,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       const next = await api.reorderProfilePhotos([photo.id, ...profile.photos.filter((item) => item.id !== photo.id).map((item) => item.id)]);
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
-    } catch (error) { showDialog(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain")); }
+    } catch (error) { showDialog(t("profileSaveFailed"), userFacingError(error, t)); }
     finally { setBusy(false); }
   };
 
@@ -120,7 +121,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       const next = await api.removeProfilePhoto(photoId);
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
-    } catch (error) { showDialog(t("profileSaveFailed"), error instanceof Error ? error.message : t("tryAgain")); }
+    } catch (error) { showDialog(t("profileSaveFailed"), userFacingError(error, t)); }
     finally { setBusy(false); }
   };
 
@@ -131,7 +132,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       const conversation = direct ?? await api.createConversation([profile.user.id]);
       if (!direct) applyConversation(conversation);
       navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title });
-    } catch (error) { showDialog(t("openChatFailed"), error instanceof Error ? error.message : t("tryAgain")); }
+    } catch (error) { showDialog(t("openChatFailed"), userFacingError(error, t)); }
   };
 
   const openContact = (contactId: string) => navigation.navigate("Profile", { userId: contactId });

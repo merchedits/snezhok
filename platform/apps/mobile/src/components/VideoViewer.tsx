@@ -8,6 +8,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTranslation } from "../i18n";
+import { userFacingError } from "../lib/userFacingError";
 import { useAppDialog } from "./AppDialogProvider";
 import { AppIcon } from "./AppIcon";
 
@@ -130,7 +131,7 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
       }
       showDialog(t("videoSaved"));
     } catch (error) {
-      showDialog(t("videoSaveFailed"), error instanceof Error ? error.message : t("tryAgain"));
+      showDialog(t("videoSaveFailed"), userFacingError(error, t));
     } finally {
       if (temporaryFile?.exists) temporaryFile.delete();
       setSaving(false);
