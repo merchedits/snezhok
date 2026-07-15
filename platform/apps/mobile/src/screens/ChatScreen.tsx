@@ -82,7 +82,11 @@ export function ChatScreen({ navigation, route }: Props) {
   const draft = useAppStore((state) => state.drafts[streamId] ?? "");
   const setDraft = useAppStore((state) => state.setDraft);
   const scheduleTextMessage = useAppStore((state) => state.scheduleTextMessage);
-  const scheduledMessages = useAppStore((state) => state.scheduledMessages.filter((item) => item.streamId === streamId));
+  // Zustand selectors must return a stable snapshot. Filtering inside the
+  // selector creates a new array on every read and React 19 treats that as an
+  // endless external-store update, which crashed chats containing messages.
+  const allScheduledMessages = useAppStore((state) => state.scheduledMessages);
+  const scheduledMessages = useMemo(() => allScheduledMessages.filter((item) => item.streamId === streamId), [allScheduledMessages, streamId]);
   const cancelScheduledMessage = useAppStore((state) => state.cancelScheduledMessage);
   const [text, setText] = useState(draft);
   const [recorderMounted, setRecorderMounted] = useState(false);

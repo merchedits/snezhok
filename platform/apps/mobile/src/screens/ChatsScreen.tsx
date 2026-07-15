@@ -140,7 +140,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         <TextInput value={search} onChangeText={setSearch} placeholder={t("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} />
         <Pressable accessibilityLabel={t("globalSearch")} onPress={() => setGlobalSearch(true)}><AppIcon name="options-outline" size={19} color={palette.accent} /></Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+      <ScrollView horizontal style={styles.filterStrip} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
         <FilterChip label={t("allChats")} active={filter === "all"} onPress={() => setFilter("all")} />
         <FilterChip label={t("archivedChats")} active={filter === "archived"} onPress={() => setFilter("archived")} />
         {folders.map((folder) => <FilterChip key={folder.id} label={folder.name} active={filter === folder.id} onPress={() => setFilter(folder.id)} />)}
@@ -280,7 +280,8 @@ const styles = StyleSheet.create({
   listContent: { flexGrow: 1, paddingBottom: 86 },
   search: { height: 38, marginHorizontal: 12, marginVertical: 8, borderRadius: 10, flexDirection: "row", alignItems: "center", paddingHorizontal: 11, gap: 7 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
-  filters: { paddingHorizontal: 12, paddingBottom: 7, gap: 7 },
+  filterStrip: { flexGrow: 0, flexShrink: 0, height: 41 },
+  filters: { paddingHorizontal: 12, paddingBottom: 7, gap: 7, alignItems: "center" },
   filterChip: { minHeight: 32, borderRadius: 16, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
   filterText: { fontSize: 13, fontWeight: "700" },
   row: { height: 72, flexDirection: "row", paddingLeft: 12, alignItems: "center" },

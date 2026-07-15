@@ -1,7 +1,6 @@
 import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import Animated, { cancelAnimation, Easing, runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { Screen } from "react-native-screens";
 
 import { BottomNavigation } from "../components/BottomNavigation";
 import { recordPerformance } from "../diagnostics/diagnostics";
@@ -110,9 +109,9 @@ function TabPage({ id, activeTab, transition, progress, width, children }: { id:
       accessibilityElementsHidden={id !== activeTab}
       importantForAccessibility={id === activeTab ? "auto" : "no-hide-descendants"}
     >
-      <Screen activityState={2} shouldFreeze={!visible} style={styles.screenContent}>
+      <View style={styles.screenContent}>
         {children}
-      </Screen>
+      </View>
     </Animated.View>
   );
 }
@@ -122,8 +121,8 @@ const styles = StyleSheet.create({
   viewport: { flex: 1, overflow: "hidden" },
   page: { ...StyleSheet.absoluteFill },
   screenContent: { flex: 1 },
-  // Keep native layout warm so distant tabs do not visibly build a frame after
-  // the tap. Opacity zero avoids drawing while react-freeze stops hidden trees
-  // from responding to realtime store updates.
+  // Keep every tab's native tree warm. Freezing hidden tabs made React apply a
+  // backlog of external-store changes on selection, adding 40-120 ms before
+  // the transition could start on the Galaxy A12.
   hiddenPage: { opacity: 0 },
 });

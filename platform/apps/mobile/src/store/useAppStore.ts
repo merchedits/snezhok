@@ -146,6 +146,8 @@ function persistState(): Promise<void> {
 
 let bootstrapRefresh: Promise<void> | null = null;
 let lastBootstrapCompletedAt = 0;
+let productivityRefresh: Promise<void> | null = null;
+let lastProductivityCompletedAt = 0;
 let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
 let draftPersistenceTimer: ReturnType<typeof setTimeout> | null = null;
 const messageLoads = new Map<string, Promise<void>>();
@@ -273,6 +275,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (draftPersistenceTimer) clearTimeout(draftPersistenceTimer);
     draftPersistenceTimer = null;
     lastBootstrapCompletedAt = 0;
+    lastProductivityCompletedAt = 0;
+    productivityRefresh = null;
     latestMessageLoads.clear();
     latestPinnedMessageLoads.clear();
     for (const timer of remoteDraftTimers.values()) clearTimeout(timer);
@@ -304,6 +308,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setOnline: (online) => {
+    if (get().online === online) return;
     set({ online });
     if (online) {
       void get().refreshBootstrap({ force: true, silent: true });
@@ -349,19 +354,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     return bootstrapRefresh;
   },
 
-  refreshProductivity: async () => {
-    if (!get().online) return;
-    const productivity = await api.productivity();
-    const mergedDrafts = { ...Object.fromEntries(productivity.drafts.map((draft) => [draft.streamId, draft.text])), ...get().drafts };
-    set({
-      drafts: mergedDrafts,
-      folders: productivity.folders,
-      scheduledMessages: productivity.scheduled,
-    });
-    scheduleDraftPersistence();
-    // Local values (including empty tombstones) win after offline use, then are
-    // pushed back so a second device observes the same draft state.
-    await Promise.all(Object.entries(mergedDrafts).map(([streamId, text]) => api.saveDraft(streamId, text, null).catch(() => undefined)));
+  refreshProductivity: () => {
+    if (!get().online) return Promise.resolve();
+    if (productivityRefresh) return productivityRefresh;
+    if (Date.now() - lastProductivityCompletedAt < 30_000) return Promise.resolve();
+    productivityRefresh = (async () => {
+      const productivity = await api.productivity();
+      const mergedDrafts = { ...Object.fromEntries(productivity.drafts.map((draft) => [draft.streamId, draft.text])), ...get().drafts };
+      set({
+        drafts: mergedDrafts,
+        folders: productivity.folders,
+        scheduledMessages: productivity.scheduled,
+      });
+      lastProductivityCompletedAt = Date.now();
+      scheduleDraftPersistence();
+      // Local values (including empty tombstones) win after offline use, then
+      // are pushed back so a second device observes the same draft state.
+      await Promise.all(Object.entries(mergedDrafts).map(([streamId, text]) => api.saveDraft(streamId, text, null).catch(() => undefined)));
+    })().finally(() => { productivityRefresh = null; });
+    return productivityRefresh;
   },
 
   loadMessages: (streamId, before) => {
