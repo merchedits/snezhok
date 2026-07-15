@@ -1,6 +1,6 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -18,12 +18,13 @@ import {
 } from "../components/settings/SettingsGroup";
 import { usePalette } from "../hooks/usePalette";
 import { optionLabel, useTranslation } from "../i18n";
+import { clearMediaCache, currentMediaCacheBytes, formatStorageBytes, mediaCacheLimit, MEDIA_CACHE_LIMITS_MB, setMediaCacheLimit, type MediaCacheLimitMb } from "../lib/mediaCache";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 import { useAndroidUpdate } from "../updates/UpdateProvider";
 
-type ChoiceSetting = "language" | "theme" | "accent" | "defaultUploadQuality" | "microphoneMode" | "noiseSuppression";
+type ChoiceSetting = "language" | "theme" | "accent" | "defaultUploadQuality" | "microphoneMode" | "noiseSuppression" | "callAudioRoute" | "callQuality" | "screenShareQuality" | "mediaCacheLimit";
 
 interface ChoiceRequest {
   key: ChoiceSetting;
@@ -51,6 +52,13 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const signOut = useAppStore((state) => state.signOut);
   const appUpdate = useAndroidUpdate();
   const [choice, setChoice] = useState<ChoiceRequest | null>(null);
+  const [cacheLimit, setCacheLimitState] = useState<MediaCacheLimitMb>(256);
+  const [cacheBytes, setCacheBytes] = useState(0);
+
+  useEffect(() => {
+    void mediaCacheLimit().then(setCacheLimitState);
+    setCacheBytes(currentMediaCacheBytes());
+  }, []);
 
   const patch = useCallback((value: Partial<AppSettings>) => {
     void update(value).catch((error: unknown) => showDialog(t("saveFailed"), userFacingError(error, t)));
@@ -70,6 +78,14 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
       case "defaultUploadQuality": patch({ defaultUploadQuality: value as AppSettings["defaultUploadQuality"] }); break;
       case "microphoneMode": patch({ microphoneMode: value as AppSettings["microphoneMode"] }); break;
       case "noiseSuppression": patch({ noiseSuppression: value as AppSettings["noiseSuppression"] }); break;
+      case "callAudioRoute": patch({ callAudioRoute: value as AppSettings["callAudioRoute"] }); break;
+      case "callQuality": patch({ callQuality: value as AppSettings["callQuality"] }); break;
+      case "screenShareQuality": patch({ screenShareQuality: value as AppSettings["screenShareQuality"] }); break;
+      case "mediaCacheLimit": {
+        const limit = Number(value) as MediaCacheLimitMb;
+        void setMediaCacheLimit(limit).then(() => setCacheLimitState(limit)).catch((error: unknown) => showDialog(t("saveFailed"), userFacingError(error, t)));
+        break;
+      }
     }
   }, [choice, patch]);
 
@@ -82,6 +98,14 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const uploadOptions = (["data-saver", "auto", "high", "original"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
   const microphoneOptions = (["system", "phone", "speakerphone"] as const).map((value) => ({ value, label: microphoneLabel(value, t) }));
   const noiseOptions = (["off", "standard", "high"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
+  const callRouteOptions = (["auto", "earpiece", "speaker", "headset", "bluetooth"] as const).map((value) => ({ value, label: callRouteLabel(value, t) }));
+  const callQualityOptions = (["data-saver", "auto", "high"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
+  const cacheLimitOptions = MEDIA_CACHE_LIMITS_MB.map((value) => ({ value: String(value), label: `${value} MB` }));
+
+  const confirmClearMediaCache = () => showDialog(t("clearMediaCache"), t("clearMediaCacheQuestion"), [
+    { text: t("cancel"), style: "cancel" },
+    { text: t("clearMediaCache"), onPress: () => void clearMediaCache().then(() => { setCacheBytes(0); showDialog(t("cacheCleared")); }).catch((error: unknown) => showDialog(t("requestFailed"), userFacingError(error, t))) },
+  ]);
 
   const updateBusy = appUpdate.phase === "checking" || appUpdate.phase === "downloading";
   const updateActionLabel = appUpdate.phase === "available" || appUpdate.phase === "error"
@@ -127,12 +151,17 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
             <SettingsSwitchRow icon="wifi-outline" label={t("autoWifi")} value={settings.autoDownloadWifi} onChange={(autoDownloadWifi) => patch({ autoDownloadWifi })} />
             <SettingsSwitchRow icon="cellular-outline" label={t("autoMobile")} value={settings.autoDownloadMobile} onChange={(autoDownloadMobile) => patch({ autoDownloadMobile })} />
             <SettingsSwitchRow icon="location-outline" label={t("removeLocation")} value={settings.stripMediaLocation} onChange={(stripMediaLocation) => patch({ stripMediaLocation })} />
+            <SettingsRow icon="images-outline" label={t("mediaCacheLimit")} value={`${cacheLimit} MB`} onPress={() => openChoice("mediaCacheLimit", t("mediaCacheLimit"), String(cacheLimit), cacheLimitOptions)} />
+            <SettingsRow icon="trash-outline" label={t("clearMediaCache")} value={formatStorageBytes(cacheBytes)} onPress={confirmClearMediaCache} />
           </SettingsCard>
         </SettingsSection>
 
         <SettingsSection title={t("voiceVideo")} footer={settings.microphoneMode === "speakerphone" ? t("microphoneSpeakerphoneHint") : undefined}>
           <SettingsCard>
             <SettingsRow icon="mic-outline" label={t("microphone")} value={microphoneLabel(settings.microphoneMode, t)} onPress={() => openChoice("microphoneMode", t("microphone"), settings.microphoneMode, microphoneOptions)} />
+            <SettingsRow icon="ear-outline" label={t("callAudioRoute")} value={callRouteLabel(settings.callAudioRoute, t)} onPress={() => openChoice("callAudioRoute", t("callAudioRoute"), settings.callAudioRoute, callRouteOptions)} />
+            <SettingsRow icon="cellular-outline" label={t("callQuality")} value={optionLabel(settings.language, settings.callQuality)} onPress={() => openChoice("callQuality", t("callQuality"), settings.callQuality, callQualityOptions)} />
+            <SettingsRow icon="phone-portrait-outline" label={t("screenShareQuality")} value={optionLabel(settings.language, settings.screenShareQuality)} onPress={() => openChoice("screenShareQuality", t("screenShareQuality"), settings.screenShareQuality, callQualityOptions)} />
             <SettingsRow icon="sparkles-outline" label={t("noiseSuppression")} value={optionLabel(settings.language, settings.noiseSuppression)} onPress={() => openChoice("noiseSuppression", t("noiseSuppression"), settings.noiseSuppression, noiseOptions)} />
             <SettingsSwitchRow icon="repeat-outline" label={t("echoCancellation")} value={settings.echoCancellation} onChange={(echoCancellation) => patch({ echoCancellation })} />
             <SettingsSwitchRow icon="options-outline" label={t("autoGain")} value={settings.autoGainControl} onChange={(autoGainControl) => patch({ autoGainControl })} />
@@ -168,6 +197,12 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
           </SettingsCard>
         </SettingsSection>
 
+        <SettingsSection title={t("support")}>
+          <SettingsCard>
+            <SettingsRow icon="alert-circle" label={t("diagnostics")} detail={t("diagnosticsDescription")} onPress={() => navigation.navigate("Diagnostics")} />
+          </SettingsCard>
+        </SettingsSection>
+
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t("signOut")}
@@ -196,6 +231,14 @@ function microphoneLabel(mode: AppSettings["microphoneMode"], t: ReturnType<type
   if (mode === "phone") return t("microphonePhone");
   if (mode === "speakerphone") return t("microphoneSpeakerphone");
   return t("microphoneSystem");
+}
+
+function callRouteLabel(route: AppSettings["callAudioRoute"], t: ReturnType<typeof useTranslation>["t"]): string {
+  if (route === "earpiece") return t("callRouteEarpiece");
+  if (route === "speaker") return t("callRouteSpeaker");
+  if (route === "headset") return t("callRouteHeadset");
+  if (route === "bluetooth") return t("callRouteBluetooth");
+  return t("callRouteAutomatic");
 }
 
 const styles = StyleSheet.create({

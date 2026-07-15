@@ -1,5 +1,6 @@
 import "react-native-gesture-handler";
 import "react-native-reanimated";
+import "./src/notifications/backgroundNotificationTask";
 
 import { registerRootComponent } from "expo";
 import { registerGlobals } from "@livekit/react-native";

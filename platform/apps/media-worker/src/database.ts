@@ -14,7 +14,7 @@ UPDATE media_jobs j SET status='running',attempts=j.attempts+1,locked_by=$1,star
 FROM candidate c,attachments a JOIN blobs b ON b.id=a.blob_id
 LEFT JOIN upload_sessions us ON us.id=a.id
 WHERE j.id=c.id AND a.id=j.attachment_id
-RETURNING j.id,j.attachment_id,a.owner_id,j.profile,coalesce(us.media_purpose,'standard') purpose,a.kind,a.mime_type,b.storage_key,a.filename,j.attempts,j.max_attempts`;
+RETURNING j.id,j.attachment_id,a.owner_id,j.profile,coalesce(us.media_purpose,'standard') purpose,a.kind,a.mime_type,b.storage_key,b.bytes::bigint::float8 original_bytes,a.filename,j.attempts,j.max_attempts`;
 
 export const activeCallSql = `SELECT 1 FROM call_sessions
   WHERE ended_at IS NULL AND started_at >= now()-($1::text || ' hours')::interval LIMIT 1`;
@@ -31,13 +31,13 @@ export async function recoverInterruptedJobs() {
 export async function claimJob(): Promise<MediaJob | null> {
   const result = await pool.query<{
     id: string; attachment_id: string; owner_id: string; profile: MediaJob["profile"]; purpose: MediaJob["purpose"];
-    kind: MediaJob["kind"]; mime_type: string; storage_key: string; filename: string; attempts: number; max_attempts: number;
+    kind: MediaJob["kind"]; mime_type: string; storage_key: string; original_bytes: number; filename: string; attempts: number; max_attempts: number;
   }>(
     claimJobSql,
     [config.WORKER_ID],
   );
   const row = result.rows[0];
-  return row ? { id: row.id, attachmentId: row.attachment_id, ownerId: row.owner_id, profile: row.profile, purpose: row.purpose, kind: row.kind, originalMimeType: row.mime_type, originalStorageKey: row.storage_key, originalFilename: row.filename, attempts: row.attempts, maxAttempts: row.max_attempts } : null;
+  return row ? { id: row.id, attachmentId: row.attachment_id, ownerId: row.owner_id, profile: row.profile, purpose: row.purpose, kind: row.kind, originalMimeType: row.mime_type, originalStorageKey: row.storage_key, originalFilename: row.filename, originalBytes: row.original_bytes, attempts: row.attempts, maxAttempts: row.max_attempts } : null;
 }
 
 export async function heartbeat(jobId: string) {

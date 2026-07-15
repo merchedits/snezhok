@@ -10,7 +10,9 @@ import {
   handleCallUpdate,
   handleNotificationResponse,
   initializeAndroidNotifications,
+  handleRemoteNotification,
   notifyIncomingMessage,
+  registerRemotePushDevice,
 } from "../notifications/androidNotifications";
 import { useAppStore } from "../store/useAppStore";
 
@@ -30,8 +32,9 @@ export function useRealtime(enabled: boolean): void {
     if (!enabled) return;
     let socket: RealtimeSocket | null = null;
     let disposed = false;
-    void initializeAndroidNotifications();
+    void initializeAndroidNotifications().then(() => registerRemotePushDevice());
     const notificationResponse = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    const notificationReceived = Notifications.addNotificationReceivedListener((notification) => { void handleRemoteNotification(notification); });
     void Notifications.getLastNotificationResponseAsync().then((response) => {
       if (response && !disposed) handleNotificationResponse(response);
     }).catch(() => undefined);
@@ -41,10 +44,13 @@ export function useRealtime(enabled: boolean): void {
       const origin = new URL(API_URL).origin;
       socket = io(origin, {
         path: "/chat/socket.io",
-        transports: ["websocket"],
+        transports: ["websocket", "polling"],
         auth: { token: session.accessToken },
         reconnectionDelay: 500,
         reconnectionDelayMax: 8_000,
+        reconnectionAttempts: Infinity,
+        randomizationFactor: 0.5,
+        timeout: 10_000,
       });
       socket.on("connect", () => {
         socket?.emit("sync:resume", { cursor: useAppStore.getState().eventCursor }, (accepted) => {
@@ -53,10 +59,10 @@ export function useRealtime(enabled: boolean): void {
       });
       socket.on("sync:ready", ({ cursor }) => setEventCursor(cursor));
       socket.on("message:created", (message) => {
-        applyMessage(message);
-        void notifyIncomingMessage(message).catch((error) => console.warn("Message notification failed", error));
+        applyMessage(message, "created");
+        if (!message.silent) void notifyIncomingMessage(message).catch((error) => console.warn("Message notification failed", error));
       });
-      socket.on("message:updated", applyMessage);
+      socket.on("message:updated", (message) => applyMessage(message, "updated"));
       socket.on("call:updated", (payload) => {
         void handleCallUpdate(payload).catch((error) => console.warn("Call notification failed", error));
       });
@@ -77,6 +83,7 @@ export function useRealtime(enabled: boolean): void {
     return () => {
       disposed = true;
       notificationResponse.remove();
+      notificationReceived.remove();
       socket?.disconnect();
     };
   }, [applyConversation, applyMessage, applyMessageDeleted, applyPresence, applyReadReceipt, enabled, refreshBootstrap, removeConversation, setEventCursor]);

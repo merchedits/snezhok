@@ -1,0 +1,167 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Application from "expo-application";
+import Constants from "expo-constants";
+import * as Crypto from "expo-crypto";
+import { Platform } from "react-native";
+
+import type { PerformanceBudget } from "./performanceBudgets";
+import { evaluatePerformanceBudget } from "./performanceBudgets";
+import { sanitizeDiagnosticValue } from "./redaction";
+
+const EVENTS_KEY = "@snezhok/diagnostics/events/v1";
+const INSTALLATION_KEY = "@snezhok/diagnostics/installation/v1";
+const MAX_EVENTS = 200;
+
+export type DiagnosticLevel = "debug" | "info" | "warn" | "error";
+export interface DiagnosticEvent {
+  at: number;
+  level: DiagnosticLevel;
+  category: string;
+  message: string;
+  durationMs?: number;
+  context?: Record<string, string | number | boolean | null>;
+}
+
+export interface DiagnosticReport {
+  installationId: string;
+  appVersion: string;
+  versionCode: number;
+  platform: "android";
+  osVersion: string;
+  device: string;
+  locale: "ru" | "en";
+  recordedAt: number;
+  events: DiagnosticEvent[];
+}
+
+let events: DiagnosticEvent[] = [];
+let installationId = "pending";
+let initialized: Promise<void> | null = null;
+let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+let previousGlobalHandler: ((error: Error, isFatal?: boolean) => void) | undefined;
+
+export function initializeDiagnostics(): Promise<void> {
+  if (initialized) return initialized;
+  initialized = (async () => {
+    const [storedEvents, storedInstallationId] = await Promise.all([
+      AsyncStorage.getItem(EVENTS_KEY),
+      AsyncStorage.getItem(INSTALLATION_KEY),
+    ]);
+    events = parseEvents(storedEvents);
+    installationId = storedInstallationId && storedInstallationId.length >= 8 ? storedInstallationId : Crypto.randomUUID();
+    if (!storedInstallationId) await AsyncStorage.setItem(INSTALLATION_KEY, installationId);
+    recordDiagnostic("info", "lifecycle", "Application diagnostics initialized", {
+      version: Application.nativeApplicationVersion ?? "unknown",
+      build: Application.nativeBuildVersion ?? "0",
+    });
+  })();
+  return initialized;
+}
+
+export function installGlobalErrorCapture(): () => void {
+  const errorUtils = (globalThis as typeof globalThis & { ErrorUtils?: {
+    getGlobalHandler?: () => ((error: Error, isFatal?: boolean) => void);
+    setGlobalHandler?: (handler: (error: Error, isFatal?: boolean) => void) => void;
+  } }).ErrorUtils;
+  if (!errorUtils?.setGlobalHandler) return () => undefined;
+  previousGlobalHandler = errorUtils.getGlobalHandler?.();
+  errorUtils.setGlobalHandler((error, isFatal) => {
+    recordDiagnostic("error", "crash", isFatal ? "Fatal JavaScript error" : "Unhandled JavaScript error", {
+      name: error.name,
+      error: error.message,
+      stack: error.stack ?? null,
+      fatal: Boolean(isFatal),
+    });
+    previousGlobalHandler?.(error, isFatal);
+  });
+  return () => {
+    if (previousGlobalHandler) errorUtils.setGlobalHandler?.(previousGlobalHandler);
+  };
+}
+
+export function recordDiagnostic(
+  level: DiagnosticLevel,
+  category: string,
+  message: string,
+  context?: Record<string, unknown>,
+  durationMs?: number,
+): void {
+  const event: DiagnosticEvent = {
+    at: Date.now(),
+    level,
+    category: sanitizeText(category, 48),
+    message: sanitizeText(message, 240),
+    ...(durationMs === undefined ? {} : { durationMs: Math.max(0, Math.round(durationMs * 10) / 10) }),
+    ...(context ? { context: sanitizeContext(context) } : {}),
+  };
+  events = [...events.slice(-(MAX_EVENTS - 1)), event];
+  schedulePersistence();
+}
+
+export function recordPerformance(name: PerformanceBudget, durationMs: number, context?: Record<string, unknown>): void {
+  const result = evaluatePerformanceBudget(name, durationMs);
+  recordDiagnostic(result.passed ? "info" : "warn", "performance", name, { ...context, budgetMs: result.budgetMs, passed: result.passed }, durationMs);
+}
+
+export async function diagnosticReport(locale: "ru" | "en"): Promise<DiagnosticReport> {
+  await initializeDiagnostics();
+  return {
+    installationId,
+    appVersion: Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? "unknown",
+    versionCode: Number(Application.nativeBuildVersion ?? 0),
+    platform: "android",
+    osVersion: String(Platform.Version),
+    device: sanitizeText(Constants.deviceName ?? "Android device", 80),
+    locale,
+    recordedAt: Date.now(),
+    events: [...events],
+  };
+}
+
+export async function clearDiagnostics(): Promise<void> {
+  events = [];
+  if (persistenceTimer) clearTimeout(persistenceTimer);
+  persistenceTimer = null;
+  await AsyncStorage.removeItem(EVENTS_KEY);
+}
+
+function sanitizeContext(input: Record<string, unknown>): Record<string, string | number | boolean | null> {
+  const output: Record<string, string | number | boolean | null> = {};
+  for (const [rawKey, rawValue] of Object.entries(input).slice(0, 20)) {
+    const key = sanitizeText(rawKey, 48);
+    if (/password|token|secret|messageText|body/i.test(key)) {
+      output[key] = "[redacted]";
+    } else if (typeof rawValue === "string") {
+      output[key] = sanitizeText(rawValue, 160);
+    } else if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+      output[key] = rawValue;
+    } else if (typeof rawValue === "boolean" || rawValue === null) {
+      output[key] = rawValue;
+    } else if (rawValue instanceof Error) {
+      output[key] = sanitizeText(`${rawValue.name}: ${rawValue.message}`, 160);
+    }
+  }
+  return output;
+}
+
+function sanitizeText(value: string, maxLength: number): string {
+  return sanitizeDiagnosticValue(value).replace(/[\r\n\t]+/g, " ").trim().slice(0, maxLength) || "unknown";
+}
+
+function parseEvents(value: string | null): DiagnosticEvent[] {
+  try {
+    const parsed = JSON.parse(value ?? "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((event): event is DiagnosticEvent => Boolean(event && typeof event === "object" && typeof (event as DiagnosticEvent).at === "number" && typeof (event as DiagnosticEvent).message === "string")).slice(-MAX_EVENTS);
+  } catch {
+    return [];
+  }
+}
+
+function schedulePersistence(): void {
+  if (persistenceTimer) clearTimeout(persistenceTimer);
+  persistenceTimer = setTimeout(() => {
+    persistenceTimer = null;
+    void AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(events)).catch(() => undefined);
+  }, 500);
+}

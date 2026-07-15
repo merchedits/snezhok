@@ -4,11 +4,12 @@ export function visibleConversationSummaries(
   conversations: ConversationSummary[],
   search: string,
   titleFor: (conversation: ConversationSummary) => string,
+  includeArchived = false,
 ): ConversationSummary[] {
   const query = search.trim().toLocaleLowerCase();
   return conversations
     .filter((conversation) => {
-      if (conversation.archived) return false;
+      if (conversation.archived && !includeArchived) return false;
       if (!query) return true;
       return titleFor(conversation).toLocaleLowerCase().includes(query)
         || Boolean(conversation.lastMessage?.text.toLocaleLowerCase().includes(query));

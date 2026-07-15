@@ -69,6 +69,10 @@ export async function stageObject(key: string) {
   return { checksum, storageKey, bytes: info.size, detectedMimeType: detected?.mime ?? "application/octet-stream" };
 }
 
+export async function detectTemporaryMimeType(key: string): Promise<string> {
+  return (await fileTypeFromFile(tempPath(key)))?.mime ?? "application/octet-stream";
+}
+
 export async function removeTemporary(key: string) { await rm(tempPath(key), { force: true }); }
 
 function safeKey(value: string) {

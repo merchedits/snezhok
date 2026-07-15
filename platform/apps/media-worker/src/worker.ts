@@ -22,6 +22,7 @@ export async function runWorker(signal: AbortSignal) {
       if (cancelled || activeCall || !hostHasCapacity()) controller.abort();
     }).catch(() => controller.abort()), 2_000); cancellationPoll.unref();
     let directory: string | null = null;
+    const startedAt = performance.now();
     try {
       directory = await createJobDirectory(job.id);
       const outputs = await processMedia(job, objectPath(job.originalStorageKey), directory, { signal: controller.signal, heartbeat: () => heartbeat(job.id) });
@@ -29,7 +30,9 @@ export async function runWorker(signal: AbortSignal) {
       for (const output of outputs) committed.push({ ...output, ...(await commitOutput(output.path)), blobId: "" });
       // commitOutput's id is the proposed blob ID; database deduplication may choose an existing blob.
       await completeJob(job, committed.map(({ id, ...output }) => ({ ...output, blobId: id })));
+      console.info(JSON.stringify({ event: "media_job_complete", jobId: job.id, kind: job.kind, purpose: job.purpose, profile: job.profile, inputBytes: job.originalBytes, outputBytes: committed.reduce((sum, output) => sum + output.bytes, 0), durationMs: Math.round(performance.now() - startedAt), attempts: job.attempts }));
     } catch (error) {
+      console.warn(JSON.stringify({ event: "media_job_failed", jobId: job.id, kind: job.kind, purpose: job.purpose, profile: job.profile, inputBytes: job.originalBytes, durationMs: Math.round(performance.now() - startedAt), attempts: job.attempts, error: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : String(error).slice(0, 500) }));
       await failJob(job, error);
     } finally {
       clearInterval(cancellationPoll); signal.removeEventListener("abort", stop); if (directory) await removeJobDirectory(directory);

@@ -2,7 +2,7 @@ import { useEventListener } from "expo";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StatusBar, StyleSheet, Text, View } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -53,9 +53,16 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
   const [saving, setSaving] = useState(false);
   const controlsOpacity = useSharedValue(1);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const player = useVideoPlayer(source, (instance) => {
+  const videoSource = useMemo(() => ({ ...source, useCaching: true, contentType: "progressive" as const }), [source.headers, source.uri]);
+  const player = useVideoPlayer(videoSource, (instance) => {
     instance.loop = false;
     instance.timeUpdateEventInterval = 0.25;
+    instance.bufferOptions = {
+      preferredForwardBufferDuration: 6,
+      minBufferForPlayback: 1.5,
+      maxBufferBytes: 16 * 1024 * 1024,
+      prioritizeTimeOverSizeThreshold: true,
+    };
   });
 
   useEventListener(player, "playingChange", ({ isPlaying }) => setPlaying(isPlaying));

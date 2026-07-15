@@ -2,12 +2,13 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
 
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "https://merchedits.xyz/chat/api/v1";
 const easProjectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
+const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.6.2",
+  version: "3.7.0",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -61,7 +62,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 20,
+    versionCode: 21,
+    ...(googleServicesFile ? { googleServicesFile } : {}),
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
       foregroundImage: "./assets/snezhok-icon.png",

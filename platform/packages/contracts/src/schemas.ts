@@ -40,6 +40,7 @@ export const messageCreateSchema = z.object({
   kind: z.enum(["text", "voice", "video-note", "media", "file"]).default("text"),
   replyToId: idSchema.nullable().default(null),
   attachmentIds: z.array(idSchema).max(10).default([]),
+  silent: z.boolean().default(false),
 }).refine((value) => value.text.trim().length > 0 || value.attachmentIds.length > 0, {
   message: "A message must contain text or an attachment",
 });

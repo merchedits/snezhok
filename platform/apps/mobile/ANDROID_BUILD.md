@@ -13,8 +13,9 @@ This path does not require a local Android SDK.
 1. Install dependencies from `platform/` with `npm install`.
 2. Set `EXPO_PUBLIC_API_URL` to the public `/api/v1` endpoint.
 3. Run `npx eas-cli@20.5.1 init` from `platform/apps/mobile` and retain the generated project ID outside source control or in the EAS environment as `EXPO_PUBLIC_EAS_PROJECT_ID`.
-4. Run `npm run build:apk`.
-5. Download the `preview` artifact and verify its signing certificate before distributing the APK.
+4. Configure the Android application in Firebase, upload its FCM V1 service-account credential to the EAS project, and provide `google-services.json` as the secret build file referenced by `GOOGLE_SERVICES_JSON`.
+5. Run `npm run build:apk`.
+6. Download the `preview` artifact and verify its signing certificate before distributing the APK.
 
 The `preview` profile produces an internally distributed APK. `production` produces an AAB for a future store release.
 
@@ -49,4 +50,6 @@ See `../../docs/MOBILE_RELEASES.md` for the web-hosted update channel and atomic
 
 The APK can build without a running media server, but calls require `/api/v1/calls/token` and a reachable LiveKit deployment. The public host must expose WSS signaling and WebRTC media ports; a reverse proxy for WSS alone is insufficient.
 
-Normal background call persistence and incoming system call notifications require a dedicated Android foreground-call/notification integration in addition to the screen-share service. Complete and device-test that integration before describing the APK as background-call capable.
+Expo Push supplies message, incoming-call, answer/decline and missed-call notifications while the app is backgrounded or terminated. This path is inactive in builds without `EXPO_PUBLIC_EAS_PROJECT_ID`, `google-services.json`, and the matching FCM V1 credential; foreground Socket.IO notifications remain as a fallback. Android may defer quiet call-ended cleanup in Doze mode, so the incoming notification also expires after 90 seconds.
+
+An already-connected call is not kept alive indefinitely after Android kills the process. True telecom-style persistent calls would require a dedicated native foreground-call service and ConnectionService integration; do not describe this Expo build as background-call persistent.

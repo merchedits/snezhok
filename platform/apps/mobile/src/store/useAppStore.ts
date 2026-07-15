@@ -1,4 +1,5 @@
 import * as Crypto from "expo-crypto";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 
 import type {
@@ -15,15 +16,18 @@ import type {
   UserSummary,
 } from "@snezhok/contracts";
 
-import { api } from "../lib/api";
+import { api, ApiError } from "../lib/api";
 import { messagesForCache } from "../lib/cachePolicy";
-import { clearLocalData, readCache, readOutbox, writeCache, writeOutbox } from "../lib/offlineRepository";
+import { clearMediaCache } from "../lib/mediaCache";
+import { clearLocalData, readCache, readDrafts, readOutbox, writeCache, writeDrafts, writeOutbox } from "../lib/offlineRepository";
 import { clearSession, readSession, writeSession } from "../lib/secureSession";
 import { mergeAcknowledgedPatch, rollbackRejectedPatch } from "../lib/settingsSync";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
+import type { ChatFolder, ScheduledMessage } from "../types";
 import { applyConversationPreview } from "./conversationPreview";
 import { upsertConversation } from "./conversationIdentity";
 import { markMessageDeleted, mergeMessages, reconcilePinnedMessages } from "./messageReconciliation";
+import { enqueueOutbox, replayOutbox, resolveOutboxMessageId } from "./outboxReliability";
 
 type Phase = "booting" | "signed-out" | "ready" | "error";
 
@@ -41,6 +45,10 @@ interface AppState {
   friends: FriendEntry[];
   settings: AppSettings;
   messages: Record<string, Message[]>;
+  messagePagination: Record<string, { nextCursor: number | null; initialized: boolean }>;
+  drafts: Record<string, string>;
+  folders: ChatFolder[];
+  scheduledMessages: ScheduledMessage[];
   outbox: OutboxEntry[];
   uploadProgress: number | null;
   initialize: () => Promise<void>;
@@ -50,23 +58,35 @@ interface AppState {
   signOut: () => Promise<void>;
   setOnline: (online: boolean) => void;
   refreshBootstrap: (options?: { force?: boolean; silent?: boolean }) => Promise<void>;
+  refreshProductivity: () => Promise<void>;
   loadMessages: (streamId: string, before?: number) => Promise<void>;
+  loadOlderMessages: (streamId: string) => Promise<void>;
+  loadMessageContext: (streamId: string, messageId: string) => Promise<void>;
   markStreamRead: (streamId: string, sequence: number) => Promise<void>;
   loadPinnedMessages: (streamId: string) => Promise<void>;
   uploadAttachment: (input: UploadInput) => Promise<Attachment>;
-  sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">, optimisticAttachments?: Attachment[]) => Promise<void>;
+  cancelUpload: () => Promise<void>;
+  sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId" | "silent"> & { silent?: boolean }, optimisticAttachments?: Attachment[]) => Promise<void>;
   forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
+  editMessage: (message: Message, text: string) => Promise<void>;
   toggleReaction: (message: Message, emoji: string) => Promise<void>;
   deleteMessage: (message: Message, scope: "me" | "everyone") => Promise<void>;
   setMessagePinned: (message: Message, pinned: boolean) => Promise<void>;
   retryOutbox: () => Promise<void>;
-  applyMessage: (message: Message) => void;
+  applyMessage: (message: Message, eventKind?: "created" | "updated") => void;
   applyMessageDeleted: (payload: { id: string; streamId: string; deletedAt: number }) => void;
   applyReadReceipt: (payload: { streamId: string; userId: string; sequence: number }) => void;
   applyConversation: (conversation: ConversationSummary) => void;
   deleteConversation: (conversationId: string) => Promise<void>;
   removeConversation: (conversationId: string) => void;
   applyPresence: (userId: string, presence: Presence, lastSeenAt: number) => void;
+  setDraft: (streamId: string, text: string) => void;
+  scheduleTextMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">, scheduledFor: number) => Promise<void>;
+  cancelScheduledMessage: (scheduledMessageId: string) => Promise<void>;
+  createFolder: (name: string, streams?: ChatFolder["streams"]) => Promise<void>;
+  setFolderMembership: (folder: ChatFolder, stream: ChatFolder["streams"][number], included: boolean) => Promise<void>;
+  deleteFolder: (folderId: string) => Promise<void>;
+  setConversationPreference: (conversation: ConversationSummary, patch: { pinned?: boolean; archived?: boolean; muted?: boolean }) => Promise<void>;
   updateSettings: (patch: SettingsPatch) => Promise<void>;
   setEventCursor: (cursor: number) => void;
 }
@@ -90,6 +110,9 @@ export const defaultSettings: AppSettings = {
   echoCancellation: true,
   autoGainControl: true,
   microphoneMode: "phone",
+  callAudioRoute: "auto",
+  callQuality: "auto",
+  screenShareQuality: "auto",
   pushToTalk: false,
 };
 
@@ -109,6 +132,7 @@ function toBootstrap(state: AppState): BootstrapPayload | null {
 
 let persistenceQueue: Promise<void> = Promise.resolve();
 let settingsSyncQueue: Promise<void> = Promise.resolve();
+let draftPersistenceQueue: Promise<void> = Promise.resolve();
 
 function persistState(): Promise<void> {
   const state = useAppStore.getState();
@@ -123,11 +147,14 @@ function persistState(): Promise<void> {
 let bootstrapRefresh: Promise<void> | null = null;
 let lastBootstrapCompletedAt = 0;
 let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+let draftPersistenceTimer: ReturnType<typeof setTimeout> | null = null;
 const messageLoads = new Map<string, Promise<void>>();
 const latestMessageLoads = new Map<string, number>();
 const pinnedMessageLoads = new Map<string, Promise<void>>();
 const latestPinnedMessageLoads = new Map<string, number>();
 const reactionSyncQueues = new Map<string, Promise<void>>();
+const remoteDraftTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let outboxRetry: Promise<void> | null = null;
 
 function schedulePersistence(): void {
   if (persistenceTimer) clearTimeout(persistenceTimer);
@@ -145,6 +172,15 @@ function cancelScheduledPersistence(): void {
   persistenceTimer = null;
 }
 
+function scheduleDraftPersistence(): void {
+  if (draftPersistenceTimer) clearTimeout(draftPersistenceTimer);
+  draftPersistenceTimer = setTimeout(() => {
+    draftPersistenceTimer = null;
+    const drafts = useAppStore.getState().drafts;
+    draftPersistenceQueue = draftPersistenceQueue.catch(() => undefined).then(() => writeDrafts(drafts));
+  }, 350);
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   phase: "booting",
   error: null,
@@ -159,11 +195,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   friends: [],
   settings: defaultSettings,
   messages: {},
+  messagePagination: {},
+  drafts: {},
+  folders: [],
+  scheduledMessages: [],
   outbox: [],
   uploadProgress: null,
 
   initialize: async () => {
-    const [session, cache, outbox] = await Promise.all([readSession(), readCache(), readOutbox()]);
+    const [session, cache, outbox, drafts] = await Promise.all([readSession(), readCache(), readOutbox(), readDrafts()]);
     if (!session) {
       set({ phase: "signed-out", outbox: [] });
       return;
@@ -179,11 +219,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       friends: cached?.friends ?? [],
       settings: { ...defaultSettings, ...(cached?.settings ?? {}) },
       messages: cache.messages,
+      drafts,
       outbox,
       eventCursor: cached?.eventCursor ?? 0,
     });
     try {
       await get().refreshBootstrap({ force: true });
+      await get().refreshProductivity().catch(() => undefined);
       await get().retryOutbox();
     } catch (error) {
       if (!cached) set({ phase: "error", error: error instanceof Error ? error.message : "Unable to load Snezhok" });
@@ -201,6 +243,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       set({ me: result.user });
       await get().refreshBootstrap({ force: true });
+      await get().refreshProductivity().catch(() => undefined);
     } catch (error) {
       await clearSession();
       set({ phase: "signed-out", error: error instanceof Error ? error.message : "Sign in failed" });
@@ -215,6 +258,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await writeSession({ accessToken: result.accessToken, refreshToken: result.refreshToken, expiresAt: Date.now() + result.expiresIn * 1_000 });
       set({ me: result.user });
       await get().refreshBootstrap({ force: true });
+      await get().refreshProductivity().catch(() => undefined);
     } catch (error) {
       await clearSession();
       set({ phase: "signed-out", error: error instanceof Error ? error.message : "Registration failed" });
@@ -226,11 +270,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   signOut: async () => {
     cancelScheduledPersistence();
+    if (draftPersistenceTimer) clearTimeout(draftPersistenceTimer);
+    draftPersistenceTimer = null;
     lastBootstrapCompletedAt = 0;
     latestMessageLoads.clear();
     latestPinnedMessageLoads.clear();
-    await persistenceQueue.catch(() => undefined);
-    await Promise.all([clearSession(), clearLocalData()]);
+    for (const timer of remoteDraftTimers.values()) clearTimeout(timer);
+    remoteDraftTimers.clear();
+    await Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined)]);
+    const pushInstallationId = await AsyncStorage.getItem("@snezhok/push-installation/v1").catch(() => null);
+    if (pushInstallationId) await api.unregisterPushDevice(pushInstallationId).catch(() => undefined);
+    await api.cancelUpload().catch(() => undefined);
+    await Promise.all([clearSession(), clearLocalData(), clearMediaCache().catch(() => undefined)]);
     set({
       phase: "signed-out",
       error: null,
@@ -242,6 +293,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       friends: [],
       settings: defaultSettings,
       messages: {},
+      messagePagination: {},
+      drafts: {},
+      folders: [],
+      scheduledMessages: [],
       outbox: [],
       eventCursor: 0,
       uploadProgress: null,
@@ -252,6 +307,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ online });
     if (online) {
       void get().refreshBootstrap({ force: true, silent: true });
+      void get().refreshProductivity().catch(() => undefined);
       void get().retryOutbox();
     }
   },
@@ -264,19 +320,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     bootstrapRefresh = (async () => {
       try {
         const payload = await api.bootstrap();
-        set({
+        set((state) => ({
           phase: "ready",
           error: null,
           syncing: false,
           me: payload.me,
-          conversations: payload.conversations,
+          conversations: reconcileBootstrapConversations(state, payload.conversations),
           servers: payload.servers,
           categories: payload.categories,
-          channels: payload.channels,
+          channels: payload.channels.map((channel) => state.outbox.some((entry) => entry.kind === "read" && entry.streamId === channel.id)
+            ? { ...channel, unreadCount: 0, mentionCount: 0 }
+            : channel),
           friends: payload.friends,
           settings: payload.settings,
           eventCursor: payload.eventCursor,
-        });
+        }));
         lastBootstrapCompletedAt = Date.now();
         schedulePersistence();
       } catch (error) {
@@ -289,6 +347,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       bootstrapRefresh = null;
     });
     return bootstrapRefresh;
+  },
+
+  refreshProductivity: async () => {
+    if (!get().online) return;
+    const productivity = await api.productivity();
+    const mergedDrafts = { ...Object.fromEntries(productivity.drafts.map((draft) => [draft.streamId, draft.text])), ...get().drafts };
+    set({
+      drafts: mergedDrafts,
+      folders: productivity.folders,
+      scheduledMessages: productivity.scheduled,
+    });
+    scheduleDraftPersistence();
+    // Local values (including empty tombstones) win after offline use, then are
+    // pushed back so a second device observes the same draft state.
+    await Promise.all(Object.entries(mergedDrafts).map(([streamId, text]) => api.saveDraft(streamId, text, null).catch(() => undefined)));
   },
 
   loadMessages: (streamId, before) => {
@@ -304,12 +377,34 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...state.messages,
           [streamId]: mergeMessages(state.messages[streamId] ?? [], page.items),
         },
+        messagePagination: {
+          ...state.messagePagination,
+          [streamId]: { nextCursor: page.nextCursor === null ? null : Number(page.nextCursor), initialized: true },
+        },
       }));
       if (before === undefined) latestMessageLoads.set(streamId, Date.now());
       schedulePersistence();
     })().finally(() => messageLoads.delete(key));
     messageLoads.set(key, loading);
     return loading;
+  },
+
+  loadOlderMessages: async (streamId) => {
+    const pagination = get().messagePagination[streamId];
+    if (!pagination?.initialized) {
+      await get().loadMessages(streamId);
+      return;
+    }
+    if (pagination.nextCursor === null) return;
+    await get().loadMessages(streamId, pagination.nextCursor);
+  },
+
+  loadMessageContext: async (streamId, messageId) => {
+    if ((get().messages[streamId] ?? []).some((message) => message.id === messageId) || !get().online) return;
+    const context = await api.messageContext(messageId);
+    if (context.streamId !== streamId) throw new Error("Reply target belongs to another chat");
+    set((state) => ({ messages: { ...state.messages, [streamId]: mergeMessages(state.messages[streamId] ?? [], context.items) } }));
+    schedulePersistence();
   },
 
   markStreamRead: async (streamId, sequence) => {
@@ -329,8 +424,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       schedulePersistence();
     }
+    const entry: OutboxEntry = { kind: "read", id: Crypto.randomUUID(), streamId, sequence, queuedAt: Date.now(), attempts: 0 };
+    set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+    schedulePersistence();
     if (!get().online) return;
-    await api.markRead(streamId, sequence);
+    try {
+      const acknowledged = await api.markRead(streamId, sequence);
+      set((state) => ({
+        outbox: state.outbox.filter((item) => item.id !== entry.id),
+        conversations: state.conversations.map((conversation) => conversation.id === streamId && acknowledged.sequence >= sequence
+          ? { ...conversation, unreadCount: 0, mentionCount: 0 }
+          : conversation),
+        channels: state.channels.map((channel) => channel.id === streamId && acknowledged.sequence >= sequence
+          ? { ...channel, unreadCount: 0, mentionCount: 0 }
+          : channel),
+      }));
+      schedulePersistence();
+    } catch (error) {
+      if (!isRetryable(error)) {
+        set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
+        schedulePersistence();
+      }
+      throw error;
+    }
   },
 
   loadPinnedMessages: (streamId) => {
@@ -363,11 +479,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  cancelUpload: async () => {
+    await api.cancelUpload();
+    set({ uploadProgress: null });
+  },
+
   sendMessage: async (streamId, partial, optimisticAttachments = []) => {
     const me = get().me;
     if (!me) throw new Error("No active session");
     const clientId = Crypto.randomUUID();
-    const input: MessageCreateInput = { ...partial, clientId };
+    const input: MessageCreateInput = { ...partial, clientId, silent: partial.silent ?? false };
     const existing = get().messages[streamId] ?? [];
     const optimistic: Message = {
       id: clientId,
@@ -386,6 +507,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       editedAt: null,
       deletedAt: null,
       pinnedAt: null,
+      silent: input.silent,
       readByOthers: false,
       pending: true,
       failed: false,
@@ -396,8 +518,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     if (!get().online) {
-      const entry: OutboxEntry = { id: clientId, streamId, input, queuedAt: Date.now(), attempts: 0 };
-      set((state) => ({ outbox: [...state.outbox, entry] }));
+      const entry: OutboxEntry = { kind: "message", id: clientId, streamId, input, queuedAt: Date.now(), attempts: 0 };
+      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
       await persistState();
       return;
     }
@@ -411,10 +533,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           [streamId]: mergeMessages(state.messages[streamId] ?? [], [saved]),
         },
       }));
-    } catch {
-      const entry: OutboxEntry = { id: clientId, streamId, input, queuedAt: Date.now(), attempts: 1 };
+    } catch (error) {
+      const retryable = isRetryable(error);
+      const entry: OutboxEntry = { kind: "message", id: clientId, streamId, input, queuedAt: Date.now(), attempts: 1 };
       set((state) => ({
-        outbox: [...state.outbox.filter((item) => item.id !== clientId), entry],
+        outbox: retryable ? enqueueOutbox(state.outbox.filter((item) => item.id !== clientId), entry) : state.outbox.filter((item) => item.id !== clientId),
         messages: {
           ...state.messages,
           [streamId]: (state.messages[streamId] ?? []).map((message) =>
@@ -427,7 +550,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   forwardMessage: async (messageId, targetStreamId) => {
-    if (!get().online) throw new Error("Forwarding requires a connection");
     const me = get().me;
     const source = Object.values(get().messages).flat().find((message) => message.id === messageId);
     if (!me || !source) throw new Error("Message is no longer available");
@@ -447,6 +569,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       editedAt: null,
       deletedAt: null,
       pinnedAt: null,
+      silent: false,
       readByOthers: false,
       pending: true,
       failed: false,
@@ -456,13 +579,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [optimistic]) },
     }));
     schedulePersistence();
+    const entry: OutboxEntry = { kind: "forward", id: clientId, streamId: targetStreamId, sourceMessageId: messageId, clientId, queuedAt: Date.now(), attempts: 0 };
+    if (!get().online) {
+      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+      await persistState();
+      return optimistic;
+    }
     let saved: Message;
     try {
       saved = await api.forwardMessage(messageId, targetStreamId, clientId);
     } catch (error) {
-      set((state) => ({ messages: { ...state.messages, [targetStreamId]: (state.messages[targetStreamId] ?? []).filter((message) => message.id !== clientId) } }));
+      const retryable = isRetryable(error);
+      set((state) => ({
+        outbox: retryable ? enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) : state.outbox,
+        messages: { ...state.messages, [targetStreamId]: (state.messages[targetStreamId] ?? []).map((message) => message.id === clientId ? { ...message, pending: false, failed: true } : message) },
+      }));
       schedulePersistence();
-      throw error;
+      if (!retryable) throw error;
+      return optimistic;
     }
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, saved),
@@ -472,13 +606,58 @@ export const useAppStore = create<AppState>((set, get) => ({
     return saved;
   },
 
+  editMessage: async (message, text) => {
+    const value = text.trim();
+    if (!value || value === message.text) return;
+    const optimistic: Message = { ...message, text: value, editedAt: Date.now() };
+    const entry: OutboxEntry = { kind: "edit", id: Crypto.randomUUID(), streamId: message.streamId, messageId: message.id, text: value, previous: message, queuedAt: Date.now(), attempts: 0 };
+    set((state) => ({
+      conversations: applyConversationPreview(state.conversations, optimistic),
+      messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) },
+    }));
+    schedulePersistence();
+    if (!get().online) {
+      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+      await persistState();
+      return;
+    }
+    try {
+      const saved = await api.editMessage(message.id, value);
+      set((state) => {
+        const current = (state.messages[message.streamId] ?? []).find((item) => item.id === message.id);
+        if (!current || current.text !== value || current.deletedAt) return state;
+        return {
+          conversations: applyConversationPreview(state.conversations, saved),
+          messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
+        };
+      });
+    } catch (error) {
+      if (isRetryable(error)) {
+        set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+      } else {
+        set((state) => ({
+          conversations: applyConversationPreview(state.conversations, message),
+          messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) },
+        }));
+        throw error;
+      }
+    } finally {
+      schedulePersistence();
+    }
+  },
+
   toggleReaction: async (message, emoji) => {
-    if (!get().online) throw new Error("Reactions require a connection");
     const current = (get().messages[message.streamId] ?? []).find((candidate) => candidate.id === message.id) ?? message;
     const active = !current.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
     const optimistic = { ...current, reactions: updateOptimisticReaction(current.reactions, emoji, active, get().me?.id) };
+    const entry: OutboxEntry = { kind: "reaction", id: Crypto.randomUUID(), streamId: current.streamId, messageId: current.id, emoji, active, previous: current, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({ messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [optimistic]) } }));
     schedulePersistence();
+    if (!get().online) {
+      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+      await persistState();
+      return;
+    }
     const queueKey = `${current.id}\u0000${emoji}`;
     const previousOperation = reactionSyncQueues.get(queueKey) ?? Promise.resolve();
     const operation = previousOperation.then(async () => {
@@ -491,6 +670,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         schedulePersistence();
       } catch (error) {
+        if (isRetryable(error)) {
+          set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+          schedulePersistence();
+          return;
+        }
         set((state) => {
           const live = (state.messages[current.streamId] ?? []).find((candidate) => candidate.id === current.id);
           if (!live || hasActiveReaction(live, emoji) !== active) return state;
@@ -505,20 +689,30 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteMessage: async (message, scope) => {
-    if (!get().online) throw new Error("Deleting messages requires a connection");
+    const entry: OutboxEntry = { kind: "delete", id: Crypto.randomUUID(), streamId: message.streamId, messageId: message.id, scope, previous: message, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({
       messages: {
         ...state.messages,
         [message.streamId]: scope === "me"
           ? (state.messages[message.streamId] ?? []).filter((item) => item.id !== message.id)
-          : markMessageDeleted(state.messages[message.streamId] ?? [], message.id, Date.now()),
+          : markMessageDeleted(state.messages[message.streamId] ?? [], message.id, Date.now(), true),
       },
     }));
     schedulePersistence();
+    if (!get().online) {
+      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+      await persistState();
+      return;
+    }
     if (scope === "me") {
       try {
         await api.hideMessage(message.id);
       } catch (error) {
+        if (isRetryable(error)) {
+          set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+          schedulePersistence();
+          return;
+        }
         set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
         schedulePersistence();
         throw error;
@@ -530,6 +724,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       saved = await api.deleteMessage(message.id);
     } catch (error) {
+      if (isRetryable(error)) {
+        set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+        schedulePersistence();
+        return;
+      }
       set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
       schedulePersistence();
       throw error;
@@ -545,57 +744,134 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setMessagePinned: async (message, pinned) => {
-    if (!get().online) throw new Error("Pinning messages requires a connection");
     const optimistic = { ...message, pinnedAt: pinned ? Date.now() : null };
+    const entry: OutboxEntry = { kind: "pin", id: Crypto.randomUUID(), streamId: message.streamId, messageId: message.id, pinned, previous: message, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) } }));
     schedulePersistence();
+    if (!get().online) {
+      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+      await persistState();
+      return;
+    }
     let saved: Message;
     try {
       saved = await api.setMessagePinned(message.id, pinned);
     } catch (error) {
+      if (isRetryable(error)) {
+        set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+        schedulePersistence();
+        return;
+      }
       set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
       schedulePersistence();
       throw error;
     }
-    set((state) => ({
-      messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
-    }));
+    set((state) => {
+      const current = (state.messages[message.streamId] ?? []).find((item) => item.id === message.id);
+      if (!current || Boolean(current.pinnedAt) !== pinned || current.deletedAt) return state;
+      return { messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) } };
+    });
     schedulePersistence();
   },
 
   retryOutbox: async () => {
     if (!get().online || get().outbox.length === 0) return;
-    for (const entry of [...get().outbox]) {
-      try {
-        const saved = await api.createMessage(entry.streamId, entry.input);
-        set((state) => ({
-          outbox: state.outbox.filter((item) => item.id !== entry.id),
-          conversations: applyConversationPreview(state.conversations, saved),
-          messages: {
-            ...state.messages,
-            [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]),
-          },
-        }));
-      } catch {
-        set((state) => ({
-          outbox: state.outbox.map((item) =>
-            item.id === entry.id ? { ...item, attempts: item.attempts + 1 } : item,
-          ),
-        }));
-        break;
-      }
-    }
-    await persistState();
+    if (outboxRetry) return outboxRetry;
+    outboxRetry = (async () => {
+      const snapshot = [...get().outbox];
+      const acknowledgedIds = new Map<string, string>();
+      await replayOutbox(snapshot, async (entry) => {
+        try {
+          if (entry.kind === "message") {
+            const saved = await api.createMessage(entry.streamId, entry.input);
+            acknowledgedIds.set(entry.id, saved.id);
+            acknowledgedIds.set(entry.input.clientId, saved.id);
+            set((state) => ({ conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } }));
+            return;
+          }
+          if (entry.kind === "forward") {
+            const saved = await api.forwardMessage(resolveOutboxMessageId(entry.sourceMessageId, acknowledgedIds), entry.streamId, entry.clientId);
+            acknowledgedIds.set(entry.id, saved.id);
+            acknowledgedIds.set(entry.clientId, saved.id);
+            set((state) => ({ conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } }));
+            return;
+          }
+          if (entry.kind === "read") {
+            await api.markRead(entry.streamId, entry.sequence);
+            set((state) => ({
+              conversations: state.conversations.map((conversation) => conversation.id === entry.streamId ? { ...conversation, unreadCount: 0, mentionCount: 0 } : conversation),
+              channels: state.channels.map((channel) => channel.id === entry.streamId ? { ...channel, unreadCount: 0, mentionCount: 0 } : channel),
+            }));
+            return;
+          }
+          if (entry.kind === "edit") {
+            const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
+            const saved = await api.editMessage(messageId, entry.text);
+            set((state) => {
+              const live = (state.messages[entry.streamId] ?? []).find((message) => message.id === messageId);
+              if (!live || live.text !== entry.text || live.deletedAt) return state;
+              return { conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } };
+            });
+            return;
+          }
+          if (entry.kind === "delete") {
+            const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
+            if (entry.scope === "me") {
+              await api.hideMessage(messageId);
+              set((state) => ({ messages: { ...state.messages, [entry.streamId]: (state.messages[entry.streamId] ?? []).filter((message) => message.id !== messageId) } }));
+            }
+            else {
+              const saved = await api.deleteMessage(messageId);
+              set((state) => ({ conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } }));
+            }
+            return;
+          }
+          if (entry.kind === "pin") {
+            const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
+            const saved = await api.setMessagePinned(messageId, entry.pinned);
+            set((state) => {
+              const live = (state.messages[entry.streamId] ?? []).find((message) => message.id === messageId);
+              if (!live || Boolean(live.pinnedAt) !== entry.pinned || live.deletedAt) return state;
+              return { messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } };
+            });
+            return;
+          }
+          const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
+          const saved = await api.setReaction(messageId, entry.emoji, entry.active);
+          set((state) => {
+            const live = (state.messages[entry.streamId] ?? []).find((message) => message.id === messageId);
+            if (!live || hasActiveReaction(live, entry.emoji) !== entry.active || live.deletedAt) return state;
+            return { messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } };
+          });
+        } catch (error) {
+          if (isRetryable(error)) throw error;
+          set((state) => restoreRejectedOutbox(state, entry));
+        }
+      }, (entry) => {
+        set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
+      }, (entry) => {
+        set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: item.attempts + 1 } : item) }));
+      });
+      await persistState();
+    })().finally(() => { outboxRetry = null; });
+    return outboxRetry;
   },
 
-  applyMessage: (message) => {
-    set((state) => ({
-      conversations: applyConversationPreview(state.conversations, message),
-      messages: {
-        ...state.messages,
-        [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]),
-      },
-    }));
+  applyMessage: (message, eventKind = "updated") => {
+    set((state) => {
+      const existing = state.messages[message.streamId] ?? [];
+      const alreadyKnown = existing.some((item) => item.id === message.id || Boolean(message.clientId && (item.clientId === message.clientId || item.id === message.clientId)));
+      const incomingUnread = eventKind === "created" && !alreadyKnown && message.sender.id !== state.me?.id;
+      return {
+        conversations: applyConversationPreview(state.conversations, message).map((conversation) => conversation.id === message.streamId && incomingUnread
+          ? { ...conversation, unreadCount: conversation.unreadCount + 1 }
+          : conversation),
+        channels: state.channels.map((channel) => channel.id === message.streamId && incomingUnread
+          ? { ...channel, unreadCount: channel.unreadCount + 1 }
+          : channel),
+        messages: { ...state.messages, [message.streamId]: mergeMessages(existing, [message]) },
+      };
+    });
     latestMessageLoads.set(message.streamId, Date.now());
     schedulePersistence();
   },
@@ -669,6 +945,89 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  setDraft: (streamId, text) => {
+    set((state) => {
+      const drafts = { ...state.drafts };
+      // Empty strings are intentional tombstones: they prevent an offline
+      // deletion from being resurrected by an older server draft at startup.
+      drafts[streamId] = text;
+      return { drafts };
+    });
+    scheduleDraftPersistence();
+    const previous = remoteDraftTimers.get(streamId);
+    if (previous) clearTimeout(previous);
+    if (get().online) remoteDraftTimers.set(streamId, setTimeout(() => {
+      remoteDraftTimers.delete(streamId);
+      void api.saveDraft(streamId, useAppStore.getState().drafts[streamId] ?? "", null).catch(() => undefined);
+    }, 600));
+  },
+
+  scheduleTextMessage: async (streamId, partial, scheduledFor) => {
+    if (!get().online) throw new Error("Scheduling requires a connection");
+    const input: MessageCreateInput = { ...partial, clientId: Crypto.randomUUID() };
+    const scheduled = await api.scheduleMessage(streamId, input, scheduledFor);
+    set((state) => ({ scheduledMessages: [...state.scheduledMessages.filter((item) => item.id !== scheduled.id), scheduled].sort((a, b) => a.scheduledFor - b.scheduledFor) }));
+  },
+
+  cancelScheduledMessage: async (scheduledMessageId) => {
+    if (!get().online) throw new Error("Scheduling requires a connection");
+    await api.cancelScheduledMessage(scheduledMessageId);
+    set((state) => ({ scheduledMessages: state.scheduledMessages.filter((item) => item.id !== scheduledMessageId) }));
+  },
+
+  createFolder: async (name, streams = []) => {
+    if (!get().online) throw new Error("Folder changes require a connection");
+    const folder = await api.createFolder(name, streams);
+    set((state) => ({ folders: [...state.folders.filter((item) => item.id !== folder.id), folder].sort((a, b) => a.position - b.position) }));
+  },
+
+  setFolderMembership: async (folder, stream, included) => {
+    if (!get().online) throw new Error("Folder changes require a connection");
+    const streams = included
+      ? [...folder.streams.filter((item) => item.streamId !== stream.streamId || item.streamKind !== stream.streamKind), stream]
+      : folder.streams.filter((item) => item.streamId !== stream.streamId || item.streamKind !== stream.streamKind);
+    const optimistic = { ...folder, streams };
+    set((state) => ({ folders: state.folders.map((item) => item.id === folder.id ? optimistic : item) }));
+    try {
+      const saved = await api.updateFolder(folder.id, { streams });
+      set((state) => ({ folders: state.folders.map((item) => item.id === folder.id ? saved : item) }));
+    } catch (error) {
+      set((state) => ({ folders: state.folders.map((item) => item.id === folder.id ? folder : item) }));
+      throw error;
+    }
+  },
+
+  deleteFolder: async (folderId) => {
+    if (!get().online) throw new Error("Folder changes require a connection");
+    await api.deleteFolder(folderId);
+    set((state) => ({ folders: state.folders.filter((item) => item.id !== folderId) }));
+  },
+
+  setConversationPreference: async (conversation, patch) => {
+    const optimistic: ConversationSummary = {
+      ...conversation,
+      pinned: patch.pinned ?? (patch.archived ? false : conversation.pinned),
+      archived: patch.archived ?? (patch.pinned ? false : conversation.archived),
+      muted: patch.muted ?? conversation.muted,
+    };
+    set((state) => ({ conversations: upsertConversation(state.conversations, optimistic) }));
+    schedulePersistence();
+    if (!get().online) {
+      set((state) => ({ conversations: upsertConversation(state.conversations, conversation) }));
+      schedulePersistence();
+      throw new Error("Conversation settings require a connection");
+    }
+    try {
+      const saved = await api.updateConversationPreferences(conversation.id, patch);
+      set((state) => ({ conversations: upsertConversation(state.conversations, saved) }));
+    } catch (error) {
+      set((state) => ({ conversations: upsertConversation(state.conversations, conversation) }));
+      throw error;
+    } finally {
+      schedulePersistence();
+    }
+  },
+
   updateSettings: (patch) => {
     const previous = get().settings;
     const next = { ...previous, ...patch };
@@ -696,6 +1055,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     schedulePersistence();
   },
 }));
+
+function restoreRejectedOutbox(state: AppState, entry: OutboxEntry): Partial<AppState> {
+  if (entry.kind === "message" || entry.kind === "forward") {
+    return {
+      messages: {
+        ...state.messages,
+        [entry.streamId]: (state.messages[entry.streamId] ?? []).map((message) => message.id === entry.id ? { ...message, pending: false, failed: true } : message),
+      },
+    };
+  }
+  if (entry.kind === "read") return {};
+  const live = (state.messages[entry.streamId] ?? []).find((message) => message.id === entry.messageId);
+  const stillCurrent = entry.kind === "edit" ? live?.text === entry.text
+    : entry.kind === "pin" ? Boolean(live?.pinnedAt) === entry.pinned
+      : entry.kind === "reaction" ? Boolean(live && hasActiveReaction(live, entry.emoji) === entry.active)
+        : Boolean(live?.deletedAt && live.pending);
+  if (!stillCurrent) return {};
+  return {
+    conversations: entry.kind === "edit" ? applyConversationPreview(state.conversations, entry.previous) : state.conversations,
+    messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [entry.previous]) },
+  };
+}
+
+function reconcileBootstrapConversations(state: AppState, incoming: ConversationSummary[]): ConversationSummary[] {
+  const pendingReadStreams = new Set(state.outbox.filter((entry) => entry.kind === "read").map((entry) => entry.streamId));
+  return incoming.map((conversation) => {
+    const local = state.conversations.find((item) => item.id === conversation.id);
+    const optimisticPreview = local?.lastMessage && (state.messages[conversation.id] ?? []).some((message) =>
+      (message.pending || message.failed) && (message.id === local.lastMessage?.id || message.clientId === local.lastMessage?.id));
+    return {
+      ...conversation,
+      ...(optimisticPreview ? { lastMessage: local!.lastMessage, updatedAt: Math.max(conversation.updatedAt, local!.updatedAt) } : {}),
+      ...(pendingReadStreams.has(conversation.id) ? { unreadCount: 0, mentionCount: 0 } : {}),
+    };
+  });
+}
+
+function isRetryable(error: unknown): boolean {
+  return !(error instanceof ApiError) || error.status >= 500 || error.status === 408 || error.status === 425 || error.status === 429;
+}
 
 function updateOptimisticReaction(reactions: Message["reactions"], emoji: string, active: boolean, userId: string | undefined): Message["reactions"] {
   const existing = reactions.find((reaction) => reaction.emoji === emoji);

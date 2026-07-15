@@ -18,8 +18,9 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
       const previousClientId = previous.clientId ?? (previous.pending || previous.failed ? previous.id : null);
       if (previous.id !== message.id) byId.delete(previous.id);
       if (previousClientId && previousClientId !== clientId) byClientId.delete(previousClientId);
-      merged[index] = message;
-      byId.set(message.id, index);
+      const next = reconcileMessageVersion(previous, message);
+      merged[index] = next;
+      byId.set(next.id, index);
       if (clientId) byClientId.set(clientId, index);
       continue;
     }
@@ -31,10 +32,20 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
   return merged.sort((a, b) => a.sequence - b.sequence || a.createdAt - b.createdAt);
 }
 
-export function markMessageDeleted(existing: Message[], id: string, deletedAt: number): Message[] {
-  return existing.map((message) => message.id === id
-    ? { ...message, text: "", deletedAt, editedAt: null, pinnedAt: null }
-    : message);
+/** A delayed HTTP/update response must never resurrect a durable deletion. */
+export function reconcileMessageVersion(previous: Message, incoming: Message): Message {
+  if (previous.id === incoming.id && previous.deletedAt !== null && !previous.pending && incoming.deletedAt === null) {
+    return incoming.readByOthers ? { ...previous, readByOthers: true } : previous;
+  }
+  return incoming;
+}
+
+export function markMessageDeleted(existing: Message[], id: string, deletedAt: number, pending = false): Message[] {
+  return existing.map((message) => {
+    if (message.id !== id) return message;
+    const { pending: _pending, failed: _failed, ...stable } = message;
+    return { ...stable, text: "", deletedAt, editedAt: null, pinnedAt: null, ...(pending ? { pending: true } : {}) };
+  });
 }
 
 /** Tombstones stay cached for realtime ordering but are not rendered. */

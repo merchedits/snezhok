@@ -11,6 +11,7 @@ export interface MediaJob {
   originalMimeType: string;
   originalStorageKey: string;
   originalFilename: string;
+  originalBytes: number;
   attempts: number;
   maxAttempts: number;
 }

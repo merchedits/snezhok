@@ -6,6 +6,7 @@
 - Nginx with a trusted certificate for `merchedits.xyz`.
 - TCP 7881, UDP 7882 and UDP 3478 allowed by UFW and forwarded by the router to `192.168.2.11`.
 - A backed-up Android release signing keystore.
+- An Expo/EAS project and matching Firebase FCM V1 credential for killed-app Android notifications.
 - Strong random values for PostgreSQL, sessions and LiveKit credentials.
 
 ## Staged topology
@@ -23,6 +24,7 @@ The `snezhok_v3_postgres` volume and `platform/data-v3/storage` media directory 
 5. Start PostgreSQL, the app and LiveKit without changing Nginx.
 6. Verify app, PostgreSQL and LiveKit health; inspect logs and resource limits.
 7. Exercise registration/login, bootstrap, send/retry, uploads/ranges, realtime resume, calls and screen share.
+   Verify a message, incoming call, decline and missed call with the APK process terminated. A build without `EXPO_PUBLIC_EAS_PROJECT_ID`, `GOOGLE_SERVICES_JSON` and the EAS FCM V1 credential cannot pass this gate.
 8. Run the final data migration and count/hash report.
 9. Validate Nginx configuration, switch the `/chat/` upstream to port 3003 and reload.
 10. Verify the public web app and APK against production.

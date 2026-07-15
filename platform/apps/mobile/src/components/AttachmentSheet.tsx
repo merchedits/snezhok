@@ -17,6 +17,7 @@ interface AttachmentSheetProps {
   busy: boolean;
   progress?: number | null;
   onClose: () => void;
+  onCancel?: () => void;
   onSelect: (inputs: UploadInput[], messageKind?: "media" | "file" | "video-note") => Promise<void>;
 }
 
@@ -28,7 +29,7 @@ const MAX_RECENT_ASSETS = 72;
 let recentAssetCache: RecentAsset[] = [];
 
 /** Telegram-style recent-media drawer with a file-browser tile in place of Camera. */
-export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onSelect }: AttachmentSheetProps) {
+export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onCancel, onSelect }: AttachmentSheetProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const showDialog = useAppDialog();
@@ -246,6 +247,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
           {busy ? <View style={[styles.busy, { backgroundColor: palette.elevated }]}>
             {progress === null ? <ActivityIndicator color={palette.accent} /> : <CircularProgress progress={visibleProgress} activeColor={palette.accent} inactiveColor={palette.border} textColor={palette.text} />}
             <Text style={[styles.busyText, { color: palette.secondaryText }]}>{progress === null ? t("preparingUpload") : t("uploadingProgress", { progress: visibleProgress })}</Text>
+            {onCancel ? <Pressable accessibilityRole="button" accessibilityLabel={t("cancel")} onPress={onCancel} style={[styles.cancelUpload, { backgroundColor: palette.surface }]}><AppIcon name="close" size={20} color={palette.secondaryText} /></Pressable> : null}
           </View> : null}
         </View>
       </View>
@@ -323,6 +325,7 @@ const styles = StyleSheet.create({
   sendCountText: { color: "white", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
   busy: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 76, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 18, gap: 12, opacity: 0.96 },
   busyText: { fontSize: 13 },
+  cancelUpload: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   progressLabel: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" },
   progressText: { fontSize: 10, fontWeight: "800", fontVariant: ["tabular-nums"] },
 });

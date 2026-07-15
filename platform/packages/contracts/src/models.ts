@@ -153,6 +153,8 @@ export interface Message {
   editedAt: Timestamp | null;
   deletedAt: Timestamp | null;
   pinnedAt: Timestamp | null;
+  /** Delivered normally but without producing a recipient notification. */
+  silent?: boolean;
   /** True when at least one other visible recipient has advanced past this message. */
   readByOthers?: boolean;
   pending?: boolean;
@@ -178,6 +180,9 @@ export interface AppSettings {
   echoCancellation: boolean;
   autoGainControl: boolean;
   microphoneMode: "system" | "phone" | "speakerphone";
+  callAudioRoute: "auto" | "earpiece" | "speaker" | "headset" | "bluetooth";
+  callQuality: "data-saver" | "auto" | "high";
+  screenShareQuality: "data-saver" | "auto" | "high";
   pushToTalk: boolean;
 }
 

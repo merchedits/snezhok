@@ -16,6 +16,7 @@ const DATABASE_NAME = "snezhok-offline.db";
 const CACHE_KEY = "@snezhok/cache/v2";
 const LEGACY_CACHE_KEY = "@snezhok/cache/v1";
 const OUTBOX_KEY = "@snezhok/outbox/v1";
+const DRAFTS_KEY = "@snezhok/drafts/v1";
 const MIGRATION_KEY = "async_storage_v2_migrated";
 
 const EMPTY_CACHE: CachedState = { bootstrap: null, messages: {}, cachedAt: 0 };
@@ -142,8 +143,8 @@ export async function readOutbox(): Promise<OutboxEntry[]> {
   const raw = await AsyncStorage.getItem(OUTBOX_KEY);
   if (!raw) return [];
   try {
-    const parsed = JSON.parse(raw) as OutboxEntry[];
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed = JSON.parse(raw) as Array<OutboxEntry | (Omit<Extract<OutboxEntry, { kind: "message" }>, "kind"> & { kind?: undefined })>;
+    return Array.isArray(parsed) ? parsed.map((entry) => entry.kind ? entry as OutboxEntry : { ...entry, kind: "message" }) : [];
   } catch {
     return [];
   }
@@ -153,9 +154,25 @@ export async function writeOutbox(entries: OutboxEntry[]): Promise<void> {
   await AsyncStorage.setItem(OUTBOX_KEY, JSON.stringify(entries));
 }
 
+export async function readDrafts(): Promise<Record<string, string>> {
+  const raw = await AsyncStorage.getItem(DRAFTS_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length <= 16_000));
+  } catch {
+    return {};
+  }
+}
+
+export async function writeDrafts(drafts: Record<string, string>): Promise<void> {
+  await AsyncStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+}
+
 export async function clearLocalData(): Promise<void> {
   const clearDatabase = database().then((db) => db.withExclusiveTransactionAsync(async (transaction) => {
     await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
   })).catch((error) => console.warn("Could not clear SQLite offline cache", error));
-  await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY])]);
+  await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY])]);
 }

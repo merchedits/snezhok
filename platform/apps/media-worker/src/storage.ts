@@ -27,6 +27,9 @@ export async function removeJobDirectory(directory: string) {
 }
 
 export async function commitOutput(source: string) {
+  const sourceInfo = await stat(source);
+  if (!sourceInfo.isFile() || sourceInfo.size <= 0) throw new Error("Media processor produced an empty or invalid output");
+  if (sourceInfo.size > config.MAX_MEDIA_OUTPUT_BYTES) throw new Error("Media processor output exceeds its safety limit");
   const hash = createHash("sha256");
   await new Promise<void>((resolve, reject) => createReadStream(source).on("data", (chunk) => hash.update(chunk)).on("end", resolve).on("error", reject));
   const checksum = hash.digest("hex");
@@ -38,6 +41,7 @@ export async function commitOutput(source: string) {
     if (!exists) throw error;
   }
   const info = await stat(target);
+  if (!info.isFile() || info.size !== sourceInfo.size) throw new Error("Committed media output does not match the processed file");
   return { id: randomUUID(), checksum, storageKey, bytes: info.size };
 }
 

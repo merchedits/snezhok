@@ -1,5 +1,11 @@
 name: snezhok-v3
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -33,6 +39,7 @@ services:
       - no-new-privileges:true
     networks:
       - backend
+    logging: *default-logging
 
   app:
     build:
@@ -82,6 +89,7 @@ services:
       - ALL
     networks:
       - backend
+    logging: *default-logging
 
   media-worker:
     build:
@@ -119,6 +127,7 @@ services:
       - ALL
     networks:
       - backend
+    logging: *default-logging
 
   livekit:
     image: livekit/livekit-server:v1.13.3
@@ -134,6 +143,7 @@ services:
     stop_grace_period: 60s
     security_opt:
       - no-new-privileges:true
+    logging: *default-logging
 
 volumes:
   snezhok_v3_postgres:

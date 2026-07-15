@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import type { IncomingHttpHeaders } from "node:http";
 import type { FastifyInstance } from "fastify";
 import type { Attachment } from "@snezhok/contracts";
 import { uploadMetadataSchema } from "@snezhok/contracts";
@@ -9,13 +10,14 @@ import { AppError, conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { requireAuth } from "../auth/middleware.js";
 import { resolveStreamAccess } from "../streams/access.js";
-import { appendChunk, ensureStorage, initializeTemporary, objectPath, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
+import { appendChunk, detectTemporaryMimeType, ensureStorage, initializeTemporary, objectPath, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
 import { stat } from "node:fs/promises";
 import type { Readable } from "node:stream";
+import { validateDetectedMedia, validateUploadDeclaration } from "./mediaValidation.js";
 
 const initSchema = uploadMetadataSchema.extend({
   filename: z.string().trim().min(1).max(255).optional(), originalName: z.string().trim().min(1).max(255).optional(),
-  mimeType: z.string().trim().min(1).max(255), bytes: z.number().int().nonnegative().optional(), totalSize: z.number().int().nonnegative().optional(),
+  mimeType: z.string().trim().min(1).max(255), bytes: z.number().int().positive().optional(), totalSize: z.number().int().positive().optional(),
 }).refine((value) => Boolean(value.filename ?? value.originalName) && (value.bytes ?? value.totalSize) !== undefined, "Filename and size are required");
 const idParams = z.object({ id: z.string().uuid() });
 const fileQuery = z.object({ variant: z.string().uuid().optional() });
@@ -26,7 +28,7 @@ export async function uploadRoutes(app: FastifyInstance) {
 
   app.post("/uploads/init", { preHandler: requireAuth }, async (request, reply) => {
     const body = initSchema.parse(request.body); const bytes = body.bytes ?? body.totalSize!;
-    if (bytes > config.MAX_UPLOAD_BYTES) throw new AppError(413, "UPLOAD_TOO_LARGE", "Upload exceeds the configured limit");
+    validateUploadDeclaration({ kind: body.kind, purpose: body.purpose, mimeType: body.mimeType, bytes, filename: body.filename ?? body.originalName! }, config.MAX_UPLOAD_BYTES);
     const id = newId(); const tempKey = `${id}.upload`;
     await initializeTemporary(tempKey);
     const result = await pool.query<{ expires_at_ms: number }>(
@@ -38,13 +40,14 @@ export async function uploadRoutes(app: FastifyInstance) {
 
   app.head("/uploads/:id", { preHandler: requireAuth }, async (request, reply) => {
     const upload = await ownedUpload(request.auth.id, idParams.parse(request.params).id);
+    if (upload.status !== "uploading") throw conflict("Upload session is no longer active");
     return reply.headers({ "upload-offset": upload.received_bytes, "upload-length": upload.declared_bytes, "cache-control": "no-store" }).status(204).send();
   });
 
   app.patch("/uploads/:id/chunk", { preHandler: requireAuth, bodyLimit: config.UPLOAD_CHUNK_BYTES + 1024 }, async (request, reply) => {
     const { id } = idParams.parse(request.params);
     const chunk = request.body;
-    if (!Buffer.isBuffer(chunk)) throw conflict("Chunk body must be application/offset+octet-stream");
+    if (!Buffer.isBuffer(chunk) || chunk.length === 0) throw conflict("Chunk body must be non-empty application/offset+octet-stream");
     const nextOffset = await transaction(async (client) => {
       const upload = await ownedUpload(request.auth.id, id, client, true);
       if (upload.status !== "uploading") throw conflict("Upload no longer accepts chunks");
@@ -87,6 +90,7 @@ export async function uploadRoutes(app: FastifyInstance) {
   app.delete("/uploads/:id", { preHandler: requireAuth }, async (request) => {
     const upload = await transaction(async (client) => {
       const locked = await ownedUpload(request.auth.id, idParams.parse(request.params).id, client, true);
+      if (locked.status === "cancelled") return locked;
       if (locked.status !== "uploading") throw conflict("Only an active upload can be cancelled");
       await client.query("UPDATE upload_sessions SET status='cancelled',updated_at=now() WHERE id=$1", [locked.id]); return locked;
     });
@@ -97,9 +101,9 @@ export async function uploadRoutes(app: FastifyInstance) {
   app.get("/files/:id", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = idParams.parse(request.params);
     const { variant } = fileQuery.parse(request.query);
-    const result = await pool.query<{ owner_id: string; filename: string; mime_type: string; storage_key: string; bytes: string; variant_id: string | null }>(
+    const result = await pool.query<{ owner_id: string; filename: string; mime_type: string; storage_key: string; bytes: string; checksum_sha256: string; variant_id: string | null }>(
       `SELECT a.owner_id,a.filename,coalesce(v.mime_type,a.mime_type) mime_type,coalesce(vb.storage_key,b.storage_key) storage_key,
-         coalesce(v.bytes,a.bytes)::text bytes,v.id variant_id FROM attachments a JOIN blobs b ON b.id=a.blob_id
+         coalesce(v.bytes,a.bytes)::text bytes,coalesce(v.checksum_sha256,b.checksum_sha256) checksum_sha256,v.id variant_id FROM attachments a JOIN blobs b ON b.id=a.blob_id
        LEFT JOIN media_variants v ON v.attachment_id=a.id AND v.id=$2 LEFT JOIN blobs vb ON vb.id=v.blob_id WHERE a.id=$1`, [id, variant ?? null]);
     const file = result.rows[0]; if (!file) throw notFound("File not found");
     if (variant && !file.variant_id) throw notFound("Media variant not found");
@@ -110,24 +114,29 @@ export async function uploadRoutes(app: FastifyInstance) {
         [id],
       );
       if (profilePhoto.rowCount) {
-        return sendFile(reply, file, request.headers.range);
+        return sendFile(reply, file, request.headers);
       }
       const links = await pool.query<{ stream_id: string }>("SELECT m.stream_id FROM message_attachments ma JOIN messages m ON m.id=ma.message_id WHERE ma.attachment_id=$1", [id]);
       let allowed = false;
       for (const link of links.rows) { try { await resolveStreamAccess(request.auth.id, link.stream_id); allowed = true; break; } catch { /* try another linked stream */ } }
       if (!allowed) throw forbidden("You cannot access this file");
     }
-    return sendFile(reply, file, request.headers.range);
+    return sendFile(reply, file, request.headers);
   });
 
-  function sendFile(reply: import("fastify").FastifyReply, file: { filename: string; mime_type: string; storage_key: string; bytes: string }, rangeHeader: string | undefined) {
+  function sendFile(reply: import("fastify").FastifyReply, file: { filename: string; mime_type: string; storage_key: string; bytes: string; checksum_sha256: string }, headers: IncomingHttpHeaders) {
     const totalBytes = Number(file.bytes);
-    reply.header("content-type", file.mime_type).header("accept-ranges", "bytes").header("cache-control", "private, max-age=86400, immutable").header("x-content-type-options", "nosniff");
+    const etag = `"${file.checksum_sha256}"`;
+    reply.header("content-type", file.mime_type).header("accept-ranges", "bytes").header("cache-control", "private, max-age=86400, immutable")
+      .header("etag", etag).header("x-content-type-options", "nosniff").header("cross-origin-resource-policy", "same-site").header("content-security-policy", "default-src 'none'");
+    const requestedRange = singleHeader(headers.range);
+    if (!requestedRange && etagMatches(singleHeader(headers["if-none-match"]), etag)) return reply.status(304).send();
     const safeFilename = file.filename.replace(/[\r\n"]/g, "_"); reply.header("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(safeFilename)}`);
     if (/(?:html|svg|xml|javascript)/i.test(file.mime_type)) reply.header("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(safeFilename)}`);
-    if (config.USE_X_ACCEL) return reply.header("content-length", totalBytes).header("x-accel-redirect", `${config.INTERNAL_MEDIA_PREFIX}${file.storage_key.replace(/^objects\//, "")}`).send();
+    const rangeHeader = effectiveRangeHeader(requestedRange, singleHeader(headers["if-range"]), etag);
     const range = parseRange(rangeHeader, totalBytes);
     if (range === "invalid") return reply.header("content-range", `bytes */${totalBytes}`).status(416).send();
+    if (config.USE_X_ACCEL) return reply.header("x-accel-redirect", `${config.INTERNAL_MEDIA_PREFIX}${file.storage_key.replace(/^objects\//, "")}`).send();
     if (range) {
       reply.status(206).header("content-range", `bytes ${range.start}-${range.end}/${totalBytes}`).header("content-length", range.end-range.start+1);
       return reply.send(createReadStream(objectPath(file.storage_key), range));
@@ -145,6 +154,22 @@ export async function uploadRoutes(app: FastifyInstance) {
     if (!result.rowCount) throw notFound("Active media job not found");
     return { success: true };
   });
+
+  app.post("/media-jobs/:id/retry", { preHandler: requireAuth }, async (request) => {
+    const { id } = idParams.parse(request.params);
+    const retried = await transaction(async (client) => {
+      const result = await client.query(
+        `UPDATE media_jobs j SET status='pending',attempts=0,available_at=now(),cancel_requested_at=NULL,locked_by=NULL,
+           heartbeat_at=NULL,started_at=NULL,completed_at=NULL,error=NULL,updated_at=now()
+         FROM attachments a WHERE j.attachment_id=a.id AND a.id=$1 AND a.owner_id=$2 AND j.status IN ('failed','cancelled')`,
+        [id, request.auth.id],
+      );
+      if (!result.rowCount) throw notFound("Retryable media job not found");
+      await client.query("UPDATE attachments SET status='processing' WHERE id=$1 AND owner_id=$2", [id, request.auth.id]);
+      return result.rowCount;
+    });
+    return { success: true, jobs: retried };
+  });
 }
 
 async function completeUpload(userId: string, uploadId: string) {
@@ -158,7 +183,17 @@ async function completeUpload(userId: string, uploadId: string) {
     return { ...locked, status: "finalizing" };
   });
   if (upload.status === "complete") return { attachment: await attachment(upload.id) };
-  const object = await stageObject(upload.temp_key);
+  let object: Awaited<ReturnType<typeof stageObject>>;
+  try {
+    const detectedMimeType = await detectTemporaryMimeType(upload.temp_key);
+    validateDetectedMedia(upload.kind, upload.media_purpose, detectedMimeType);
+    object = await stageObject(upload.temp_key);
+  } catch (error) {
+    const terminal = error instanceof AppError && error.status >= 400 && error.status < 500;
+    await pool.query("UPDATE upload_sessions SET status=$2,updated_at=now() WHERE id=$1 AND status='finalizing'", [uploadId, terminal ? "cancelled" : "uploading"]);
+    if (terminal) await removeTemporary(upload.temp_key).catch(() => undefined);
+    throw error;
+  }
   if (object.bytes !== Number(upload.declared_bytes)) throw conflict("Final object size does not match the upload");
   const attachmentId = upload.id;
   const processMedia = canProcessMedia(upload.kind, upload.media_purpose, object.detectedMimeType);
@@ -199,6 +234,19 @@ export function parseRange(header: string | undefined, totalBytes: number): { st
   else { start=Number(startText); end=endText ? Number(endText) : totalBytes-1; }
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start<0 || end<start || start>=totalBytes) return "invalid";
   return { start, end: Math.min(end,totalBytes-1) };
+}
+
+export function effectiveRangeHeader(range: string | undefined, ifRange: string | undefined, etag: string): string | undefined {
+  if (!range || !ifRange) return range;
+  return ifRange.trim() === etag ? range : undefined;
+}
+
+function etagMatches(header: string | undefined, etag: string): boolean {
+  return Boolean(header?.split(",").some((candidate) => candidate.trim() === etag || candidate.trim() === "*"));
+}
+
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 async function ownedUpload(userId: string, id: string, client: Pick<import("../../db/pool.js").DbClient, "query"> = pool, forUpdate = false) {

@@ -7,6 +7,8 @@ import { eventsAfter, currentCursor, eventDelivery } from "./events.js";
 import { pool } from "../../db/pool.js";
 import { resolveStreamAccess } from "../streams/access.js";
 import { markRead } from "../messages/service.js";
+import { deliverPushEvent } from "../notifications/push.js";
+import { incrementMetric } from "../../lib/metrics.js";
 
 type InterServerEvents = Record<string, never>;
 interface SocketData { userId: string; }
@@ -64,6 +66,9 @@ export async function setupRealtime(server: HttpServer) {
       for (const delivery of deliveries) {
         io.to(`user:${delivery.userId}`).emit(delivery.name as keyof ServerToClientEvents, delivery.payload as never);
         io.to(`user:${delivery.userId}`).emit("sync:ready", { cursor: delivery.cursor, serverTime: Date.now() });
+        void deliverPushEvent(delivery.userId, delivery.name, delivery.payload)
+          .then(() => incrementMetric("push.delivery.processed"))
+          .catch((error) => { incrementMetric("push.delivery.failed"); console.warn("Push delivery failed", error); });
       }
     });
   });

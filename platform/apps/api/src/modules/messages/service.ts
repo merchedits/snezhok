@@ -12,6 +12,7 @@ export interface MessageCreateInput {
   kind: Exclude<MessageKind, "system">;
   replyToId: string | null;
   attachmentIds: string[];
+  silent: boolean;
 }
 
 interface MessageRow {
@@ -24,13 +25,18 @@ interface MessageRow {
   reply_text: string | null; reply_kind: MessageKind | null; reply_created_at_ms: number | null;
   forwarded_id: string | null; forwarded_sender_id: string | null; forwarded_sender_name: string | null;
   forwarded_text: string | null; forwarded_kind: MessageKind | null; forwarded_created_at_ms: number | null;
-  attachments: unknown; reactions: unknown; read_by_others: boolean;
+  attachments: unknown; reactions: unknown; read_by_others: boolean; silent: boolean;
 }
 
 export async function createMessage(userId: string, streamId: string, input: MessageCreateInput) {
   const result = await transaction(async (client) => {
     const stream = await resolveStreamAccess(userId, streamId, client);
     if (stream.streamKind === "channel" && stream.channelKind !== "text") throw forbidden("Messages cannot be sent to a voice channel");
+
+    // Serialize retries carrying the same sender-generated id. Without this
+    // lock two concurrent HTTP attempts can both miss the preflight SELECT and
+    // one leaks a unique-constraint error instead of receiving the first row.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`message:${userId}:${input.clientId}`]);
 
     const duplicate = await client.query<{ id: string; stream_kind: "conversation" | "channel"; stream_id: string }>("SELECT id,stream_kind,stream_id FROM messages WHERE sender_id=$1 AND client_id=$2", [userId, input.clientId]);
     if (duplicate.rows[0]) {
@@ -66,9 +72,9 @@ export async function createMessage(userId: string, streamId: string, input: Mes
     const id = newId();
     const sequence = await allocateMessageSequence(stream, client);
     await client.query(
-      `INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text,reply_to_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [id, stream.streamKind, stream.streamId, sequence, userId, input.clientId, input.kind, input.text, input.replyToId],
+      `INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text,reply_to_id,silent)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [id, stream.streamKind, stream.streamId, sequence, userId, input.clientId, input.kind, input.text, input.replyToId, input.silent],
     );
     for (const [position, attachmentId] of input.attachmentIds.entries()) {
       await client.query("INSERT INTO message_attachments(message_id,attachment_id,position) VALUES ($1,$2,$3)", [id, attachmentId, position]);
@@ -93,6 +99,7 @@ export async function forwardMessage(userId: string, messageId: string, targetSt
 
     const target = await resolveStreamAccess(userId, targetStreamId, client);
     if (target.streamKind === "channel" && target.channelKind !== "text") throw forbidden("Messages cannot be forwarded to a voice channel");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`message:${userId}:${clientId}`]);
     const duplicate = await client.query<{ id: string; stream_kind: "conversation" | "channel"; stream_id: string }>(
       "SELECT id,stream_kind,stream_id FROM messages WHERE sender_id=$1 AND client_id=$2",
       [userId, clientId],
@@ -141,6 +148,25 @@ export async function listPinnedMessages(userId: string, streamId: string) {
       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$3 AND hm.message_id=m.id)
     ORDER BY m.pinned_at DESC LIMIT 100`, [stream.streamKind, streamId, userId]);
   return result.rows.map((row) => mapMessage(row, userId));
+}
+
+export async function listMessageContext(userId: string, messageId: string, limit: number) {
+  const target = (await pool.query<{ stream_id: string; stream_kind: "conversation" | "channel"; sequence: string }>(
+    "SELECT stream_id,stream_kind,sequence::text FROM messages WHERE id=$1",
+    [messageId],
+  )).rows[0];
+  if (!target) throw notFound("Message not found");
+  const access = await resolveStreamAccess(userId, target.stream_id);
+  if (access.streamKind !== target.stream_kind) throw forbidden();
+  const result = await pool.query<MessageRow>(`${messageSelectSql}
+    WHERE m.stream_kind=$1 AND m.stream_id=$2 AND m.sequence<=$3
+      AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$5 AND hm.message_id=m.id)
+    ORDER BY m.sequence DESC LIMIT $4`, [target.stream_kind, target.stream_id, Number(target.sequence), limit, userId]);
+  return {
+    streamId: target.stream_id,
+    targetId: messageId,
+    items: result.rows.map((row) => mapMessage(row, userId)).reverse(),
+  };
 }
 
 export async function editMessage(userId: string, messageId: string, text: string) {
@@ -258,7 +284,7 @@ export async function getMessageById(client: Pick<DbClient, "query">, id: string
 }
 
 const messageSelectSql = `
-  SELECT m.id,m.client_id,m.stream_id,m.stream_kind,m.sequence::text,m.sender_id,m.kind,m.text,
+  SELECT m.id,m.client_id,m.stream_id,m.stream_kind,m.sequence::text,m.sender_id,m.kind,m.text,m.silent,
     (extract(epoch from m.created_at)*1000)::bigint::float8 AS created_at_ms,
     CASE WHEN m.edited_at IS NULL THEN NULL ELSE (extract(epoch from m.edited_at)*1000)::bigint::float8 END AS edited_at_ms,
     CASE WHEN m.deleted_at IS NULL THEN NULL ELSE (extract(epoch from m.deleted_at)*1000)::bigint::float8 END AS deleted_at_ms,
@@ -309,6 +335,6 @@ function mapMessage(row: MessageRow, viewerId?: string): Message {
     attachments: row.attachments as Message["attachments"], reactions,
     createdAt: Number(row.created_at_ms), editedAt: row.edited_at_ms === null ? null : Number(row.edited_at_ms),
     deletedAt: row.deleted_at_ms === null ? null : Number(row.deleted_at_ms), pinnedAt: row.pinned_at_ms === null ? null : Number(row.pinned_at_ms),
-    readByOthers: row.read_by_others,
+    readByOthers: row.read_by_others, silent: row.silent,
   };
 }

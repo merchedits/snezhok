@@ -11,7 +11,9 @@ const settingsSchema = z.object({
   reducedMotion: z.boolean(), highContrast: z.boolean(), language: z.enum(["en","ru"]), readReceipts: z.boolean(), showLastSeen: z.boolean(),
   stripMediaLocation: z.boolean(), defaultUploadQuality: z.enum(["data-saver","auto","high","original"]), autoDownloadWifi: z.boolean(),
   autoDownloadMobile: z.boolean(), noiseSuppression: z.enum(["off","standard","high"]), echoCancellation: z.boolean(), autoGainControl: z.boolean(),
-  microphoneMode: z.enum(["system","phone","speakerphone"]), pushToTalk: z.boolean(),
+  microphoneMode: z.enum(["system","phone","speakerphone"]),
+  callAudioRoute: z.enum(["auto","earpiece","speaker","headset","bluetooth"]),
+  callQuality: z.enum(["data-saver","auto","high"]), screenShareQuality: z.enum(["data-saver","auto","high"]), pushToTalk: z.boolean(),
 }).partial();
 
 export async function settingsRoutes(app: FastifyInstance) {

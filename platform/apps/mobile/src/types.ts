@@ -18,9 +18,11 @@ export type RootStackParamList = {
     streamKind: "conversation" | "channel";
     title: string;
     subtitle?: string;
+    targetMessageId?: string;
   };
   Call: { streamId: string; title: string };
   Profile: { userId: string };
+  Diagnostics: undefined;
 };
 
 export interface AuthTokens {
@@ -90,6 +92,7 @@ export interface MessageCreateInput {
   kind: Exclude<MessageKind, "system">;
   replyToId: string | null;
   attachmentIds: string[];
+  silent: boolean;
 }
 
 export interface CachedState {
@@ -98,14 +101,93 @@ export interface CachedState {
   cachedAt: number;
 }
 
-export interface OutboxEntry {
+interface OutboxBase {
   id: string;
   streamId: string;
-  input: MessageCreateInput;
   queuedAt: number;
   attempts: number;
 }
 
+/** `kind` is optional so cached v1 message entries remain valid after upgrade. */
+export interface OutboxMessageEntry extends OutboxBase {
+  kind: "message";
+  input: MessageCreateInput;
+}
+
+export interface OutboxForwardEntry extends OutboxBase {
+  kind: "forward";
+  sourceMessageId: string;
+  clientId: string;
+}
+
+export interface OutboxReadEntry extends OutboxBase {
+  kind: "read";
+  sequence: number;
+}
+
+export interface OutboxEditEntry extends OutboxBase {
+  kind: "edit";
+  messageId: string;
+  text: string;
+  previous: Message;
+}
+
+export interface OutboxDeleteEntry extends OutboxBase {
+  kind: "delete";
+  messageId: string;
+  scope: "me" | "everyone";
+  previous: Message;
+}
+
+export interface OutboxPinEntry extends OutboxBase {
+  kind: "pin";
+  messageId: string;
+  pinned: boolean;
+  previous: Message;
+}
+
+export interface OutboxReactionEntry extends OutboxBase {
+  kind: "reaction";
+  messageId: string;
+  emoji: string;
+  active: boolean;
+  previous: Message;
+}
+
+export type OutboxEntry = OutboxMessageEntry | OutboxForwardEntry | OutboxReadEntry | OutboxEditEntry | OutboxDeleteEntry | OutboxPinEntry | OutboxReactionEntry;
+
 export interface MessagesResponse extends CursorPage<Message> {}
+
+export interface ChatDraft {
+  streamKind: "conversation" | "channel";
+  streamId: string;
+  text: string;
+  replyToId: string | null;
+  updatedAt: number;
+}
+
+export interface ChatFolder {
+  id: string;
+  name: string;
+  position: number;
+  includeArchived: boolean;
+  streams: Array<{ streamKind: "conversation" | "channel"; streamId: string }>;
+}
+
+export interface ScheduledMessage {
+  id: string;
+  streamKind: "conversation" | "channel";
+  streamId: string;
+  text: string;
+  kind: string;
+  silent: boolean;
+  scheduledFor: number;
+}
+
+export interface ProductivityPayload {
+  drafts: ChatDraft[];
+  folders: ChatFolder[];
+  scheduled: ScheduledMessage[];
+}
 
 export type SettingsPatch = Partial<AppSettings>;

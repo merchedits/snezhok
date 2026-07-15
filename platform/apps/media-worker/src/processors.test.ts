@@ -30,7 +30,7 @@ test("image processing auto-orients and emits metadata-free primary and thumbnai
   try {
     const input = path.join(directory, "input.jpg");
     await sharp({ create: { width: 40, height: 20, channels: 3, background: "#ef4444" } }).withMetadata({ orientation: 6 }).jpeg().toFile(input);
-    const output = await processMedia({ id: crypto.randomUUID(), attachmentId: crypto.randomUUID(), ownerId: crypto.randomUUID(), profile: "auto", purpose: "standard", kind: "image", originalMimeType: "image/jpeg", originalStorageKey: "objects/00/" + "0".repeat(64), originalFilename: "input.jpg", attempts: 1, maxAttempts: 4 }, input, directory, { signal: new AbortController().signal, heartbeat: async () => undefined });
+    const output = await processMedia({ id: crypto.randomUUID(), attachmentId: crypto.randomUUID(), ownerId: crypto.randomUUID(), profile: "auto", purpose: "standard", kind: "image", originalMimeType: "image/jpeg", originalStorageKey: "objects/00/" + "0".repeat(64), originalFilename: "input.jpg", originalBytes: 1_024, attempts: 1, maxAttempts: 4 }, input, directory, { signal: new AbortController().signal, heartbeat: async () => undefined });
     assert.deepEqual(output.map((item) => item.role), ["primary", "thumbnail"]);
     const inspected = sharp(await readFile(output[0]!.path)); const metadata = await inspected.metadata(); inspected.destroy();
     assert.equal(metadata.width, 20); assert.equal(metadata.height, 40);

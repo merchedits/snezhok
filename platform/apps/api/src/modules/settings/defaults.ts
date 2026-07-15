@@ -19,5 +19,8 @@ export const defaultSettings: AppSettings = {
   echoCancellation: true,
   autoGainControl: true,
   microphoneMode: "phone",
+  callAudioRoute: "auto",
+  callQuality: "auto",
+  screenShareQuality: "auto",
   pushToTalk: false,
 };

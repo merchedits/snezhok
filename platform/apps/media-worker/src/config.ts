@@ -10,6 +10,8 @@ const schema = z.object({
   FFPROBE_PATH: z.string().default("ffprobe"),
   PROCESS_NICENESS: z.coerce.number().int().min(0).max(19).default(10),
   FFMPEG_THREADS: z.coerce.number().int().min(1).max(8).default(2),
+  MEDIA_COMMAND_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(3_600_000).default(30 * 60_000),
+  MAX_MEDIA_OUTPUT_BYTES: z.coerce.number().int().min(1024).default(2 * 1024 * 1024 * 1024),
   PAUSE_DURING_CALLS: z.preprocess((value) => value !== "false", z.boolean()).default(true),
   CALL_STALE_HOURS: z.coerce.number().int().min(1).max(168).default(12),
   MIN_FREE_MEMORY_MB: z.coerce.number().int().min(64).default(384),

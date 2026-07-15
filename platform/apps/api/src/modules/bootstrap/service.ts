@@ -136,7 +136,8 @@ async function serverSummaries(userId: string, client: DbClient) {
   const serverRows = await client.query<{ id: string; name: string; owner_id: string; position: number; mention_count: number; unread: boolean }>(
     `SELECT s.id,s.name,s.owner_id,sm.position,0::int mention_count,EXISTS(
        SELECT 1 FROM channels ch JOIN messages m ON m.stream_kind='channel' AND m.stream_id=ch.id
-       WHERE ch.server_id=s.id AND m.sequence>coalesce((SELECT last_read_sequence FROM read_states WHERE user_id=$1 AND stream_kind='channel' AND stream_id=ch.id),0)
+       WHERE ch.server_id=s.id AND m.deleted_at IS NULL AND m.sender_id<>$1
+       AND m.sequence>coalesce((SELECT last_read_sequence FROM read_states WHERE user_id=$1 AND stream_kind='channel' AND stream_id=ch.id),0)
        AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$1 AND hm.message_id=m.id)
      ) unread FROM servers s JOIN server_members sm ON sm.server_id=s.id WHERE sm.user_id=$1 ORDER BY sm.position,s.name`, [userId]);
   const servers: ServerSummary[] = serverRows.rows.map((row) => ({ id: row.id, name: row.name, iconUrl: null, ownerId: row.owner_id, unread: row.unread, mentionCount: row.mention_count, position: row.position }));

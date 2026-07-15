@@ -11,6 +11,9 @@ export interface CallUpdatePayload {
   callerId?: Id;
   callerName?: string;
   startedAt?: Timestamp;
+  endedAt?: Timestamp;
+  answeredByIds?: Id[];
+  reason?: "ended-by-user" | "declined" | "room-finished" | "stale-timeout";
 }
 
 export interface ServerToClientEvents {

@@ -9,13 +9,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { installErrorHandler } from "./lib/errors.js";
+import { observeHttpRequest } from "./lib/metrics.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { bootstrapRoutes } from "./modules/bootstrap/routes.js";
 import { callRoutes } from "./modules/calls/routes.js";
 import { clientRoutes } from "./modules/clients/routes.js";
 import { conversationRoutes } from "./modules/conversations/routes.js";
+import { diagnosticRoutes } from "./modules/diagnostics/routes.js";
 import { friendRoutes } from "./modules/friends/routes.js";
 import { messageRoutes } from "./modules/messages/routes.js";
+import { productivityRoutes } from "./modules/productivity/routes.js";
+import { notificationRoutes } from "./modules/notifications/routes.js";
 import { searchRoutes } from "./modules/search/routes.js";
 import { serverRoutes } from "./modules/servers/routes.js";
 import { settingsRoutes } from "./modules/settings/routes.js";
@@ -25,6 +29,16 @@ import { userRoutes } from "./modules/users/routes.js";
 export async function buildApp() {
   const app = Fastify({ logger: config.NODE_ENV !== "test", trustProxy: config.TRUST_PROXY_HOPS, bodyLimit: 1024 * 1024, requestIdHeader: "x-request-id" });
   app.decorateRequest("auth");
+  const requestStarts = new WeakMap<object, number>();
+  app.addHook("onRequest", async (request, reply) => {
+    requestStarts.set(request, performance.now());
+    reply.header("x-request-id", request.id);
+  });
+  app.addHook("onResponse", async (request, reply) => {
+    const durationMs = Math.max(0, performance.now() - (requestStarts.get(request) ?? performance.now()));
+    observeHttpRequest(request.method, request.routeOptions.url ?? request.url, reply.statusCode, durationMs);
+    if (durationMs >= 500) request.log.warn({ durationMs: Math.round(durationMs), statusCode: reply.statusCode }, "slow request");
+  });
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: (origin, callback) => callback(null, !origin || config.APP_ORIGINS.includes(origin)), credentials: true });
   await app.register(cookie);
@@ -45,7 +59,10 @@ export async function buildApp() {
     await api.register(friendRoutes);
     await api.register(serverRoutes);
     await api.register(conversationRoutes);
+    await api.register(diagnosticRoutes);
     await api.register(messageRoutes);
+    await api.register(productivityRoutes);
+    await api.register(notificationRoutes);
     await api.register(uploadRoutes);
     await api.register(settingsRoutes);
     await api.register(searchRoutes);

@@ -4,6 +4,7 @@ import Animated, { cancelAnimation, Easing, runOnJS, type SharedValue, useAnimat
 import { Screen } from "react-native-screens";
 
 import { BottomNavigation } from "../components/BottomNavigation";
+import { recordPerformance } from "../diagnostics/diagnostics";
 import { usePalette } from "../hooks/usePalette";
 import { mainTabTransition, type MainTab } from "../navigation/mainTabs";
 import { useAppStore } from "../store/useAppStore";
@@ -21,6 +22,14 @@ export function MainScreen() {
   const progress = useSharedValue(1);
   const transitionId = useRef(0);
   const activeTab = useRef<MainTab>(tab);
+  const requestedTab = useRef<{ from: MainTab; to: MainTab; startedAt: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const request = requestedTab.current;
+    if (!request || request.to !== tab) return;
+    requestedTab.current = null;
+    recordPerformance("tabResponse", performance.now() - request.startedAt, { from: request.from, to: request.to });
+  }, [tab]);
 
   const finishTransition = useCallback((id: number) => {
     if (transitionId.current === id) setTransition(null);
@@ -51,6 +60,7 @@ export function MainScreen() {
   const selectTab = useCallback((next: MainTab) => {
     const previous = activeTab.current;
     if (next === previous) return;
+    requestedTab.current = { from: previous, to: next, startedAt: performance.now() };
     activeTab.current = next;
     const nextTransition = mainTabTransition(previous, next);
     const id = transitionId.current + 1;

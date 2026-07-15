@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { config } from "./config.js";
+import { MEDIA_LIMITS, validateOutputVariants, validateSourceMetadata } from "./mediaLimits.js";
 import { runMediaCommand } from "./subprocess.js";
 import type { MediaJob, OutputVariant, Quality } from "./types.js";
 
@@ -23,21 +24,30 @@ const videoProfiles: Record<Exclude<Quality, "original">, { maxDimension: number
 };
 
 export async function processMedia(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
-  if (job.purpose === "voice") return processVoice(job, input, directory, context);
-  if (job.purpose === "video-note") return processVideoNote(job, input, directory, context);
-  if (job.profile === "original") return processOriginal(job, input, directory, context);
-  if (job.kind === "image") return processImage(job, input, directory);
-  if (job.kind === "video") return processVideo(job, input, directory, context);
-  if (job.kind === "audio") return processAudio(job, input, directory, context);
-  return [];
+  if (job.kind === "image") {
+    const metadata = await sharp(input, { failOn: "warning", limitInputPixels: MEDIA_LIMITS.maxImagePixels }).metadata();
+    const rotated = metadata.orientation !== undefined && metadata.orientation >= 5 && metadata.orientation <= 8;
+    validateSourceMetadata(job, { width: rotated ? metadata.height ?? null : metadata.width ?? null, height: rotated ? metadata.width ?? null : metadata.height ?? null, durationMs: null });
+  } else {
+    validateSourceMetadata(job, await probe(input, context));
+  }
+  const outputs = job.purpose === "voice" ? await processVoice(job, input, directory, context)
+    : job.purpose === "video-note" ? await processVideoNote(job, input, directory, context)
+      : job.profile === "original" ? await processOriginal(job, input, directory, context)
+        : job.kind === "image" ? await processImage(job, input, directory)
+          : job.kind === "video" ? await processVideo(job, input, directory, context)
+            : job.kind === "audio" ? await processAudio(job, input, directory, context)
+              : [];
+  validateOutputVariants(job, outputs);
+  return outputs;
 }
 
 async function processOriginal(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
   if (job.kind === "image") {
-    const metadata = await sharp(input, { limitInputPixels: 100_000_000 }).metadata();
+    const metadata = await sharp(input, { limitInputPixels: MEDIA_LIMITS.maxImagePixels }).metadata();
     const rotated = metadata.orientation !== undefined && metadata.orientation >= 5 && metadata.orientation <= 8;
     const thumbnail = path.join(directory, "thumbnail.webp");
-    const thumbMeta = await sharp(input, { failOn: "warning", limitInputPixels: 100_000_000 }).rotate().resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 72 }).toFile(thumbnail);
+    const thumbMeta = await sharp(input, { failOn: "warning", limitInputPixels: MEDIA_LIMITS.maxImagePixels }).rotate().resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 72 }).toFile(thumbnail);
     return [variant("primary", "original", input, job.originalMimeType, rotated ? metadata.height : metadata.width, rotated ? metadata.width : metadata.height), variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", thumbMeta.width, thumbMeta.height)];
   }
   const metadata = await probe(input, context);
@@ -49,8 +59,8 @@ async function processImage(job: MediaJob, input: string, directory: string): Pr
   const profile = imageProfiles[job.profile === "original" ? "high" : job.profile];
   const primary = path.join(directory, "primary.webp"); const thumbnail = path.join(directory, "thumbnail.webp");
   // rotate() honors EXIF orientation; omitting withMetadata() strips EXIF/IPTC/XMP and location data.
-  const mainMeta = await sharp(input, { failOn: "warning", limitInputPixels: 100_000_000 }).rotate().resize({ width: profile.size, height: profile.size, fit: "inside", withoutEnlargement: true }).webp({ quality: profile.quality, effort: 4 }).toFile(primary);
-  const thumbMeta = await sharp(input, { failOn: "warning", limitInputPixels: 100_000_000 }).rotate().resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 72, effort: 4 }).toFile(thumbnail);
+  const mainMeta = await sharp(input, { failOn: "warning", limitInputPixels: MEDIA_LIMITS.maxImagePixels }).rotate().resize({ width: profile.size, height: profile.size, fit: "inside", withoutEnlargement: true }).webp({ quality: profile.quality, effort: 4 }).toFile(primary);
+  const thumbMeta = await sharp(input, { failOn: "warning", limitInputPixels: MEDIA_LIMITS.maxImagePixels }).rotate().resize({ width: 320, height: 320, fit: "inside", withoutEnlargement: true }).webp({ quality: 72, effort: 4 }).toFile(thumbnail);
   return [variant("primary", job.profile, primary, "image/webp", mainMeta.width, mainMeta.height), variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", thumbMeta.width, thumbMeta.height)];
 }
 
