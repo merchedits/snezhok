@@ -153,6 +153,8 @@ export interface Message {
   editedAt: Timestamp | null;
   deletedAt: Timestamp | null;
   pinnedAt: Timestamp | null;
+  /** True when at least one other visible recipient has advanced past this message. */
+  readByOthers?: boolean;
   pending?: boolean;
   failed?: boolean;
 }

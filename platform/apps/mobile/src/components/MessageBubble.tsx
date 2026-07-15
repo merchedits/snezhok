@@ -10,6 +10,7 @@ import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import { messageMediaSize } from "../lib/mediaLayout";
+import { mediaAlbumRows } from "../lib/mediaAlbums";
 import { Avatar } from "./Avatar";
 import { ImageViewer } from "./ImageViewer";
 import { VideoViewer } from "./VideoViewer";
@@ -139,8 +140,31 @@ function MessageContent({ message, mine, showSender, showTime, interactionDisabl
   const palette = usePalette();
   const { t } = useTranslation();
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  const mediaAttachments = attachments.filter((attachment) => attachment.kind === "image" || attachment.kind === "video");
+  const otherAttachments = mediaAttachments.length > 1 ? attachments.filter((attachment) => attachment.kind !== "image" && attachment.kind !== "video") : attachments;
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
-  return <View pointerEvents={interactionDisabled ? "none" : "auto"}>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}{attachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.pinnedAt ? <View style={styles.pinned}><AppIcon name="pin" size={10} color={palette.accent} /><Text style={[styles.edited, { color: palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : "checkmark-done"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}</View>;
+  return <View pointerEvents={interactionDisabled ? "none" : "auto"}>{showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent }]}>{message.sender.displayName}</Text> : null}{message.replyTo ? <View style={[styles.reply, { borderColor: palette.accent }]}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{message.replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{message.replyTo.text}</Text></View> : null}{message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}{mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}{otherAttachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}{message.text ? <Text style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}{showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? <View style={[styles.meta, !showTime && styles.channelMeta]}>{message.pinnedAt ? <View style={styles.pinned}><AppIcon name="pin" size={10} color={palette.accent} /><Text style={[styles.edited, { color: palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}{message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}{showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}{mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}</View> : null}{reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}</View>;
+}
+
+function MediaAlbum({ attachments }: { attachments: Attachment[] }) {
+  const rows = mediaAlbumRows(attachments);
+  const rowHeight = rows.length === 1 ? 178 : rows.length === 2 ? 126 : 94;
+  return <View style={styles.album}>{rows.map((row, rowIndex) => <View key={`${rowIndex}-${row[0]?.id}`} style={[styles.albumRow, { height: rowHeight }]}>{row.map((attachment) => <AlbumMediaTile key={attachment.id} attachment={attachment} />)}</View>)}</View>;
+}
+
+function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
+  const [open, setOpen] = useState(false);
+  const source = useAuthorizedMedia(attachment.url);
+  const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
+  return <>
+    <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={styles.albumTile}>
+      <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={StyleSheet.absoluteFill} />
+      {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
+    </Pressable>
+    {attachment.kind === "video"
+      ? <VideoViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={() => setOpen(false)} />
+      : <ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} />}
+  </>;
 }
 
 function AttachmentView({ attachment }: { attachment: Attachment }) {
@@ -159,10 +183,11 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [open, setOpen] = useState(false);
+  const [decodedSize, setDecodedSize] = useState<{ width: number; height: number } | null>(null);
   const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
-  const size = messageMediaSize(attachment.width, attachment.height);
-  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={[styles.photo, size]} /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
+  const size = decodedSize ?? messageMediaSize(attachment.width, attachment.height);
+  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} onLoad={({ source: loaded }) => setDecodedSize(messageMediaSize(loaded.width, loaded.height))} style={[styles.photo, size]} /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
@@ -219,6 +244,11 @@ const styles = StyleSheet.create({
   time: { fontSize: 10 },
   edited: { fontSize: 10 },
   photo: { borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
+  album: { width: 250, gap: 2, marginBottom: 5, borderRadius: 11, overflow: "hidden" },
+  albumRow: { flexDirection: "row", gap: 2 },
+  albumTile: { flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: "#202329" },
+  albumPlay: { position: "absolute", left: "50%", top: "50%", width: 36, height: 36, marginLeft: -18, marginTop: -18, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
+  albumDuration: { position: "absolute", right: 5, bottom: 5, minWidth: 30, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
   video: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
   videoPreview: { marginBottom: 5, borderRadius: 11, overflow: "hidden", backgroundColor: "#202329" },
   videoPlaceholder: { backgroundColor: "#202329" },

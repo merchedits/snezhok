@@ -53,7 +53,7 @@ interface AppState {
   markStreamRead: (streamId: string, sequence: number) => Promise<void>;
   loadPinnedMessages: (streamId: string) => Promise<void>;
   uploadAttachment: (input: UploadInput) => Promise<Attachment>;
-  sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">) => Promise<void>;
+  sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId">, optimisticAttachments?: Attachment[]) => Promise<void>;
   forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
   toggleReaction: (message: Message, emoji: string) => Promise<void>;
   deleteMessage: (message: Message, scope: "me" | "everyone") => Promise<void>;
@@ -61,6 +61,7 @@ interface AppState {
   retryOutbox: () => Promise<void>;
   applyMessage: (message: Message) => void;
   applyMessageDeleted: (payload: { id: string; streamId: string; deletedAt: number }) => void;
+  applyReadReceipt: (payload: { streamId: string; userId: string; sequence: number }) => void;
   applyConversation: (conversation: ConversationSummary) => void;
   deleteConversation: (conversationId: string) => Promise<void>;
   removeConversation: (conversationId: string) => void;
@@ -341,7 +342,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  sendMessage: async (streamId, partial) => {
+  sendMessage: async (streamId, partial, optimisticAttachments = []) => {
     const me = get().me;
     if (!me) throw new Error("No active session");
     const clientId = Crypto.randomUUID();
@@ -358,12 +359,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       text: input.text,
       replyTo: null,
       forwardedFrom: null,
-      attachments: [],
+      attachments: optimisticAttachments,
       reactions: [],
       createdAt: Date.now(),
       editedAt: null,
       deletedAt: null,
       pinnedAt: null,
+      readByOthers: false,
       pending: true,
       failed: false,
     };
@@ -405,7 +407,42 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   forwardMessage: async (messageId, targetStreamId) => {
     if (!get().online) throw new Error("Forwarding requires a connection");
-    const saved = await api.forwardMessage(messageId, targetStreamId, Crypto.randomUUID());
+    const me = get().me;
+    const source = Object.values(get().messages).flat().find((message) => message.id === messageId);
+    if (!me || !source) throw new Error("Message is no longer available");
+    const clientId = Crypto.randomUUID();
+    const existing = get().messages[targetStreamId] ?? [];
+    const optimistic: Message = {
+      ...source,
+      id: clientId,
+      clientId,
+      streamId: targetStreamId,
+      streamKind: get().channels.some((channel) => channel.id === targetStreamId) ? "channel" : "conversation",
+      sequence: (existing.at(-1)?.sequence ?? 0) + 1,
+      sender: me,
+      forwardedFrom: { id: source.id, senderId: source.sender.id, senderName: source.sender.displayName, text: source.text, kind: source.kind, createdAt: source.createdAt },
+      reactions: [],
+      createdAt: Date.now(),
+      editedAt: null,
+      deletedAt: null,
+      pinnedAt: null,
+      readByOthers: false,
+      pending: true,
+      failed: false,
+    };
+    set((state) => ({
+      conversations: applyConversationPreview(state.conversations, optimistic),
+      messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [optimistic]) },
+    }));
+    schedulePersistence();
+    let saved: Message;
+    try {
+      saved = await api.forwardMessage(messageId, targetStreamId, clientId);
+    } catch (error) {
+      set((state) => ({ messages: { ...state.messages, [targetStreamId]: (state.messages[targetStreamId] ?? []).filter((message) => message.id !== clientId) } }));
+      schedulePersistence();
+      throw error;
+    }
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, saved),
       messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [saved]) },
@@ -417,39 +454,74 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleReaction: async (message, emoji) => {
     if (!get().online) throw new Error("Reactions require a connection");
     const active = !message.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
-    const saved = await api.setReaction(message.id, emoji, active);
+    const optimistic = { ...message, reactions: updateOptimisticReaction(message.reactions, emoji, active, get().me?.id) };
+    set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) } }));
+    schedulePersistence();
+    let saved: Message;
+    try {
+      saved = await api.setReaction(message.id, emoji, active);
+    } catch (error) {
+      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
+      schedulePersistence();
+      throw error;
+    }
     set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) } }));
     await persistState();
   },
 
   deleteMessage: async (message, scope) => {
     if (!get().online) throw new Error("Deleting messages requires a connection");
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [message.streamId]: scope === "me"
+          ? (state.messages[message.streamId] ?? []).filter((item) => item.id !== message.id)
+          : markMessageDeleted(state.messages[message.streamId] ?? [], message.id, Date.now()),
+      },
+    }));
+    schedulePersistence();
     if (scope === "me") {
-      await api.hideMessage(message.id);
-      set((state) => ({
-        messages: {
-          ...state.messages,
-          [message.streamId]: (state.messages[message.streamId] ?? []).filter((item) => item.id !== message.id),
-        },
-      }));
-      await persistState();
-      await get().refreshBootstrap();
+      try {
+        await api.hideMessage(message.id);
+      } catch (error) {
+        set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
+        schedulePersistence();
+        throw error;
+      }
+      void get().refreshBootstrap({ force: true, silent: true });
       return;
     }
-    const saved = await api.deleteMessage(message.id);
+    let saved: Message;
+    try {
+      saved = await api.deleteMessage(message.id);
+    } catch (error) {
+      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
+      schedulePersistence();
+      throw error;
+    }
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, saved),
       messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
     }));
-    await persistState();
+    schedulePersistence();
     // The server may reveal the previous message as the new conversation
     // preview after deleting the latest one.
-    await get().refreshBootstrap();
+    void get().refreshBootstrap({ force: true, silent: true });
   },
 
   setMessagePinned: async (message, pinned) => {
     if (!get().online) throw new Error("Pinning messages requires a connection");
-    const saved = await api.setMessagePinned(message.id, pinned);
+    const optimistic = { ...message, pinnedAt: pinned ? Date.now() : null };
+    set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) } }));
+    schedulePersistence();
+    let saved: Message;
+    try {
+      saved = await api.setMessagePinned(message.id, pinned);
+    } catch (error) {
+      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
+      schedulePersistence();
+      throw error;
+    }
     set((state) => ({
       messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
     }));
@@ -502,6 +574,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
     schedulePersistence();
     void get().refreshBootstrap({ force: true, silent: true });
+  },
+
+  applyReadReceipt: ({ streamId, userId, sequence }) => {
+    const me = get().me;
+    if (!me || userId === me.id) return;
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [streamId]: (state.messages[streamId] ?? []).map((message) => message.sender.id === me.id && message.sequence <= sequence && !message.readByOthers
+          ? { ...message, readByOthers: true }
+          : message),
+      },
+    }));
+    schedulePersistence();
   },
 
   applyConversation: (conversation) => {
@@ -569,3 +655,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     schedulePersistence();
   },
 }));
+
+function updateOptimisticReaction(reactions: Message["reactions"], emoji: string, active: boolean, userId: string | undefined): Message["reactions"] {
+  const existing = reactions.find((reaction) => reaction.emoji === emoji);
+  if (active) {
+    if (!existing) return [...reactions, { emoji, count: 1, reacted: true, userIds: userId ? [userId] : [] }];
+    return reactions.map((reaction) => reaction.emoji === emoji ? {
+      ...reaction,
+      count: reaction.reacted ? reaction.count : reaction.count + 1,
+      reacted: true,
+      userIds: userId && !reaction.userIds.includes(userId) ? [...reaction.userIds, userId] : reaction.userIds,
+    } : reaction);
+  }
+  if (!existing) return reactions;
+  if (existing.count <= 1) return reactions.filter((reaction) => reaction.emoji !== emoji);
+  return reactions.map((reaction) => reaction.emoji === emoji ? {
+    ...reaction,
+    count: reaction.reacted ? Math.max(0, reaction.count - 1) : reaction.count,
+    reacted: false,
+    userIds: userId ? reaction.userIds.filter((id) => id !== userId) : reaction.userIds,
+  } : reaction);
+}

@@ -19,6 +19,7 @@ type RealtimeSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export function useRealtime(enabled: boolean): void {
   const applyMessage = useAppStore((state) => state.applyMessage);
   const applyMessageDeleted = useAppStore((state) => state.applyMessageDeleted);
+  const applyReadReceipt = useAppStore((state) => state.applyReadReceipt);
   const applyConversation = useAppStore((state) => state.applyConversation);
   const removeConversation = useAppStore((state) => state.removeConversation);
   const applyPresence = useAppStore((state) => state.applyPresence);
@@ -60,6 +61,7 @@ export function useRealtime(enabled: boolean): void {
         void handleCallUpdate(payload).catch((error) => console.warn("Call notification failed", error));
       });
       socket.on("message:deleted", applyMessageDeleted);
+      socket.on("read:updated", applyReadReceipt);
       socket.on("conversation:updated", applyConversation);
       socket.on("conversation:removed", ({ id }) => removeConversation(id));
       socket.on("channel:updated", () => void refreshBootstrap({ force: true, silent: true }));
@@ -77,5 +79,5 @@ export function useRealtime(enabled: boolean): void {
       notificationResponse.remove();
       socket?.disconnect();
     };
-  }, [applyConversation, applyMessage, applyMessageDeleted, applyPresence, enabled, refreshBootstrap, removeConversation, setEventCursor]);
+  }, [applyConversation, applyMessage, applyMessageDeleted, applyPresence, applyReadReceipt, enabled, refreshBootstrap, removeConversation, setEventCursor]);
 }

@@ -9,7 +9,7 @@ import { ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Platform, 
 import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { AppSettings, Message, UploadQuality } from "@snezhok/contracts";
+import type { AppSettings, Attachment, Message, UploadQuality } from "@snezhok/contracts";
 
 import { AttachmentSheet } from "../components/AttachmentSheet";
 import { useAppDialog } from "../components/AppDialogProvider";
@@ -22,6 +22,7 @@ import { SwipeReplyRow } from "../components/SwipeReplyRow";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { composerBottomPadding } from "../lib/keyboardLayout";
+import { chunkMediaMessages } from "../lib/mediaAlbums";
 import { selectedMessageText } from "../lib/messageSelection";
 import { dismissMessageNotifications } from "../notifications/androidNotifications";
 import { appendRecordingLevel, recordingSourceForMicrophone, routeThroughEarpieceForMicrophone } from "../lib/recordingWaveform";
@@ -69,6 +70,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [attachmentSheet, setAttachmentSheet] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadBatch, setUploadBatch] = useState<{ completed: number; total: number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [forwardPicker, setForwardPicker] = useState(false);
   const [forwarding, setForwarding] = useState(false);
@@ -139,21 +141,41 @@ export function ChatScreen({ navigation, route }: Props) {
     void Haptics.selectionAsync().catch(() => undefined);
   };
 
-  const handleUpload = useCallback(async (input: UploadInput, messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
+  const handleUploads = useCallback(async (inputs: UploadInput[], messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
+    if (!inputs.length) return;
     if (!online) return showDialog(t("offline"), t("attachmentOnline"));
     setUploading(true);
+    setUploadBatch({ completed: 0, total: inputs.length });
     try {
-      const attachment = await uploadAttachment(input);
+      const attachments: Attachment[] = [];
+      for (let index = 0; index < inputs.length; index += 1) {
+        setUploadBatch({ completed: index, total: inputs.length });
+        attachments.push(await uploadAttachment(inputs[index]!));
+      }
       const replyToId = replyingTo?.id ?? null;
       setReplyingTo(null);
-      await sendMessage(streamId, { text: "", kind: messageKind, replyToId, attachmentIds: [attachment.id] });
+      const groups = messageKind === "media" ? chunkMediaMessages(attachments) : [attachments];
+      for (let index = 0; index < groups.length; index += 1) {
+        const group = groups[index]!;
+        await sendMessage(streamId, {
+          text: "",
+          kind: messageKind,
+          replyToId: index === 0 ? replyToId : null,
+          attachmentIds: group.map((attachment) => attachment.id),
+        }, group);
+      }
       setAttachmentSheet(false);
     } catch (error) {
       showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
     } finally {
       setUploading(false);
+      setUploadBatch(null);
     }
   }, [online, replyingTo?.id, sendMessage, streamId, t, uploadAttachment]);
+
+  const handleUpload = useCallback(async (input: UploadInput, messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
+    await handleUploads([input], messageKind);
+  }, [handleUploads]);
 
   const beginRecording = async () => {
     if (!online) return showDialog(t("offline"), t("voiceOnline"));
@@ -178,11 +200,12 @@ export function ChatScreen({ navigation, route }: Props) {
   const emptyState = useMemo(() => <View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>, [palette.secondaryText, palette.text, t, title]);
 
   const performForward = useCallback(async (targetStreamId: string) => {
+    const messagesToForward = selectedMessages;
+    setForwardPicker(false);
+    setSelectedIds(new Set());
     setForwarding(true);
     try {
-      for (const message of selectedMessages) await forwardMessage(message.id, targetStreamId);
-      setForwardPicker(false);
-      setSelectedIds(new Set());
+      await Promise.all(messagesToForward.map((message) => forwardMessage(message.id, targetStreamId)));
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     } catch {
       showDialog(t("requestFailed"), t("tryAgain"));
@@ -201,9 +224,10 @@ export function ChatScreen({ navigation, route }: Props) {
 
   const confirmDeleteSelected = () => {
     const remove = async (scope: "me" | "everyone") => {
+      const messagesToDelete = selectedMessages;
+      setSelectedIds(new Set());
       try {
-        for (const message of selectedMessages) await deleteMessage(message, scope);
-        setSelectedIds(new Set());
+        await Promise.all(messagesToDelete.map((message) => deleteMessage(message, scope)));
       } catch (error) {
         showDialog(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"));
       }
@@ -223,9 +247,9 @@ export function ChatScreen({ navigation, route }: Props) {
     const eligible = selectedMessages.filter((message) => !message.pending && !message.failed);
     if (!eligible.length) return;
     const pinned = !eligible.every((message) => Boolean(message.pinnedAt));
+    setSelectedIds(new Set());
     try {
-      for (const message of eligible) await setMessagePinned(message, pinned);
-      setSelectedIds(new Set());
+      await Promise.all(eligible.map((message) => setMessagePinned(message, pinned)));
     } catch (error) {
       showDialog(t("requestFailed"), error instanceof Error ? error.message : t("tryAgain"));
     }
@@ -233,8 +257,8 @@ export function ChatScreen({ navigation, route }: Props) {
 
   const copySelected = async () => {
     if (!clipboardText) return;
-    await Clipboard.setStringAsync(clipboardText);
     setSelectedIds(new Set());
+    await Clipboard.setStringAsync(clipboardText);
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
   };
 
@@ -271,7 +295,7 @@ export function ChatScreen({ navigation, route }: Props) {
           {uploading ? <View style={styles.composerButton}><ActivityIndicator color={palette.accent} /></View> : text.trim() ? <Pressable onPress={() => void sendText()} style={[styles.send, { backgroundColor: palette.accent }]} accessibilityLabel={t("sendMessage")}><AppIcon name="arrow-up" size={21} color="white" strokeWidth={2} /></Pressable> : recorderMounted ? <VoiceRecorderControl quality={uploadQuality} microphoneMode={microphoneMode} onRecordingChange={setRecording} onMetering={(metering, durationMillis) => { setRecordingLevels((levels) => appendRecordingLevel(levels, metering)); setRecordingDuration(durationMillis); }} onCancel={() => { setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); }} onComplete={async (input) => { setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); await handleUpload(input, "voice"); }} /> : <Pressable onPress={() => { setRecordingLevels([]); setRecordingDuration(0); void beginRecording(); }} style={[styles.send, { backgroundColor: palette.accent }]} accessibilityLabel={t("recordVoice")}><AppIcon name="mic" size={20} color="white" /></Pressable>}
         </View>
       </>}
-      <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadProgress} onClose={closeAttachmentSheet} onSelect={handleUpload} />
+      <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadBatch && uploadProgress !== null ? Math.round(((uploadBatch.completed + uploadProgress / 100) / uploadBatch.total) * 100) : uploadProgress} onClose={closeAttachmentSheet} onSelect={handleUploads} />
       <ReactionPicker visible={Boolean(reactionTarget)} anchorY={reactionTarget?.anchorY ?? 0} activeEmojis={activeReactionEmojis} onClose={() => setReactionTarget(null)} onSelect={selectReaction} />
       <ForwardPickerModal
         visible={forwardPicker}

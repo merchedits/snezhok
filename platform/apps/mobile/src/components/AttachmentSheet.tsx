@@ -16,7 +16,7 @@ interface AttachmentSheetProps {
   busy: boolean;
   progress?: number | null;
   onClose: () => void;
-  onSelect: (input: UploadInput, messageKind?: "media" | "file" | "video-note") => Promise<void>;
+  onSelect: (inputs: UploadInput[], messageKind?: "media" | "file" | "video-note") => Promise<void>;
 }
 
 type RecentAsset = MediaLibrary.AssetMetadata;
@@ -35,7 +35,8 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [assets, setAssets] = useState<RecentAsset[]>(recentAssetCache);
   const [loading, setLoading] = useState(false);
-  const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [resolving, setResolving] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [quality, setQuality] = useState<"auto" | "high">("auto");
 
@@ -65,7 +66,8 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     if (!visible) return;
     setShowMore(false);
     setQuality("auto");
-    setResolvingId(null);
+    setSelectedIds([]);
+    setResolving(false);
     void refreshAssets();
   }, [refreshAssets, visible]);
 
@@ -73,7 +75,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     const result = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
     const asset = result.assets?.[0];
     if (!asset) return;
-    await onSelect({
+    await onSelect([{
       uri: asset.uri,
       filename: asset.name,
       mimeType: asset.mimeType ?? "application/octet-stream",
@@ -81,30 +83,31 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
       quality: "original",
       purpose: "standard",
       stripLocation: false,
-    }, "file");
+    }], "file");
   }, [onSelect]);
 
-  const selectRecentAsset = useCallback(async (asset: RecentAsset) => {
-    if (busy || resolvingId) return;
-    setResolvingId(asset.id);
+  const toggleRecentAsset = useCallback((asset: RecentAsset) => {
+    if (busy || resolving) return;
+    setSelectedIds((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id]);
+  }, [busy, resolving]);
+
+  const sendSelection = useCallback(async () => {
+    if (!selectedIds.length || busy || resolving) return;
+    const selected = selectedIds.map((id) => assets.find((asset) => asset.id === id)).filter((asset): asset is RecentAsset => Boolean(asset));
+    setResolving(true);
     try {
-      const info = await new MediaLibrary.Asset(asset.id).getInfo();
-      const filename = info.filename || asset.filename || `media-${Date.now()}`;
-      const video = info.mediaType === MediaLibrary.MediaType.VIDEO;
-      await onSelect({
-        uri: info.uri,
-        filename,
-        mimeType: mimeTypeFor(filename, video),
-        kind: video ? "video" : "image",
-        quality,
-        purpose: "standard",
-      }, "media");
+      const infos = await Promise.all(selected.map(async (asset) => ({ asset, info: await new MediaLibrary.Asset(asset.id).getInfo() })));
+      await onSelect(infos.map(({ asset, info }) => {
+        const filename = info.filename || asset.filename || `media-${Date.now()}`;
+        const video = info.mediaType === MediaLibrary.MediaType.VIDEO;
+        return { uri: info.uri, filename, mimeType: mimeTypeFor(filename, video), kind: video ? "video" : "image", quality, purpose: "standard" };
+      }), "media");
     } catch (error) {
       showDialog(t("uploadFailed"), error instanceof Error ? error.message : t("tryAgain"));
     } finally {
-      setResolvingId(null);
+      setResolving(false);
     }
-  }, [busy, onSelect, quality, resolvingId, showDialog, t]);
+  }, [assets, busy, onSelect, quality, resolving, selectedIds, showDialog, t]);
 
   const items = useMemo<DrawerItem[]>(() => [UPLOAD_ITEM, ...assets.map((asset) => ({ type: "asset" as const, id: asset.id, asset }))], [assets]);
   const tileSize = Math.floor((screenWidth - 4) / 3);
@@ -127,21 +130,23 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
       );
     }
     const video = item.asset.mediaType === MediaLibrary.MediaType.VIDEO;
-    const pending = resolvingId === item.id;
+    const selectionIndex = selectedIds.indexOf(item.id);
+    const selected = selectionIndex >= 0;
     return (
       <Pressable
         accessibilityLabel={item.asset.filename ?? t(video ? "videoMessage" : "photoVideo")}
         accessibilityRole="button"
-        disabled={busy || Boolean(resolvingId)}
-        onPress={() => void selectRecentAsset(item.asset)}
-        style={({ pressed }) => [styles.assetTile, { width: tileSize, height: tileSize, opacity: pressed ? 0.72 : 1 }]}
+        disabled={busy || resolving}
+        onPress={() => toggleRecentAsset(item.asset)}
+        style={({ pressed }) => [styles.assetTile, { width: tileSize, height: tileSize, opacity: pressed ? 0.72 : 1, borderColor: selected ? palette.accent : "transparent" }]}
       >
         <Image cachePolicy="memory-disk" contentFit="cover" recyclingKey={item.id} source={{ uri: item.id }} style={StyleSheet.absoluteFill} transition={0} />
         {video ? <View style={styles.videoBadge}><AppIcon name="play" size={11} color="white" strokeWidth={2.3} /><Text style={styles.videoDuration}>{formatDuration(item.asset.duration)}</Text></View> : null}
-        {pending ? <View style={styles.assetPending}><ActivityIndicator color="white" /></View> : null}
+        {selected ? <View style={[styles.selectionBadge, { backgroundColor: palette.accent }]}><Text style={styles.selectionNumber}>{selectionIndex + 1}</Text></View> : null}
+        {resolving && selected ? <View style={styles.assetPending}><ActivityIndicator color="white" /></View> : null}
       </Pressable>
     );
-  }, [busy, palette.accent, palette.accentSoft, palette.surface, palette.text, pickOriginalFile, resolvingId, selectRecentAsset, t, tileSize]);
+  }, [busy, palette.accent, palette.accentSoft, palette.surface, palette.text, pickOriginalFile, resolving, selectedIds, t, tileSize, toggleRecentAsset]);
 
   return (
     <Modal transparent visible={visible} animationType="slide" navigationBarTranslucent={false} onRequestClose={busy ? undefined : onClose}>
@@ -165,6 +170,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
             </Pressable>
           </View> : null}
           <FlatList
+            style={styles.gridList}
             data={items}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
@@ -178,6 +184,11 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
             contentContainerStyle={styles.grid}
             ListFooterComponent={loading ? <View style={[styles.loading, { width: screenWidth }]}><ActivityIndicator color={palette.accent} /></View> : null}
           />
+          {selectedIds.length ? <View style={[styles.sendBar, { borderTopColor: palette.border, backgroundColor: palette.elevated }]}>
+            <Pressable disabled={busy || resolving} onPress={() => void sendSelection()} style={({ pressed }) => [styles.sendButton, { backgroundColor: palette.accent, opacity: pressed || resolving ? 0.72 : 1 }]}>
+              {resolving ? <ActivityIndicator color="white" /> : <><Text style={styles.sendText}>{t("sendSelected")}</Text><View style={styles.sendCount}><Text style={styles.sendCountText}>{selectedIds.length}</Text></View></>}
+            </Pressable>
+          </View> : null}
           {busy ? <View style={[styles.busy, { backgroundColor: palette.elevated }]}>
             {progress === null ? <ActivityIndicator color={palette.accent} /> : <CircularProgress progress={visibleProgress} activeColor={palette.accent} inactiveColor={palette.border} textColor={palette.text} />}
             <Text style={[styles.busyText, { color: palette.secondaryText }]}>{progress === null ? t("preparingUpload") : t("uploadingProgress", { progress: visibleProgress })}</Text>
@@ -236,19 +247,27 @@ const styles = StyleSheet.create({
   title: { flex: 1, marginTop: 5, fontSize: 18, fontWeight: "800" },
   moreButton: { width: 40, height: 40, marginTop: 5, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   grid: { paddingTop: 1 },
+  gridList: { flex: 1 },
   gridRow: { gap: 2 },
   uploadTile: { marginBottom: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, gap: 8 },
   uploadIcon: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   uploadLabel: { textAlign: "center", fontSize: 13, lineHeight: 16, fontWeight: "700" },
-  assetTile: { marginBottom: 2, overflow: "hidden", backgroundColor: "#11151a" },
+  assetTile: { marginBottom: 2, overflow: "hidden", borderWidth: 2, backgroundColor: "#11151a" },
   videoBadge: { position: "absolute", left: 6, bottom: 5, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 5, height: 20, borderRadius: 10, backgroundColor: "rgba(0,0,0,0.62)" },
   videoDuration: { color: "white", fontSize: 10, fontWeight: "800", fontVariant: ["tabular-nums"] },
   assetPending: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.42)" },
+  selectionBadge: { position: "absolute", top: 6, right: 6, minWidth: 24, height: 24, paddingHorizontal: 5, borderRadius: 12, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "white" },
+  selectionNumber: { color: "white", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
   loading: { height: 52, alignItems: "center", justifyContent: "center" },
   qualityMenu: { marginHorizontal: 10, marginBottom: 8, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   qualityAction: { minHeight: 48, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 10 },
   qualityLabel: { flex: 1, fontSize: 14, fontWeight: "600" },
   qualityDivider: { height: StyleSheet.hairlineWidth, marginLeft: 43 },
+  sendBar: { minHeight: 64, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 8 },
+  sendButton: { height: 46, borderRadius: 23, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
+  sendText: { color: "white", fontSize: 15, fontWeight: "800" },
+  sendCount: { minWidth: 24, height: 24, paddingHorizontal: 6, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
+  sendCountText: { color: "white", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
   busy: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 76, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 18, gap: 12, opacity: 0.96 },
   busyText: { fontSize: 13 },
   progressLabel: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" },
