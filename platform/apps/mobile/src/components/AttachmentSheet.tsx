@@ -3,7 +3,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
 import * as MediaLibrary from "expo-media-library";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Animated, FlatList, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
@@ -39,8 +39,10 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [resolving, setResolving] = useState(false);
   const resolvingRef = useRef(false);
-  const [showMore, setShowMore] = useState(false);
   const [quality, setQuality] = useState<"auto" | "high">("auto");
+  const [qualityNotice, setQualityNotice] = useState<string | null>(null);
+  const noticeOpacity = useRef(new Animated.Value(0)).current;
+  const noticeAnimationRef = useRef<ReturnType<typeof Animated.sequence> | null>(null);
 
   const refreshAssets = useCallback(async () => {
     setLoading(true);
@@ -66,13 +68,35 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
 
   useEffect(() => {
     if (!visible) return;
-    setShowMore(false);
     setQuality("auto");
+    noticeAnimationRef.current?.stop();
+    noticeOpacity.setValue(0);
+    setQualityNotice(null);
     setSelectedIds([]);
     setResolving(false);
     resolvingRef.current = false;
     void refreshAssets();
-  }, [refreshAssets, visible]);
+  }, [noticeOpacity, refreshAssets, visible]);
+
+  useEffect(() => () => noticeAnimationRef.current?.stop(), []);
+
+  const toggleHighQuality = useCallback(() => {
+    if (busy || resolving) return;
+    const nextQuality = quality === "high" ? "auto" : "high";
+    setQuality(nextQuality);
+    setQualityNotice(t(nextQuality === "high" ? "hqEnabled" : "hqDisabled"));
+    noticeAnimationRef.current?.stop();
+    noticeOpacity.setValue(0);
+    const animation = Animated.sequence([
+      Animated.timing(noticeOpacity, { toValue: 1, duration: 130, useNativeDriver: true }),
+      Animated.delay(1_250),
+      Animated.timing(noticeOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+    ]);
+    noticeAnimationRef.current = animation;
+    animation.start(({ finished }) => {
+      if (finished) setQualityNotice(null);
+    });
+  }, [busy, noticeOpacity, quality, resolving, t]);
 
   const pickOriginalFile = useCallback(async () => {
     if (resolvingRef.current) return;
@@ -166,20 +190,25 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
         <View style={[styles.sheet, { height: sheetHeight, backgroundColor: palette.elevated, paddingBottom: Math.max(insets.bottom, 8) }]}>
           <View style={styles.header}>
             <View style={[styles.handle, { backgroundColor: palette.faintText }]} />
-            <Text style={[styles.title, { color: palette.text }]}>{quality === "high" ? `${t("recentMedia")} · HQ` : t("recentMedia")}</Text>
-            <Pressable accessibilityLabel={t("moreSendingOptions")} accessibilityRole="button" disabled={busy} onPress={() => setShowMore((value) => !value)} style={({ pressed }) => [styles.moreButton, { backgroundColor: pressed || showMore ? palette.surface : "transparent" }]}>
-              <AppIcon name="ellipsis-horizontal" size={22} color={palette.secondaryText} />
+            <Text style={[styles.title, { color: palette.text }]}>{t("recentMedia")}</Text>
+            <Pressable
+              accessibilityLabel={t(quality === "high" ? "disableHighQuality" : "enableHighQuality")}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: quality === "high" }}
+              disabled={busy || resolving}
+              onPress={toggleHighQuality}
+              style={({ pressed }) => [
+                styles.hqButton,
+                {
+                  backgroundColor: quality === "high" ? palette.accent : palette.surface,
+                  borderColor: quality === "high" ? palette.accent : palette.border,
+                  opacity: pressed ? 0.68 : busy || resolving ? 0.5 : 1,
+                },
+              ]}
+            >
+              <Text style={[styles.hqButtonText, { color: quality === "high" ? "white" : palette.secondaryText }]}>HQ</Text>
             </Pressable>
           </View>
-          {showMore ? <View style={[styles.qualityMenu, { borderColor: palette.border, backgroundColor: palette.surface }]}>
-            <Pressable onPress={() => { setQuality("high"); setShowMore(false); }} style={({ pressed }) => [styles.qualityAction, { opacity: pressed ? 0.55 : 1 }]}>
-              <AppIcon name="sparkles-outline" size={20} color={palette.accent} /><Text style={[styles.qualityLabel, { color: palette.text }]}>{t("sendAsHighQuality")}</Text>{quality === "high" ? <AppIcon name="checkmark" size={19} color={palette.accent} /> : null}
-            </Pressable>
-            <View style={[styles.qualityDivider, { backgroundColor: palette.border }]} />
-            <Pressable onPress={() => void pickOriginalFile()} style={({ pressed }) => [styles.qualityAction, { opacity: pressed ? 0.55 : 1 }]}>
-              <AppIcon name="document-outline" size={20} color={palette.accent} /><Text style={[styles.qualityLabel, { color: palette.text }]}>{t("sendAsOriginalFile")}</Text>
-            </Pressable>
-          </View> : null}
           <FlatList
             style={styles.gridList}
             data={items}
@@ -200,6 +229,20 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
               {resolving ? <ActivityIndicator color="white" /> : <><Text style={styles.sendText}>{t("sendSelected")}</Text><View style={styles.sendCount}><Text style={styles.sendCountText}>{selectedIds.length}</Text></View></>}
             </Pressable>
           </View> : null}
+          {qualityNotice ? <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.qualityToast,
+              {
+                backgroundColor: palette.text,
+                bottom: selectedIds.length ? 78 : 18,
+                opacity: noticeOpacity,
+                transform: [{ translateY: noticeOpacity.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }],
+              },
+            ]}
+          >
+            <Text style={[styles.qualityToastText, { color: palette.elevated }]}>{qualityNotice}</Text>
+          </Animated.View> : null}
           {busy ? <View style={[styles.busy, { backgroundColor: palette.elevated }]}>
             {progress === null ? <ActivityIndicator color={palette.accent} /> : <CircularProgress progress={visibleProgress} activeColor={palette.accent} inactiveColor={palette.border} textColor={palette.text} />}
             <Text style={[styles.busyText, { color: palette.secondaryText }]}>{progress === null ? t("preparingUpload") : t("uploadingProgress", { progress: visibleProgress })}</Text>
@@ -256,7 +299,8 @@ const styles = StyleSheet.create({
   header: { height: 57, flexDirection: "row", alignItems: "center", paddingHorizontal: 14 },
   handle: { position: "absolute", width: 36, height: 4, borderRadius: 2, top: 7, left: "50%", marginLeft: -18, opacity: 0.5 },
   title: { flex: 1, marginTop: 5, fontSize: 18, fontWeight: "800" },
-  moreButton: { width: 40, height: 40, marginTop: 5, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  hqButton: { minWidth: 50, height: 32, marginTop: 5, paddingHorizontal: 13, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
+  hqButtonText: { fontSize: 13, fontWeight: "900", letterSpacing: 0.4 },
   grid: { paddingTop: 1 },
   gridList: { flex: 1 },
   gridRow: { gap: 2 },
@@ -270,10 +314,8 @@ const styles = StyleSheet.create({
   selectionBadge: { position: "absolute", top: 6, right: 6, minWidth: 24, height: 24, paddingHorizontal: 5, borderRadius: 12, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "white" },
   selectionNumber: { color: "white", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
   loading: { height: 52, alignItems: "center", justifyContent: "center" },
-  qualityMenu: { marginHorizontal: 10, marginBottom: 8, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
-  qualityAction: { minHeight: 48, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 10 },
-  qualityLabel: { flex: 1, fontSize: 14, fontWeight: "600" },
-  qualityDivider: { height: StyleSheet.hairlineWidth, marginLeft: 43 },
+  qualityToast: { position: "absolute", alignSelf: "center", maxWidth: "84%", minHeight: 38, paddingHorizontal: 16, borderRadius: 19, alignItems: "center", justifyContent: "center", elevation: 6 },
+  qualityToastText: { fontSize: 13, lineHeight: 17, fontWeight: "700", textAlign: "center" },
   sendBar: { minHeight: 64, borderTopWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingTop: 8 },
   sendButton: { height: 46, borderRadius: 23, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
   sendText: { color: "white", fontSize: 15, fontWeight: "800" },
