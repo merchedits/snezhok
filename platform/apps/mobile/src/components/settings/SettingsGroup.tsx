@@ -1,0 +1,210 @@
+import { Children, Fragment, type ReactNode } from "react";
+import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { usePalette } from "../../hooks/usePalette";
+import { AppIcon, type AppIconName } from "../AppIcon";
+
+export interface SettingsChoiceOption {
+  value: string;
+  label: string;
+  color?: string;
+}
+
+export function SettingsSection({ title, children, footer }: { title?: string; children: ReactNode; footer?: ReactNode }) {
+  const palette = usePalette();
+  return (
+    <View style={styles.section}>
+      {title ? <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{title}</Text> : null}
+      <View style={styles.cardStack}>{children}</View>
+      {footer ? <View style={styles.footer}>{typeof footer === "string" ? <Text style={[styles.footerText, { color: palette.secondaryText }]}>{footer}</Text> : footer}</View> : null}
+    </View>
+  );
+}
+
+export function SettingsCard({ children }: { children: ReactNode }) {
+  const palette = usePalette();
+  const rows = Children.toArray(children);
+  return (
+    <View style={[styles.card, { backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border }]}>
+      {rows.map((row, index) => (
+        <Fragment key={index}>
+          {row}
+          {index < rows.length - 1 ? <View style={[styles.divider, { backgroundColor: palette.border }]} /> : null}
+        </Fragment>
+      ))}
+    </View>
+  );
+}
+
+export function SettingsRow({
+  icon,
+  label,
+  detail,
+  value,
+  valueColor,
+  valueDot,
+  onPress,
+  disabled = false,
+}: {
+  icon: AppIconName;
+  label: string;
+  detail?: string | null;
+  value?: string | null;
+  valueColor?: string;
+  valueDot?: string;
+  onPress?: () => void;
+  disabled?: boolean;
+}) {
+  const palette = usePalette();
+  const content = (
+    <>
+      <View style={styles.iconSlot}><AppIcon name={icon} size={22} color={palette.accent} strokeWidth={1.9} /></View>
+      <View style={styles.copy}>
+        <Text numberOfLines={1} style={[styles.label, { color: palette.text }]}>{label}</Text>
+        {detail ? <Text numberOfLines={2} style={[styles.detail, { color: palette.secondaryText }]}>{detail}</Text> : null}
+      </View>
+      {valueDot ? <View style={[styles.valueDot, { backgroundColor: valueDot }]} /> : null}
+      {value ? <Text numberOfLines={1} style={[styles.value, { color: valueColor ?? palette.secondaryText }]}>{value}</Text> : null}
+    </>
+  );
+
+  if (!onPress) return <View style={[styles.row, disabled && styles.disabled]}>{content}</View>;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityValue={value ? { text: value } : undefined}
+      disabled={disabled}
+      onPress={onPress}
+      android_ripple={{ color: palette.accentSoft }}
+      style={({ pressed }) => [styles.row, disabled && styles.disabled, pressed && styles.pressed]}
+    >
+      {content}
+    </Pressable>
+  );
+}
+
+export function SettingsSwitchRow({ icon, label, value, onChange }: { icon: AppIconName; label: string; value: boolean; onChange: (value: boolean) => void }) {
+  const palette = usePalette();
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: value }}
+      onPress={() => onChange(!value)}
+      android_ripple={{ color: palette.accentSoft }}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    >
+      <View style={styles.iconSlot}><AppIcon name={icon} size={22} color={palette.accent} strokeWidth={1.9} /></View>
+      <Text numberOfLines={2} style={[styles.label, styles.switchLabel, { color: palette.text }]}>{label}</Text>
+      <View pointerEvents="none">
+        <Switch
+          value={value}
+          trackColor={{ false: palette.border, true: palette.accent }}
+          thumbColor="#ffffff"
+          ios_backgroundColor={palette.border}
+        />
+      </View>
+    </Pressable>
+  );
+}
+
+export function SettingsChoiceSheet({
+  visible,
+  title,
+  selected,
+  options,
+  cancelLabel,
+  reducedMotion = false,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  selected: string;
+  options: readonly SettingsChoiceOption[];
+  cancelLabel: string;
+  reducedMotion?: boolean;
+  onSelect: (value: string) => void;
+  onClose: () => void;
+}) {
+  const palette = usePalette();
+  const insets = useSafeAreaInsets();
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      statusBarTranslucent
+      navigationBarTranslucent
+      hardwareAccelerated
+      animationType={reducedMotion ? "none" : "slide"}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalLayer}>
+        <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]} />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 12), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border }]}>
+          <View style={[styles.grabber, { backgroundColor: palette.faintText }]} />
+          <Text style={[styles.sheetTitle, { color: palette.text }]}>{title}</Text>
+          <View style={styles.options}>
+            {options.map((option, index) => {
+              const active = option.value === selected;
+              return (
+                <Pressable
+                  key={option.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: active }}
+                  onPress={() => onSelect(option.value)}
+                  android_ripple={{ color: palette.accentSoft }}
+                  style={({ pressed }) => [
+                    styles.choice,
+                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {option.color ? <View style={[styles.choiceDot, { backgroundColor: option.color }]} /> : null}
+                  <Text style={[styles.choiceLabel, { color: active ? palette.accent : palette.text }]}>{option.label}</Text>
+                  {active ? <AppIcon name="checkmark" size={20} color={palette.accent} strokeWidth={2.2} /> : <View style={styles.checkPlaceholder} />}
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.cancel, { backgroundColor: palette.surface }, pressed && styles.pressed]}>
+            <Text style={[styles.cancelText, { color: palette.accent }]}>{cancelLabel}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  section: { gap: 8 },
+  sectionTitle: { marginLeft: 4, fontSize: 13, lineHeight: 17, fontWeight: "700" },
+  cardStack: { gap: 12 },
+  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, overflow: "hidden" },
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
+  row: { minHeight: 56, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 8 },
+  iconSlot: { width: 38, alignItems: "flex-start", justifyContent: "center" },
+  copy: { flex: 1, minWidth: 0, justifyContent: "center" },
+  label: { fontSize: 15, lineHeight: 20, fontWeight: "600" },
+  detail: { marginTop: 2, fontSize: 12, lineHeight: 16 },
+  value: { maxWidth: "43%", marginLeft: 12, fontSize: 14, lineHeight: 19, fontWeight: "500", textAlign: "right" },
+  valueDot: { width: 8, height: 8, borderRadius: 4, marginLeft: 10, marginRight: -6 },
+  switchLabel: { flex: 1, paddingRight: 12 },
+  footer: { paddingHorizontal: 6 },
+  footerText: { fontSize: 12, lineHeight: 17 },
+  disabled: { opacity: 0.52 },
+  pressed: { opacity: 0.62 },
+  modalLayer: { flex: 1, justifyContent: "flex-end" },
+  sheet: { maxHeight: "86%", borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 12, paddingTop: 8 },
+  grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", opacity: 0.55 },
+  sheetTitle: { paddingHorizontal: 10, paddingTop: 14, paddingBottom: 10, fontSize: 18, lineHeight: 23, fontWeight: "800" },
+  options: { overflow: "hidden", borderRadius: 14 },
+  choice: { minHeight: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: 14 },
+  choiceDot: { width: 10, height: 10, borderRadius: 5, marginRight: 11 },
+  choiceLabel: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "600" },
+  checkPlaceholder: { width: 20 },
+  cancel: { minHeight: 50, marginTop: 10, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  cancelText: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
+});

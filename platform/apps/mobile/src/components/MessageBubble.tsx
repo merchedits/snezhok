@@ -1,7 +1,5 @@
 import { AppIcon } from "./AppIcon";
-import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { Image } from "expo-image";
-import { useVideoPlayer, VideoView } from "expo-video";
 import { memo, useEffect, useRef, useState } from "react";
 import { type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
@@ -12,9 +10,10 @@ import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import { messageMediaSize } from "../lib/mediaLayout";
-import { voiceWaveformBars } from "../lib/voiceWaveform";
 import { Avatar } from "./Avatar";
 import { ImageViewer } from "./ImageViewer";
+import { VideoViewer } from "./VideoViewer";
+import { VoiceMessageAttachment } from "./VoiceMessageAttachment";
 
 interface MessageBubbleProps {
   message: Message;
@@ -148,7 +147,7 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
   const palette = usePalette();
   if (attachment.kind === "image") return <ImageAttachment attachment={attachment} />;
   if (attachment.kind === "video") return <InlineVideo attachment={attachment} />;
-  if (attachment.kind === "audio") return <VoiceAttachment attachment={attachment} />;
+  if (attachment.kind === "audio") return <VoiceMessageAttachment attachment={attachment} />;
   return (
     <Pressable onPress={() => void Linking.openURL(attachment.url)} style={[styles.file, { backgroundColor: palette.surface }]}> 
       <View style={[styles.fileIcon, { backgroundColor: palette.accentSoft }]}><AppIcon name="document-outline" size={23} color={palette.accent} /></View>
@@ -166,54 +165,19 @@ function ImageAttachment({ attachment }: { attachment: Attachment }) {
   return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={[styles.photo, size]} /></Pressable><ImageViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={() => setOpen(false)} /></>;
 }
 
-function VoiceAttachment({ attachment }: { attachment: Attachment }) {
-  const [active, setActive] = useState(false);
-  const palette = usePalette();
-  const source = useAuthorizedMedia(attachment.url);
-  const bars = voiceWaveformBars(attachment.waveform);
-  if (active) return <ActiveVoiceAttachment attachment={attachment} source={source} bars={bars} />;
-  return <View style={styles.voice}>
-    <Pressable onPress={() => setActive(true)} style={[styles.play, { backgroundColor: palette.accent }]}><AppIcon name="play" size={19} color="white" /></Pressable>
-    <View style={styles.wave}>{bars.map((height, index) => <View key={index} style={[styles.waveBar, { height, backgroundColor: palette.faintText }]} />)}</View>
-    <Text style={[styles.duration, { color: palette.secondaryText }]}>{formatDuration((attachment.durationMs ?? 0) / 1000)}</Text>
-  </View>;
-}
-
-function ActiveVoiceAttachment({ attachment, source, bars }: { attachment: Attachment; source: ReturnType<typeof useAuthorizedMedia>; bars: number[] }) {
-  const palette = usePalette();
-  const player = useAudioPlayer(source, { updateInterval: 250 });
-  const status = useAudioPlayerStatus(player);
-  const [waveWidth, setWaveWidth] = useState(1);
-  const duration = status.duration || (attachment.durationMs ?? 0) / 1000;
-  const progress = Math.min(1, (status.currentTime || 0) / Math.max(duration, 1));
-  const toggle = () => status.playing ? player.pause() : player.play();
-  useEffect(() => { player.play(); }, [player]);
-  return (
-    <View style={styles.voice}> 
-      <Pressable onPress={toggle} style={[styles.play, { backgroundColor: palette.accent }]}><AppIcon name={status.playing ? "pause" : "play"} size={19} color="white" /></Pressable>
-      <Pressable accessibilityRole="adjustable" onLayout={(event) => setWaveWidth(event.nativeEvent.layout.width)} onPress={(event) => void player.seekTo(Math.max(0, Math.min(1, event.nativeEvent.locationX / waveWidth)) * duration)} style={styles.wave}>
-        {bars.map((height, index) => <View key={index} style={[styles.waveBar, { height, backgroundColor: index / bars.length <= progress ? palette.accent : palette.faintText }]} />)}
-      </Pressable>
-      <Text style={[styles.duration, { color: palette.secondaryText }]}>{formatDuration(status.playing ? status.currentTime : duration)}</Text>
-    </View>
-  );
-}
-
 function InlineVideo({ attachment }: { attachment: Attachment }) {
   const source = useAuthorizedMedia(attachment.url);
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? "");
-  const [active, setActive] = useState(false);
+  const [open, setOpen] = useState(false);
   const size = messageMediaSize(attachment.width, attachment.height);
-  if (active) return <ActiveInlineVideo source={source} size={size} />;
-  return <Pressable onPress={() => setActive(true)} style={[styles.videoPreview, size]}>
-    {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={[styles.video, size]} /> : <View style={[styles.video, styles.videoPlaceholder, size]} />}
-    <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
-  </Pressable>;
-}
-
-function ActiveInlineVideo({ source, size }: { source: ReturnType<typeof useAuthorizedMedia>; size: ReturnType<typeof messageMediaSize> }) {
-  const player = useVideoPlayer(source, (instance) => { instance.loop = false; });
-  return <VideoView player={player} style={[styles.video, size]} nativeControls contentFit="cover" />;
+  return <>
+    <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={[styles.videoPreview, size]}>
+      {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={[styles.video, size]} /> : <View style={[styles.video, styles.videoPlaceholder, size]} />}
+      <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
+      {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
+    </Pressable>
+    <VideoViewer visible={open} source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={() => setOpen(false)} />
+  </>;
 }
 
 function formatBytes(bytes: number): string {
@@ -259,16 +223,13 @@ const styles = StyleSheet.create({
   videoPreview: { marginBottom: 5 },
   videoPlaceholder: { backgroundColor: "#202329" },
   videoPlay: { position: "absolute", left: "50%", top: "50%", width: 44, height: 44, marginLeft: -22, marginTop: -22, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
+  videoDurationBadge: { position: "absolute", right: 7, bottom: 12, minWidth: 34, height: 20, paddingHorizontal: 6, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
+  videoDurationText: { color: "white", fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
   file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
   fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   fileText: { flex: 1 },
   filename: { fontSize: 13, fontWeight: "600" },
   filesize: { fontSize: 11, marginTop: 3 },
-  voice: { width: 230, minHeight: 45, flexDirection: "row", alignItems: "center", gap: 8 },
-  play: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
-  wave: { flex: 1, height: 24, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 1 },
-  waveBar: { width: 2, minHeight: 4, borderRadius: 1 },
-  duration: { fontSize: 11, width: 30 },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 5 },
   reaction: { borderWidth: 1, borderRadius: 11, minWidth: 27, minHeight: 23, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
   emoji: { fontSize: 13 },
