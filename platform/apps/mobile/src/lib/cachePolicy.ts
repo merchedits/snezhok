@@ -21,6 +21,23 @@ export function messagesForCache(messages: Record<string, Message[]>, recentLimi
   }));
 }
 
+export type MessageWindowEdge = "latest" | "older";
+
+/**
+ * Bound live JS memory without discarding messages that represent unfinished
+ * work or durable pins. Older-page loads keep their historical edge visible;
+ * latest/realtime loads keep the newest edge visible.
+ */
+export function boundedMessageWindow(messages: Message[], limit = 300, edge: MessageWindowEdge = "latest"): Message[] {
+  if (messages.length <= limit) return messages;
+  const window = edge === "latest" ? messages.slice(-limit) : messages.slice(0, limit);
+  const keep = new Set(window.map((message) => message.id));
+  for (const message of messages) {
+    if (message.pending || message.failed || message.pinnedAt != null) keep.add(message.id);
+  }
+  return messages.filter((message) => keep.has(message.id));
+}
+
 function isSafeCachedMessage(value: unknown): value is Message {
   if (!value || typeof value !== "object") return false;
   const message = value as { id?: unknown; streamId?: unknown; sequence?: unknown; createdAt?: unknown; sender?: { id?: unknown } };

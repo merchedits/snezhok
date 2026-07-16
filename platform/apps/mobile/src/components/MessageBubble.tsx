@@ -1,4 +1,5 @@
 import { AppIcon } from "./AppIcon";
+import { useMappingHelper } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { memo, useEffect, useRef, useState } from "react";
 import { type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
@@ -148,6 +149,7 @@ function SelectionMarker({ selected, animatedStyle }: { selected: boolean; anima
 function MessageContent({ message, mine, showSender, showTime, interactionDisabled, onReact, onReplyPress }: { message: Message; mine: boolean; showSender: boolean; showTime: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined }) {
   const palette = usePalette();
   const { t } = useTranslation();
+  const { getMappingKey } = useMappingHelper();
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const mediaAttachments = attachments.filter((attachment) => attachment.kind === "image" || attachment.kind === "video");
   const otherAttachments = mediaAttachments.length > 1 ? attachments.filter((attachment) => attachment.kind !== "image" && attachment.kind !== "video") : attachments;
@@ -163,7 +165,7 @@ function MessageContent({ message, mine, showSender, showTime, interactionDisabl
       ) : null}
       {message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}
       {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
-      {otherAttachments.map((attachment) => <AttachmentView key={attachment.id} attachment={attachment} />)}
+      {otherAttachments.map((attachment, index) => <AttachmentView key={getMappingKey(attachment.id, index)} attachment={attachment} />)}
       {message.text ? <Text style={[styles.text, { color: palette.text }]}>{message.text}</Text> : null}
       {showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? (
         <View style={[styles.meta, !showTime && styles.channelMeta]}>
@@ -173,26 +175,28 @@ function MessageContent({ message, mine, showSender, showTime, interactionDisabl
           {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}
         </View>
       ) : null}
-      {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
+      {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction, index) => <Pressable accessibilityLabel={reaction.emoji} key={getMappingKey(reaction.emoji, index)} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
     </View>
   );
 }
 
 function MediaAlbum({ attachments }: { attachments: Attachment[] }) {
   const rows = mediaAlbumRows(attachments);
+  const { getMappingKey } = useMappingHelper();
   const rowHeight = rows.length === 1 ? 178 : rows.length === 2 ? 126 : 94;
-  return <View style={styles.album}>{rows.map((row, rowIndex) => <View key={`${rowIndex}-${row[0]?.id}`} style={[styles.albumRow, { height: rowHeight }]}>{row.map((attachment) => <AlbumMediaTile key={attachment.id} attachment={attachment} />)}</View>)}</View>;
+  return <View style={styles.album}>{rows.map((row, rowIndex) => <View key={getMappingKey(row[0]?.id ?? rowIndex, rowIndex)} style={[styles.albumRow, { height: rowHeight }]}>{row.map((attachment, attachmentIndex) => <AlbumMediaTile key={getMappingKey(attachment.id, attachmentIndex)} attachment={attachment} />)}</View>)}</View>;
 }
 
 function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
-  const [open, setOpen] = useState(false);
+  const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
+  const open = openAttachmentId === attachment.id;
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
   return <>
-    <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={styles.albumTile}>
+    <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={styles.albumTile}>
       <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={StyleSheet.absoluteFill} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </Pressable>
-    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}
+    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
   </>;
 }
 
@@ -211,25 +215,28 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 }
 
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
-  const [open, setOpen] = useState(false);
-  const [decodedSize, setDecodedSize] = useState<{ width: number; height: number } | null>(null);
+  const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
+  const [decoded, setDecoded] = useState<{ attachmentId: string; width: number; height: number } | null>(null);
+  const open = openAttachmentId === attachment.id;
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
+  const decodedSize = decoded?.attachmentId === attachment.id ? { width: decoded.width, height: decoded.height } : null;
   const size = decodedSize ?? messageMediaSize(attachment.width, attachment.height);
-  const measurement = attachment.width && attachment.height ? {} : { onLoad: ({ source: loaded }: { source: { width: number; height: number } }) => setDecodedSize(messageMediaSize(loaded.width, loaded.height)) };
-  return <><Pressable onPress={() => setOpen(true)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} {...measurement} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
+  const measurement = attachment.width && attachment.height ? {} : { onLoad: ({ source: loaded }: { source: { width: number; height: number } }) => setDecoded({ attachmentId: attachment.id, ...messageMediaSize(loaded.width, loaded.height) }) };
+  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} {...measurement} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? "");
-  const [open, setOpen] = useState(false);
+  const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
+  const open = openAttachmentId === attachment.id;
   const size = messageMediaSize(attachment.width, attachment.height);
   return <>
-    <Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={[styles.videoPreview, size]}>
+    <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={[styles.videoPreview, size]}>
       {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
       <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
       {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
     </Pressable>
-    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}
+    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
   </>;
 }
 

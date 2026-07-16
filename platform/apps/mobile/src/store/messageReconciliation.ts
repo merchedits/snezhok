@@ -10,7 +10,7 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
   const byId = new Map<string, number>();
   const byClientId = new Map<string, number>();
 
-  for (const message of [...existing, ...incoming]) {
+  const append = (message: Message) => {
     const clientId = message.clientId ?? (message.pending || message.failed ? message.id : null);
     const index = byId.get(message.id) ?? (clientId ? byClientId.get(clientId) : undefined);
     if (index !== undefined) {
@@ -22,14 +22,27 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
       merged[index] = next;
       byId.set(next.id, index);
       if (clientId) byClientId.set(clientId, index);
-      continue;
+      return;
     }
     const nextIndex = merged.length;
     merged.push(message);
     byId.set(message.id, nextIndex);
     if (clientId) byClientId.set(clientId, nextIndex);
+  };
+  for (const message of existing) append(message);
+  for (const message of incoming) append(message);
+
+  // Latest HTTP/realtime messages are already ordered almost all of the time.
+  // Skip O(n log n) sorting on that common path while retaining deterministic
+  // ordering for history pages and context loads.
+  for (let index = 1; index < merged.length; index += 1) {
+    if (compareMessages(merged[index - 1]!, merged[index]!) > 0) return merged.sort(compareMessages);
   }
-  return merged.sort((a, b) => a.sequence - b.sequence || a.createdAt - b.createdAt);
+  return merged;
+}
+
+function compareMessages(left: Message, right: Message): number {
+  return left.sequence - right.sequence || left.createdAt - right.createdAt;
 }
 
 /** A delayed HTTP/update response must never resurrect a durable deletion. */

@@ -17,16 +17,17 @@ import type {
 } from "@snezhok/contracts";
 
 import { api, ApiError } from "../lib/api";
-import { messagesForCache } from "../lib/cachePolicy";
+import { boundedMessageWindow } from "../lib/cachePolicy";
 import { clearMediaCache } from "../lib/mediaCache";
-import { clearLocalData, readCache, readDrafts, readOutbox, writeCache, writeDrafts, writeOutbox } from "../lib/offlineRepository";
+import { cachedHistoryCursor } from "../lib/offlineCachePolicy";
+import { clearLocalData, readCache, readCachedMessagePage, readDrafts, readOutbox, writeCacheDelta, writeDrafts, writeOutbox, type OfflineCacheDelta } from "../lib/offlineRepository";
 import { clearSession, readSession, writeSession } from "../lib/secureSession";
 import { mergeAcknowledgedPatch, rollbackRejectedPatch } from "../lib/settingsSync";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
 import type { ChatFolder, ScheduledMessage } from "../types";
 import { applyConversationPreview } from "./conversationPreview";
 import { upsertConversation } from "./conversationIdentity";
-import { markMessageDeleted, mergeMessages, reconcilePinnedMessages } from "./messageReconciliation";
+import { markMessageDeleted, mergeMessages as mergeUnboundedMessages, reconcilePinnedMessages } from "./messageReconciliation";
 import { enqueueOutbox, replayOutbox, resolveOutboxMessageId } from "./outboxReliability";
 
 type Phase = "booting" | "signed-out" | "ready" | "error";
@@ -134,14 +135,96 @@ let persistenceQueue: Promise<void> = Promise.resolve();
 let settingsSyncQueue: Promise<void> = Promise.resolve();
 let draftPersistenceQueue: Promise<void> = Promise.resolve();
 
-function persistState(): Promise<void> {
+interface PersistenceRequest {
+  bootstrap?: boolean;
+  outbox?: boolean;
+  streamIds?: Iterable<string>;
+  removedStreamIds?: Iterable<string>;
+  removedMessages?: Iterable<{ streamId: string; messageId: string }>;
+}
+
+let pendingBootstrapPersistence = false;
+let pendingOutboxPersistence = false;
+const pendingMessageStreams = new Set<string>();
+const pendingRemovedStreams = new Set<string>();
+const pendingRemovedMessages = new Map<string, Set<string>>();
+let persistenceEpoch = 0;
+
+function markPersistence(request: PersistenceRequest): void {
+  pendingBootstrapPersistence ||= Boolean(request.bootstrap);
+  pendingOutboxPersistence ||= Boolean(request.outbox);
+  for (const streamId of request.streamIds ?? []) {
+    if (pendingRemovedStreams.has(streamId)) continue;
+    pendingMessageStreams.add(streamId);
+  }
+  for (const streamId of request.removedStreamIds ?? []) {
+    pendingMessageStreams.delete(streamId);
+    pendingRemovedStreams.add(streamId);
+    pendingRemovedMessages.delete(streamId);
+  }
+  for (const { streamId, messageId } of request.removedMessages ?? []) {
+    if (pendingRemovedStreams.has(streamId)) continue;
+    const ids = pendingRemovedMessages.get(streamId) ?? new Set<string>();
+    ids.add(messageId);
+    pendingRemovedMessages.set(streamId, ids);
+  }
+}
+
+function flushPersistence(): Promise<void> {
+  const writeBootstrap = pendingBootstrapPersistence;
+  const writeOutboxSnapshot = pendingOutboxPersistence;
+  const streamIds = [...pendingMessageStreams];
+  const removedStreamIds = [...pendingRemovedStreams];
+  const removedMessageIds = Object.fromEntries([...pendingRemovedMessages].map(([streamId, ids]) => [streamId, [...ids]]));
+  if (!writeBootstrap && !writeOutboxSnapshot && streamIds.length === 0 && removedStreamIds.length === 0 && Object.keys(removedMessageIds).length === 0) return persistenceQueue;
+
+  pendingBootstrapPersistence = false;
+  pendingOutboxPersistence = false;
+  pendingMessageStreams.clear();
+  pendingRemovedStreams.clear();
+  pendingRemovedMessages.clear();
   const state = useAppStore.getState();
-  const snapshot = { bootstrap: toBootstrap(state), messages: messagesForCache(state.messages), cachedAt: Date.now() };
+  const epoch = persistenceEpoch;
+  const delta: OfflineCacheDelta = { cachedAt: Date.now() };
+  if (writeBootstrap) delta.bootstrap = toBootstrap(state);
+  if (streamIds.length) delta.streams = Object.fromEntries(streamIds.map((streamId) => [streamId, state.messages[streamId] ?? []]));
+  if (removedStreamIds.length) delta.removedStreamIds = removedStreamIds;
+  if (Object.keys(removedMessageIds).length) delta.removedMessageIds = removedMessageIds;
   const outbox = state.outbox;
+  const retryRequest: PersistenceRequest = {
+    ...(writeBootstrap ? { bootstrap: true } : {}),
+    ...(writeOutboxSnapshot ? { outbox: true } : {}),
+    ...(streamIds.length ? { streamIds } : {}),
+    ...(removedStreamIds.length ? { removedStreamIds } : {}),
+    ...(Object.keys(removedMessageIds).length ? {
+      removedMessages: Object.entries(removedMessageIds).flatMap(([streamId, messageIds]) => messageIds.map((messageId) => ({ streamId, messageId }))),
+    } : {}),
+  };
   persistenceQueue = persistenceQueue.catch(() => undefined).then(async () => {
-    await Promise.all([writeCache(snapshot), writeOutbox(outbox)]);
+    await Promise.all([
+      writeBootstrap || streamIds.length || removedStreamIds.length || Object.keys(removedMessageIds).length ? writeCacheDelta(delta) : Promise.resolve(),
+      writeOutboxSnapshot ? writeOutbox(outbox) : Promise.resolve(),
+    ]);
+  }).catch((error) => {
+    // A transient disk failure must not silently discard the dirty projection.
+    // Re-snapshot current state on the retry rather than replaying stale JSON.
+    if (epoch === persistenceEpoch) markPersistence(retryRequest);
+    if (epoch === persistenceEpoch && !persistenceTimer) {
+      persistenceTimer = setTimeout(() => {
+        persistenceTimer = null;
+        void flushPersistence().catch((retryError) => console.warn("Could not retry offline cache persistence", retryError));
+      }, 2_000);
+    }
+    throw error;
   });
   return persistenceQueue;
+}
+
+function persistState(request: PersistenceRequest): Promise<void> {
+  markPersistence(request);
+  if (persistenceTimer) clearTimeout(persistenceTimer);
+  persistenceTimer = null;
+  return flushPersistence();
 }
 
 let bootstrapRefresh: Promise<void> | null = null;
@@ -158,20 +241,26 @@ const reactionSyncQueues = new Map<string, Promise<void>>();
 const remoteDraftTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let outboxRetry: Promise<void> | null = null;
 
-function schedulePersistence(): void {
+function schedulePersistence(request: PersistenceRequest): void {
+  markPersistence(request);
   if (persistenceTimer) clearTimeout(persistenceTimer);
   persistenceTimer = setTimeout(() => {
     persistenceTimer = null;
-    void persistState().catch((error) => console.warn("Could not persist offline cache", error));
-  // Cache I/O is deliberately kept outside navigation and interaction frames.
-  // Realtime bursts coalesce into one SQLite transaction instead of repeatedly
-  // serializing the entire offline window while the user is opening a chat.
+    void flushPersistence().catch((error) => console.warn("Could not persist offline cache", error));
+    // Cache I/O is deliberately kept outside navigation and interaction frames.
+    // Realtime bursts coalesce into incremental dirty-stream transactions.
   }, 700);
 }
 
 function cancelScheduledPersistence(): void {
+  persistenceEpoch += 1;
   if (persistenceTimer) clearTimeout(persistenceTimer);
   persistenceTimer = null;
+  pendingBootstrapPersistence = false;
+  pendingOutboxPersistence = false;
+  pendingMessageStreams.clear();
+  pendingRemovedStreams.clear();
+  pendingRemovedMessages.clear();
 }
 
 function scheduleDraftPersistence(): void {
@@ -224,6 +313,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       drafts,
       outbox,
       eventCursor: cached?.eventCursor ?? 0,
+      messagePagination: Object.fromEntries(Object.keys(cache.messages).map((streamId) => [streamId, { nextCursor: null, initialized: false }])),
     });
     try {
       await get().refreshBootstrap({ force: true });
@@ -341,7 +431,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           eventCursor: payload.eventCursor,
         }));
         lastBootstrapCompletedAt = Date.now();
-        schedulePersistence();
+        schedulePersistence({ bootstrap: true });
       } catch (error) {
         set({ syncing: false });
         const session = await readSession();
@@ -360,7 +450,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (Date.now() - lastProductivityCompletedAt < 30_000) return Promise.resolve();
     productivityRefresh = (async () => {
       const productivity = await api.productivity();
-      const mergedDrafts = { ...Object.fromEntries(productivity.drafts.map((draft) => [draft.streamId, draft.text])), ...get().drafts };
+      const remoteDrafts = Object.fromEntries(productivity.drafts.map((draft) => [draft.streamId, draft.text]));
+      const localDrafts = get().drafts;
+      const mergedDrafts = { ...remoteDrafts, ...localDrafts };
+      const dirtyLocalDrafts = Object.entries(localDrafts).filter(([streamId, text]) => (remoteDrafts[streamId] ?? "") !== text);
       set({
         drafts: mergedDrafts,
         folders: productivity.folders,
@@ -370,23 +463,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       scheduleDraftPersistence();
       // Local values (including empty tombstones) win after offline use, then
       // are pushed back so a second device observes the same draft state.
-      await Promise.all(Object.entries(mergedDrafts).map(([streamId, text]) => api.saveDraft(streamId, text, null).catch(() => undefined)));
+      await Promise.all(dirtyLocalDrafts.map(([streamId, text]) => api.saveDraft(streamId, text, null).catch(() => undefined)));
     })().finally(() => { productivityRefresh = null; });
     return productivityRefresh;
   },
 
   loadMessages: (streamId, before) => {
-    if (!get().online) return Promise.resolve();
     const key = `${streamId}:${before ?? "latest"}`;
     const active = messageLoads.get(key);
     if (active) return active;
     if (before === undefined && (get().messages[streamId]?.length ?? 0) > 0 && Date.now() - (latestMessageLoads.get(streamId) ?? 0) < 15_000) return Promise.resolve();
     const loading = (async () => {
+      if (before === undefined) {
+        const cached = await readCachedMessagePage(streamId, before, 40).catch(() => []);
+        if (cached.length) {
+          set((state) => ({
+            messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], cached)) },
+          }));
+        }
+      }
+      if (!get().online) return;
       const page = await api.messages(streamId, before);
       set((state) => ({
         messages: {
           ...state.messages,
-          [streamId]: mergeMessages(state.messages[streamId] ?? [], page.items),
+          [streamId]: boundedMessageWindow(mergeUnboundedMessages(state.messages[streamId] ?? [], page.items), 300, before === undefined ? "latest" : "older"),
         },
         messagePagination: {
           ...state.messagePagination,
@@ -394,13 +495,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
       if (before === undefined) latestMessageLoads.set(streamId, Date.now());
-      schedulePersistence();
+      schedulePersistence({ streamIds: [streamId] });
     })().finally(() => messageLoads.delete(key));
     messageLoads.set(key, loading);
     return loading;
   },
 
   loadOlderMessages: async (streamId) => {
+    const current = get().messages[streamId] ?? [];
+    const earliestSequence = cachedHistoryCursor(current);
+    if (earliestSequence !== undefined) {
+      const cached = await readCachedMessagePage(streamId, earliestSequence, 60).catch(() => []);
+      if (cached.length) {
+        set((state) => ({
+          messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeUnboundedMessages(state.messages[streamId] ?? [], cached), 300, "older") },
+        }));
+        return;
+      }
+    }
     const pagination = get().messagePagination[streamId];
     if (!pagination?.initialized) {
       await get().loadMessages(streamId);
@@ -414,8 +526,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if ((get().messages[streamId] ?? []).some((message) => message.id === messageId) || !get().online) return;
     const context = await api.messageContext(messageId);
     if (context.streamId !== streamId) throw new Error("Reply target belongs to another chat");
-    set((state) => ({ messages: { ...state.messages, [streamId]: mergeMessages(state.messages[streamId] ?? [], context.items) } }));
-    schedulePersistence();
+    set((state) => ({ messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], context.items)) } }));
+    schedulePersistence({ streamIds: [streamId] });
   },
 
   markStreamRead: async (streamId, sequence) => {
@@ -433,11 +545,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? { ...channel, unreadCount: 0, mentionCount: 0 }
           : channel),
       }));
-      schedulePersistence();
+      schedulePersistence({ bootstrap: true });
     }
     const entry: OutboxEntry = { kind: "read", id: Crypto.randomUUID(), streamId, sequence, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-    schedulePersistence();
+    schedulePersistence({ outbox: true });
     if (!get().online) return;
     try {
       const acknowledged = await api.markRead(streamId, sequence);
@@ -450,11 +562,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? { ...channel, unreadCount: 0, mentionCount: 0 }
           : channel),
       }));
-      schedulePersistence();
+      schedulePersistence({ bootstrap: true, outbox: true });
     } catch (error) {
       if (!isRetryable(error)) {
         set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
-        schedulePersistence();
+        schedulePersistence({ outbox: true });
       }
       throw error;
     }
@@ -468,10 +580,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const loading = (async () => {
       const pinned = await api.pinnedMessages(streamId);
       set((state) => ({
-        messages: { ...state.messages, [streamId]: reconcilePinnedMessages(state.messages[streamId] ?? [], pinned) },
+        messages: { ...state.messages, [streamId]: boundedMessageWindow(reconcilePinnedMessages(state.messages[streamId] ?? [], pinned)) },
       }));
       latestPinnedMessageLoads.set(streamId, Date.now());
-      schedulePersistence();
+      schedulePersistence({ streamIds: [streamId] });
     })().finally(() => pinnedMessageLoads.delete(streamId));
     pinnedMessageLoads.set(streamId, loading);
     return loading;
@@ -531,7 +643,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!get().online) {
       const entry: OutboxEntry = { kind: "message", id: clientId, streamId, input, queuedAt: Date.now(), attempts: 0 };
       set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState();
+      await persistState({ bootstrap: true, outbox: true, streamIds: [streamId] });
       return;
     }
 
@@ -557,12 +669,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
     }
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true, outbox: true, streamIds: [streamId] });
   },
 
   forwardMessage: async (messageId, targetStreamId) => {
     const me = get().me;
-    const source = Object.values(get().messages).flat().find((message) => message.id === messageId);
+    const source = findMessage(get().messages, messageId);
     if (!me || !source) throw new Error("Message is no longer available");
     const clientId = Crypto.randomUUID();
     const existing = get().messages[targetStreamId] ?? [];
@@ -589,11 +701,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       conversations: applyConversationPreview(state.conversations, optimistic),
       messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [optimistic]) },
     }));
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true, streamIds: [targetStreamId] });
     const entry: OutboxEntry = { kind: "forward", id: clientId, streamId: targetStreamId, sourceMessageId: messageId, clientId, queuedAt: Date.now(), attempts: 0 };
     if (!get().online) {
       set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState();
+      await persistState({ bootstrap: true, outbox: true, streamIds: [targetStreamId] });
       return optimistic;
     }
     let saved: Message;
@@ -605,7 +717,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         outbox: retryable ? enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) : state.outbox,
         messages: { ...state.messages, [targetStreamId]: (state.messages[targetStreamId] ?? []).map((message) => message.id === clientId ? { ...message, pending: false, failed: true } : message) },
       }));
-      schedulePersistence();
+      schedulePersistence({ outbox: true, streamIds: [targetStreamId] });
       if (!retryable) throw error;
       return optimistic;
     }
@@ -613,7 +725,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       conversations: applyConversationPreview(state.conversations, saved),
       messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [saved]) },
     }));
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true, streamIds: [targetStreamId] });
     return saved;
   },
 
@@ -626,10 +738,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       conversations: applyConversationPreview(state.conversations, optimistic),
       messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) },
     }));
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true, streamIds: [message.streamId] });
     if (!get().online) {
       set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState();
+      await persistState({ outbox: true, streamIds: [message.streamId] });
       return;
     }
     try {
@@ -653,7 +765,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         throw error;
       }
     } finally {
-      schedulePersistence();
+      schedulePersistence({ bootstrap: true, outbox: true, streamIds: [message.streamId] });
     }
   },
 
@@ -663,10 +775,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const optimistic = { ...current, reactions: updateOptimisticReaction(current.reactions, emoji, active, get().me?.id) };
     const entry: OutboxEntry = { kind: "reaction", id: Crypto.randomUUID(), streamId: current.streamId, messageId: current.id, emoji, active, previous: current, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({ messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [optimistic]) } }));
-    schedulePersistence();
+    schedulePersistence({ streamIds: [current.streamId] });
     if (!get().online) {
       set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState();
+      await persistState({ outbox: true, streamIds: [current.streamId] });
       return;
     }
     const queueKey = `${current.id}\u0000${emoji}`;
@@ -679,11 +791,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (!live || hasActiveReaction(live, emoji) !== active) return state;
           return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [saved]) } };
         });
-        schedulePersistence();
+        schedulePersistence({ streamIds: [current.streamId] });
       } catch (error) {
         if (isRetryable(error)) {
           set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
-          schedulePersistence();
+          schedulePersistence({ outbox: true, streamIds: [current.streamId] });
           return;
         }
         set((state) => {
@@ -691,7 +803,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (!live || hasActiveReaction(live, emoji) !== active) return state;
           return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [current]) } };
         });
-        schedulePersistence();
+        schedulePersistence({ streamIds: [current.streamId] });
         throw error;
       }
     });
@@ -709,10 +821,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           : markMessageDeleted(state.messages[message.streamId] ?? [], message.id, Date.now(), true),
       },
     }));
-    schedulePersistence();
+    schedulePersistence({ streamIds: [message.streamId], ...(scope === "me" ? { removedMessages: [{ streamId: message.streamId, messageId: message.id }] } : {}) });
     if (!get().online) {
       set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState();
+      await persistState({ outbox: true, streamIds: [message.streamId] });
       return;
     }
     if (scope === "me") {
@@ -721,11 +833,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch (error) {
         if (isRetryable(error)) {
           set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
-          schedulePersistence();
+          schedulePersistence({ outbox: true, streamIds: [message.streamId] });
           return;
         }
         set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
-        schedulePersistence();
+        schedulePersistence({ streamIds: [message.streamId] });
         throw error;
       }
       void get().refreshBootstrap({ force: true, silent: true });
@@ -737,18 +849,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       if (isRetryable(error)) {
         set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
-        schedulePersistence();
+        schedulePersistence({ outbox: true, streamIds: [message.streamId] });
         return;
       }
       set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
-      schedulePersistence();
+      schedulePersistence({ streamIds: [message.streamId] });
       throw error;
     }
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, saved),
       messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
     }));
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true, streamIds: [message.streamId] });
     // The server may reveal the previous message as the new conversation
     // preview after deleting the latest one.
     void get().refreshBootstrap({ force: true, silent: true });
@@ -758,10 +870,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const optimistic = { ...message, pinnedAt: pinned ? Date.now() : null };
     const entry: OutboxEntry = { kind: "pin", id: Crypto.randomUUID(), streamId: message.streamId, messageId: message.id, pinned, previous: message, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) } }));
-    schedulePersistence();
+    schedulePersistence({ streamIds: [message.streamId] });
     if (!get().online) {
       set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState();
+      await persistState({ outbox: true, streamIds: [message.streamId] });
       return;
     }
     let saved: Message;
@@ -770,11 +882,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       if (isRetryable(error)) {
         set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
-        schedulePersistence();
+        schedulePersistence({ outbox: true, streamIds: [message.streamId] });
         return;
       }
       set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
-      schedulePersistence();
+      schedulePersistence({ streamIds: [message.streamId] });
       throw error;
     }
     set((state) => {
@@ -782,7 +894,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!current || Boolean(current.pinnedAt) !== pinned || current.deletedAt) return state;
       return { messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) } };
     });
-    schedulePersistence();
+    schedulePersistence({ streamIds: [message.streamId] });
   },
 
   retryOutbox: async () => {
@@ -863,7 +975,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       }, (entry) => {
         set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: item.attempts + 1 } : item) }));
       });
-      await persistState();
+      await persistState({
+        bootstrap: true,
+        outbox: true,
+        streamIds: new Set(snapshot.map((entry) => entry.streamId)),
+      });
     })().finally(() => { outboxRetry = null; });
     return outboxRetry;
   },
@@ -884,7 +1000,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     });
     latestMessageLoads.set(message.streamId, Date.now());
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true, streamIds: [message.streamId] });
   },
 
   applyMessageDeleted: ({ id, streamId, deletedAt }) => {
@@ -894,29 +1010,31 @@ export const useAppStore = create<AppState>((set, get) => ({
         [streamId]: markMessageDeleted(state.messages[streamId] ?? [], id, deletedAt),
       },
     }));
-    schedulePersistence();
+    schedulePersistence({ streamIds: [streamId] });
     void get().refreshBootstrap({ force: true, silent: true });
   },
 
   applyReadReceipt: ({ streamId, userId, sequence }) => {
     const me = get().me;
     if (!me || userId === me.id) return;
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [streamId]: (state.messages[streamId] ?? []).map((message) => message.sender.id === me.id && message.sequence <= sequence && !message.readByOthers
-          ? { ...message, readByOthers: true }
-          : message),
-      },
-    }));
-    schedulePersistence();
+    let changed = false;
+    set((state) => {
+      const current = state.messages[streamId] ?? [];
+      const messages = mapIfChanged(current, (message) => message.sender.id === me.id && message.sequence <= sequence && !message.readByOthers
+        ? { ...message, readByOthers: true }
+        : message);
+      if (messages === current) return state;
+      changed = true;
+      return { messages: { ...state.messages, [streamId]: messages } };
+    });
+    if (changed) schedulePersistence({ streamIds: [streamId] });
   },
 
   applyConversation: (conversation) => {
     set((state) => ({
       conversations: upsertConversation(state.conversations, conversation),
     }));
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true });
   },
 
   deleteConversation: async (conversationId) => {
@@ -931,7 +1049,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { conversations: state.conversations.filter((item) => item.id !== conversationId), messages };
     });
     latestMessageLoads.delete(conversationId);
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true, removedStreamIds: [conversationId] });
   },
 
   applyPresence: (userId, presence, lastSeenAt) => {
@@ -939,21 +1057,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (user.id !== userId || (user.presence === presence && user.lastSeenAt === lastSeenAt)) return user;
       return { ...user, presence, lastSeenAt };
     };
-    set((state) => ({
-      me: state.me ? updateUser(state.me) : null,
-      conversations: state.conversations.map((conversation) => {
-        const participants = conversation.participants.map(updateUser);
-        return participants.some((participant, index) => participant !== conversation.participants[index]) ? { ...conversation, participants } : conversation;
-      }),
-      friends: state.friends.map((entry) => {
+    set((state) => {
+      const me = state.me ? updateUser(state.me) : null;
+      const conversations = mapIfChanged(state.conversations, (conversation) => {
+        const participants = mapIfChanged(conversation.participants, updateUser);
+        return participants === conversation.participants ? conversation : { ...conversation, participants };
+      });
+      const friends = mapIfChanged(state.friends, (entry) => {
         const user = updateUser(entry.user);
         return user === entry.user ? entry : { ...entry, user };
-      }),
-      channels: state.channels.map((channel) => {
-        const connectedMembers = channel.connectedMembers.map(updateUser);
-        return connectedMembers.some((member, index) => member !== channel.connectedMembers[index]) ? { ...channel, connectedMembers } : channel;
-      }),
-    }));
+      });
+      const channels = mapIfChanged(state.channels, (channel) => {
+        const connectedMembers = mapIfChanged(channel.connectedMembers, updateUser);
+        return connectedMembers === channel.connectedMembers ? channel : { ...channel, connectedMembers };
+      });
+      if (me === state.me && conversations === state.conversations && friends === state.friends && channels === state.channels) return state;
+      return { me, conversations, friends, channels };
+    });
   },
 
   setDraft: (streamId, text) => {
@@ -1022,10 +1142,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       muted: patch.muted ?? conversation.muted,
     };
     set((state) => ({ conversations: upsertConversation(state.conversations, optimistic) }));
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true });
     if (!get().online) {
       set((state) => ({ conversations: upsertConversation(state.conversations, conversation) }));
-      schedulePersistence();
+      schedulePersistence({ bootstrap: true });
       throw new Error("Conversation settings require a connection");
     }
     try {
@@ -1035,7 +1155,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((state) => ({ conversations: upsertConversation(state.conversations, conversation) }));
       throw error;
     } finally {
-      schedulePersistence();
+      schedulePersistence({ bootstrap: true });
     }
   },
 
@@ -1043,17 +1163,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const previous = get().settings;
     const next = { ...previous, ...patch };
     set({ settings: next });
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true });
     if (!get().online) return Promise.resolve();
 
     const operation = settingsSyncQueue.then(async () => {
       try {
         const saved = await api.updateSettings(patch);
         set((state) => ({ settings: mergeAcknowledgedPatch(state.settings, patch, saved) }));
-        schedulePersistence();
+        schedulePersistence({ bootstrap: true });
       } catch (error) {
         set((state) => ({ settings: rollbackRejectedPatch(state.settings, patch, previous) }));
-        schedulePersistence();
+        schedulePersistence({ bootstrap: true });
         throw error;
       }
     });
@@ -1063,7 +1183,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setEventCursor: (cursor) => {
     set((state) => ({ eventCursor: Math.max(state.eventCursor, cursor) }));
-    schedulePersistence();
+    schedulePersistence({ bootstrap: true });
   },
 }));
 
@@ -1091,8 +1211,9 @@ function restoreRejectedOutbox(state: AppState, entry: OutboxEntry): Partial<App
 
 function reconcileBootstrapConversations(state: AppState, incoming: ConversationSummary[]): ConversationSummary[] {
   const pendingReadStreams = new Set(state.outbox.filter((entry) => entry.kind === "read").map((entry) => entry.streamId));
+  const localById = new Map(state.conversations.map((conversation) => [conversation.id, conversation]));
   return incoming.map((conversation) => {
-    const local = state.conversations.find((item) => item.id === conversation.id);
+    const local = localById.get(conversation.id);
     const optimisticPreview = local?.lastMessage && (state.messages[conversation.id] ?? []).some((message) =>
       (message.pending || message.failed) && (message.id === local.lastMessage?.id || message.clientId === local.lastMessage?.id));
     return {
@@ -1130,4 +1251,27 @@ function updateOptimisticReaction(reactions: Message["reactions"], emoji: string
 
 function hasActiveReaction(message: Message, emoji: string): boolean {
   return message.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
+}
+
+function mergeMessages(existing: Message[], incoming: Message[]): Message[] {
+  return boundedMessageWindow(mergeUnboundedMessages(existing, incoming));
+}
+
+function findMessage(messagesByStream: Record<string, Message[]>, messageId: string): Message | undefined {
+  for (const messages of Object.values(messagesByStream)) {
+    const message = messages.find((candidate) => candidate.id === messageId);
+    if (message) return message;
+  }
+  return undefined;
+}
+
+function mapIfChanged<T>(items: T[], transform: (item: T, index: number) => T): T[] {
+  let next: T[] | null = null;
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]!;
+    const transformed = transform(item, index);
+    if (!next && transformed !== item) next = items.slice(0, index);
+    next?.push(transformed);
+  }
+  return next ?? items;
 }

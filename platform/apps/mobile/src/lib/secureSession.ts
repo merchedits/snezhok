@@ -1,28 +1,30 @@
 import * as SecureStore from "expo-secure-store";
 
 import type { AuthTokens } from "../types";
+import { AsyncValueCache } from "./asyncValueCache";
 
 const SESSION_KEY = "snezhok.session.v1";
-let runtimeSession: AuthTokens | null = null;
 const listeners = new Set<() => void>();
+const sessionCache = new AsyncValueCache<AuthTokens>(() => {
+  for (const listener of listeners) listener();
+});
 
 function updateRuntime(tokens: AuthTokens | null) {
-  runtimeSession = tokens;
-  for (const listener of listeners) listener();
+  sessionCache.set(tokens);
 }
 
 export async function readSession(): Promise<AuthTokens | null> {
-  const raw = await SecureStore.getItemAsync(SESSION_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<AuthTokens>;
-    if (!parsed.accessToken || !parsed.refreshToken || typeof parsed.expiresAt !== "number") return null;
-    const session = parsed as AuthTokens;
-    updateRuntime(session);
-    return session;
-  } catch {
-    return null;
-  }
+  return sessionCache.read(async () => {
+    const raw = await SecureStore.getItemAsync(SESSION_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<AuthTokens>;
+      if (!parsed.accessToken || !parsed.refreshToken || typeof parsed.expiresAt !== "number") return null;
+      return parsed as AuthTokens;
+    } catch {
+      return null;
+    }
+  });
 }
 
 export async function writeSession(tokens: AuthTokens): Promise<void> {
@@ -38,7 +40,7 @@ export async function clearSession(): Promise<void> {
 }
 
 export function getRuntimeSession(): AuthTokens | null {
-  return runtimeSession;
+  return sessionCache.peek();
 }
 
 export function subscribeToSession(listener: () => void): () => void {

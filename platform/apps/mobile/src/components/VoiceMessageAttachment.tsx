@@ -30,7 +30,8 @@ export interface VoiceMessageAttachmentProps {
  * matters in long chat lists and on memory-constrained devices such as the A12.
  */
 export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ attachment }: VoiceMessageAttachmentProps) {
-  const [activated, setActivated] = useState(false);
+  const [activatedAttachmentId, setActivatedAttachmentId] = useState<string | null>(null);
+  const activated = activatedAttachmentId === attachment.id;
   const source = useAuthorizedMedia(attachment.url);
   const bars = useMemo(() => voiceWaveformBars(attachment.waveform), [attachment.waveform]);
 
@@ -45,7 +46,7 @@ export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ att
       loading={false}
       playing={false}
       progress={0}
-      onToggle={() => setActivated(true)}
+      onToggle={() => setActivatedAttachmentId(attachment.id)}
     />
   );
 });

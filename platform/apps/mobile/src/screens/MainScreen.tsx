@@ -5,7 +5,7 @@ import Animated, { cancelAnimation, Easing, runOnJS, type SharedValue, useAnimat
 import { BottomNavigation } from "../components/BottomNavigation";
 import { recordPerformance } from "../diagnostics/diagnostics";
 import { usePalette } from "../hooks/usePalette";
-import { mainTabTransition, type MainTab } from "../navigation/mainTabs";
+import { mainTabTransition, type MainTab, visitMainTab } from "../navigation/mainTabs";
 import { useAppStore } from "../store/useAppStore";
 import { ChatsScreen } from "./ChatsScreen";
 import { ProfileScreen } from "./ProfileScreen";
@@ -15,6 +15,7 @@ import { SettingsScreen } from "./SettingsScreen";
 export function MainScreen() {
   const palette = usePalette();
   const [tab, setTab] = useState<MainTab>("chats");
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<MainTab>>(() => new Set(["chats"]));
   const [pageWidth, setPageWidth] = useState(0);
   const [transition, setTransition] = useState<ReturnType<typeof mainTabTransition> | null>(null);
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
@@ -64,6 +65,7 @@ export function MainScreen() {
     const nextTransition = mainTabTransition(previous, next);
     const id = transitionId.current + 1;
     transitionId.current = id;
+    setVisitedTabs((current) => visitMainTab(current, next));
     setTab(next);
     if (reducedMotion || pageWidth <= 0) {
       setTransition(null);
@@ -81,10 +83,10 @@ export function MainScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
       <View style={styles.viewport} onLayout={measurePages}>
-        <TabPage id="chats" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ChatsScreen embedded active={tab === "chats"} /></TabPage>
-        <TabPage id="servers" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ServersScreen /></TabPage>
-        <TabPage id="profile" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ProfileScreen embedded active={tab === "profile"} /></TabPage>
-        <TabPage id="settings" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><SettingsScreen embedded /></TabPage>
+        {visitedTabs.has("chats") ? <TabPage id="chats" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ChatsScreen embedded active={tab === "chats"} /></TabPage> : null}
+        {visitedTabs.has("servers") ? <TabPage id="servers" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ServersScreen /></TabPage> : null}
+        {visitedTabs.has("profile") ? <TabPage id="profile" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ProfileScreen embedded active={tab === "profile"} /></TabPage> : null}
+        {visitedTabs.has("settings") ? <TabPage id="settings" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><SettingsScreen embedded /></TabPage> : null}
       </View>
       <BottomNavigation selected={tab} onSelect={selectTab} />
     </View>
@@ -121,8 +123,7 @@ const styles = StyleSheet.create({
   viewport: { flex: 1, overflow: "hidden" },
   page: { ...StyleSheet.absoluteFill },
   screenContent: { flex: 1 },
-  // Keep every tab's native tree warm. Freezing hidden tabs made React apply a
-  // backlog of external-store changes on selection, adding 40-120 ms before
-  // the transition could start on the Galaxy A12.
+  // A tab is mounted only after its first visit, avoiding four complete native
+  // trees during startup while preserving scroll position on later switches.
   hiddenPage: { opacity: 0 },
 });

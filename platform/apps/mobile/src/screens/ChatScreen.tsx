@@ -61,10 +61,9 @@ export function ChatScreen({ navigation, route }: Props) {
   const list = useRef<FlashListRef<Message>>(null);
   const messages = useAppStore((state) => state.messages[streamId] ?? emptyMessages);
   const me = useAppStore((state) => state.me);
-  const conversationParticipants = useAppStore((state) => state.conversations.find((item) => item.id === streamId)?.participants);
-  const conversationSaved = useAppStore((state) => state.conversations.find((item) => item.id === streamId)?.saved ?? false);
-  const isGroup = useAppStore((state) => state.conversations.find((item) => item.id === streamId)?.kind === "group");
-  const peer = conversationSaved ? undefined : conversationParticipants?.find((participant) => participant.id !== me?.id) ?? conversationParticipants?.[0];
+  const conversation = useAppStore((state) => state.conversations.find((item) => item.id === streamId));
+  const peer = conversation?.saved ? undefined : conversation?.participants.find((participant) => participant.id !== me?.id) ?? conversation?.participants[0];
+  const isGroup = conversation?.kind === "group";
   const online = useAppStore((state) => state.online);
   const loadMessages = useAppStore((state) => state.loadMessages);
   const loadOlderMessages = useAppStore((state) => state.loadOlderMessages);
@@ -180,7 +179,14 @@ export function ChatScreen({ navigation, route }: Props) {
   const selectedMessages = useMemo(() => sorted.filter((message) => selectedIds.has(message.id)), [selectedIds, sorted]);
   const clipboardText = useMemo(() => selectedMessageText(selectedMessages), [selectedMessages]);
   const latestSequence = useMemo(() => messages.reduce((maximum, message) => Math.max(maximum, message.sequence), 0), [messages]);
-  const latestPin = useMemo(() => [...messages].filter((message) => message.pinnedAt && !message.deletedAt).sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))[0], [messages]);
+  const latestPin = useMemo(() => {
+    let latest: Message | undefined;
+    for (const message of messages) {
+      if (!message.pinnedAt || message.deletedAt) continue;
+      if (!latest || message.pinnedAt > (latest.pinnedAt ?? 0)) latest = message;
+    }
+    return latest;
+  }, [messages]);
 
   useEffect(() => {
     if (!isFocused || !routeSettled || latestSequence <= 0) return;

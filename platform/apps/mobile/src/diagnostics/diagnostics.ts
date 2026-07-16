@@ -5,12 +5,14 @@ import * as Crypto from "expo-crypto";
 import { Platform } from "react-native";
 
 import type { PerformanceBudget } from "./performanceBudgets";
+import { appendBounded } from "./boundedRingBuffer";
 import { evaluatePerformanceBudget } from "./performanceBudgets";
 import { sanitizeDiagnosticValue } from "./redaction";
 
 const EVENTS_KEY = "@snezhok/diagnostics/events/v1";
 const INSTALLATION_KEY = "@snezhok/diagnostics/installation/v1";
 const MAX_EVENTS = 200;
+const PERSIST_DELAY_MS = 4_000;
 
 export type DiagnosticLevel = "debug" | "info" | "warn" | "error";
 export interface DiagnosticEvent {
@@ -38,6 +40,7 @@ let events: DiagnosticEvent[] = [];
 let installationId = "pending";
 let initialized: Promise<void> | null = null;
 let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+let persistenceQueue: Promise<void> = Promise.resolve();
 let previousGlobalHandler: ((error: Error, isFatal?: boolean) => void) | undefined;
 
 export function initializeDiagnostics(): Promise<void> {
@@ -94,8 +97,8 @@ export function recordDiagnostic(
     ...(durationMs === undefined ? {} : { durationMs: Math.max(0, Math.round(durationMs * 10) / 10) }),
     ...(context ? { context: sanitizeContext(context) } : {}),
   };
-  events = [...events.slice(-(MAX_EVENTS - 1)), event];
-  schedulePersistence();
+  appendBounded(events, event, MAX_EVENTS);
+  schedulePersistence(level === "error");
 }
 
 export function recordPerformance(name: PerformanceBudget, durationMs: number, context?: Record<string, unknown>): void {
@@ -114,7 +117,7 @@ export async function diagnosticReport(locale: "ru" | "en"): Promise<DiagnosticR
     device: sanitizeText(Constants.deviceName ?? "Android device", 80),
     locale,
     recordedAt: Date.now(),
-    events: [...events],
+    events: events.slice(),
   };
 }
 
@@ -122,7 +125,11 @@ export async function clearDiagnostics(): Promise<void> {
   events = [];
   if (persistenceTimer) clearTimeout(persistenceTimer);
   persistenceTimer = null;
-  await AsyncStorage.removeItem(EVENTS_KEY);
+  persistenceQueue = persistenceQueue
+    .catch(() => undefined)
+    .then(() => AsyncStorage.removeItem(EVENTS_KEY))
+    .catch(() => undefined);
+  await persistenceQueue;
 }
 
 function sanitizeContext(input: Record<string, unknown>): Record<string, string | number | boolean | null> {
@@ -158,10 +165,15 @@ function parseEvents(value: string | null): DiagnosticEvent[] {
   }
 }
 
-function schedulePersistence(): void {
+function schedulePersistence(urgent = false): void {
+  if (persistenceTimer && !urgent) return;
   if (persistenceTimer) clearTimeout(persistenceTimer);
   persistenceTimer = setTimeout(() => {
     persistenceTimer = null;
-    void AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(events)).catch(() => undefined);
-  }, 500);
+    const snapshot = JSON.stringify(events);
+    persistenceQueue = persistenceQueue
+      .catch(() => undefined)
+      .then(() => AsyncStorage.setItem(EVENTS_KEY, snapshot))
+      .catch(() => undefined);
+  }, urgent ? 0 : PERSIST_DELAY_MS);
 }

@@ -17,3 +17,10 @@ export function mainTabTransition(from: MainTab, to: MainTab) {
     direction: mainTabDirection(from, to),
   } as const;
 }
+
+export function visitMainTab(visited: ReadonlySet<MainTab>, tab: MainTab): ReadonlySet<MainTab> {
+  if (visited.has(tab)) return visited;
+  const next = new Set(visited);
+  next.add(tab);
+  return next;
+}
