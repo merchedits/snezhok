@@ -19,6 +19,7 @@ export type RootStackParamList = {
     title: string;
     subtitle?: string;
     targetMessageId?: string;
+    openedAt?: number;
   };
   Call: { streamId: string; title: string };
   Profile: { userId: string };

@@ -1,8 +1,8 @@
 import * as Haptics from "expo-haptics";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, InteractionManager, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { ConversationSummary } from "@snezhok/contracts";
 
@@ -30,6 +30,7 @@ interface ConversationListRow {
 
 export function ChatsScreen({ embedded: _embedded = false, active = true }: { embedded?: boolean; active?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const screenFocused = useIsFocused();
   const palette = usePalette();
   const { language, t } = useTranslation();
   const showDialog = useAppDialog();
@@ -39,7 +40,6 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const applyConversation = useAppStore((state) => state.applyConversation);
   const syncing = useAppStore((state) => state.syncing);
   const refresh = useAppStore((state) => state.refreshBootstrap);
-  const loadMessages = useAppStore((state) => state.loadMessages);
   const deleteConversation = useAppStore((state) => state.deleteConversation);
   const drafts = useAppStore((state) => state.drafts);
   const folders = useAppStore((state) => state.folders);
@@ -53,32 +53,21 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const [filter, setFilter] = useState("all");
   const [newFolder, setNewFolder] = useState(false);
   const [globalSearch, setGlobalSearch] = useState(false);
+  const foregroundActive = active && screenFocused;
   const warmConversationKey = useMemo(() => conversations.slice(0, 6).map((conversation) => conversation.id).join(","), [conversations]);
 
   useEffect(() => {
-    if (!active) return;
-    // Let the native tab animation finish before background synchronization.
-    const timer = setTimeout(() => void refresh({ silent: true }).catch(() => undefined), 220);
-    return () => clearTimeout(timer);
-  }, [active, refresh]);
-
-  useEffect(() => {
-    if (!active || !warmConversationKey) return;
-    let cancelled = false;
+    if (!foregroundActive || !warmConversationKey) return;
     const timer = setTimeout(() => {
       const streamIds = warmConversationKey.split(",").filter(Boolean);
-      void (async () => {
-        // Limit concurrency so warming cannot compete with a chat the user opens.
-        for (let index = 0; index < streamIds.length && !cancelled; index += 3) {
-          await Promise.all(streamIds.slice(index, index + 3).map((streamId) => loadMessages(streamId).catch(() => undefined)));
-        }
-        if (cancelled) return;
-        const previews = recentMediaPreviewUris(useAppStore.getState().messages, streamIds);
-        await prefetchAuthorizedMedia(previews).catch(() => false);
-      })();
-    }, 320);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [active, loadMessages, warmConversationKey]);
+      // Message rows are restored from SQLite during application startup.
+      // Warm only already-cached thumbnails here: fetching and reconciling six
+      // chats behind a tap can steal the JS thread from the native transition.
+      const previews = recentMediaPreviewUris(useAppStore.getState().messages, streamIds, 6);
+      void prefetchAuthorizedMedia(previews).catch(() => false);
+    }, 1_200);
+    return () => clearTimeout(timer);
+  }, [foregroundActive, warmConversationKey]);
 
   const filtered = useMemo(() => {
     const folder = folders.find((item) => item.id === filter);
@@ -93,27 +82,16 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     sectionBreak: startsRegularConversationSection(filtered, index),
   })), [filtered]);
 
-  const chatParams = useCallback((conversation: ConversationSummary) => ({
+  const chatParams = useCallback((conversation: ConversationSummary, openedAt?: number) => ({
     streamId: conversation.id,
     streamKind: "conversation" as const,
     title: conversationTitle(conversation, language),
+    ...(openedAt === undefined ? {} : { openedAt }),
   }), [language]);
 
-  useEffect(() => {
-    if (!active) return;
-    const likelyConversation = conversations.find((conversation) => !conversation.saved && Boolean(conversation.lastMessage)) ?? conversations[0];
-    if (!likelyConversation) return;
-    const task = InteractionManager.runAfterInteractions(() => navigation.preload("Chat", chatParams(likelyConversation)));
-    return () => task.cancel();
-  }, [active, chatParams, conversations, navigation]);
-
   const openConversation = useCallback((conversation: ConversationSummary) => {
-    navigation.navigate("Chat", chatParams(conversation));
+    navigation.navigate("Chat", chatParams(conversation, performance.now()));
   }, [chatParams, navigation]);
-  const prefetchConversation = useCallback((conversation: ConversationSummary) => {
-    navigation.preload("Chat", chatParams(conversation));
-    void loadMessages(conversation.id).catch(() => undefined);
-  }, [chatParams, loadMessages, navigation]);
   const selectConversation = useCallback((conversation: ConversationSummary) => {
     if (conversation.saved) return;
     setSelectedConversation(conversation);
@@ -125,9 +103,8 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     sectionBreak={item.sectionBreak}
     draft={drafts[item.conversation.id] ?? ""}
     onPress={openConversation}
-    onPressIn={prefetchConversation}
     onLongPress={selectConversation}
-  />, [drafts, me?.id, openConversation, prefetchConversation, selectConversation]);
+  />, [drafts, me?.id, openConversation, selectConversation]);
   const confirmDelete = useCallback(() => {
     const conversation = selectedConversation;
     if (!conversation || deleting) return;
@@ -186,7 +163,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         onCreated={(conversation) => {
           setNewMessage(false);
           applyConversation(conversation);
-          navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title });
+          navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title, openedAt: performance.now() });
         }}
       />
       <ConversationActionsSheet
@@ -217,8 +194,8 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         setGlobalSearch(false);
         const conversation = conversations.find((item) => item.id === message.streamId);
         const channel = channels.find((item) => item.id === message.streamId);
-        if (conversation) navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversationTitle(conversation, language), targetMessageId: message.id });
-        else if (channel) navigation.navigate("Chat", { streamId: channel.id, streamKind: "channel", title: channel.name, targetMessageId: message.id });
+        if (conversation) navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversationTitle(conversation, language), targetMessageId: message.id, openedAt: performance.now() });
+        else if (channel) navigation.navigate("Chat", { streamId: channel.id, streamKind: "channel", title: channel.name, targetMessageId: message.id, openedAt: performance.now() });
       }} />
     </View>
   );
@@ -227,12 +204,11 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
 interface ConversationRowProps extends ConversationListRow {
   currentUserId: string | undefined;
   onPress: (conversation: ConversationSummary) => void;
-  onPressIn: (conversation: ConversationSummary) => void;
   onLongPress: (conversation: ConversationSummary) => void;
   draft: string;
 }
 
-const ConversationRow = memo(function ConversationRow({ conversation, currentUserId, sectionBreak, draft, onPress, onPressIn, onLongPress }: ConversationRowProps) {
+const ConversationRow = memo(function ConversationRow({ conversation, currentUserId, sectionBreak, draft, onPress, onLongPress }: ConversationRowProps) {
   const palette = usePalette();
   const { language, t } = useTranslation();
   const title = conversationTitle(conversation, language);
@@ -241,7 +217,6 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
     <Pressable
       delayLongPress={320}
       onPress={() => onPress(conversation)}
-      onPressIn={() => onPressIn(conversation)}
       onLongPress={() => onLongPress(conversation)}
       style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { backgroundColor: pressed ? palette.surface : palette.background }]}
     >

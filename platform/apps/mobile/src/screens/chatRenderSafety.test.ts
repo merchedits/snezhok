@@ -28,7 +28,16 @@ test("cached chat rows paint before FlashList's deferred layout pass", () => {
   assert.match(chatSource, /onScrollBeginDrag=\{\(\) => \{ userDraggedHistory\.current = true/);
 });
 
-test("conversation press-in preloads the native chat route", () => {
-  assert.match(chatsSource, /navigation\.preload\("Chat", chatParams\(conversation\)\)/);
-  assert.match(chatsSource, /InteractionManager\.runAfterInteractions/);
+test("conversation taps never mount a native chat route before onPress", () => {
+  assert.doesNotMatch(chatsSource, /navigation\.preload/);
+  assert.doesNotMatch(chatsSource, /onPressIn=/);
+  assert.doesNotMatch(chatsSource, /refresh\(\{ silent: true \}\)/);
+  assert.match(chatsSource, /chatParams\(conversation, performance\.now\(\)\)/);
+  assert.match(chatsSource, /active && screenFocused/);
+});
+
+test("chat reconciliation waits for the native transition to settle", () => {
+  assert.match(chatSource, /navigation\.addListener\("transitionEnd"/);
+  assert.match(chatSource, /if \(!routeSettled\) return/);
+  assert.match(chatSource, /recordPerformance\(cachedMessageCountAtOpen\.current > 0/);
 });

@@ -25,6 +25,7 @@ import { ScheduledMessagesModal } from "../components/ScheduledMessagesModal";
 import { SwipeReplyRow } from "../components/SwipeReplyRow";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import { recordPerformance } from "../diagnostics/diagnostics";
 import { composerBottomPadding } from "../lib/keyboardLayout";
 import { chunkMediaMessages } from "../lib/mediaAlbums";
 import { selectedMessageText } from "../lib/messageSelection";
@@ -109,6 +110,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const [scheduledVisible, setScheduledVisible] = useState(false);
   const [cancellingScheduledId, setCancellingScheduledId] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
+  const [routeSettled, setRouteSettled] = useState(false);
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
   const [listReady, setListReady] = useState(false);
   const selectionProgress = useSharedValue(0);
@@ -116,6 +118,8 @@ export function ChatScreen({ navigation, route }: Props) {
   const initialPositioned = useRef(false);
   const userDraggedHistory = useRef(false);
   const loadingOlder = useRef(false);
+  const firstPaintRecorded = useRef(false);
+  const cachedMessageCountAtOpen = useRef(messages.length);
   const draftBeforeEdit = useRef("");
 
   useEffect(() => {
@@ -126,8 +130,26 @@ export function ChatScreen({ navigation, route }: Props) {
   }, [reducedMotion, selectionMode, selectionProgress]);
 
   useEffect(() => {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      setRouteSettled(true);
+    };
+    const unsubscribe = navigation.addListener("transitionEnd", (event) => {
+      if (!event.data.closing) settle();
+    });
+    const fallback = setTimeout(settle, 600);
+    return () => {
+      clearTimeout(fallback);
+      unsubscribe();
+    };
+  }, [navigation, streamId]);
+
+  useEffect(() => {
+    if (!routeSettled) return;
     void Promise.all([loadMessages(streamId), loadPinnedMessages(streamId)]).catch(() => undefined);
-  }, [loadMessages, loadPinnedMessages, streamId]);
+  }, [loadMessages, loadPinnedMessages, routeSettled, streamId]);
   useEffect(() => {
     setSelectedIds(new Set());
     setForwardPicker(false);
@@ -138,6 +160,9 @@ export function ChatScreen({ navigation, route }: Props) {
     initialPositioned.current = false;
     userDraggedHistory.current = false;
     loadingOlder.current = false;
+    firstPaintRecorded.current = false;
+    cachedMessageCountAtOpen.current = useAppStore.getState().messages[streamId]?.length ?? 0;
+    setRouteSettled(false);
     setRenderLimit(INITIAL_RENDERED_MESSAGES);
     setListReady(false);
   }, [streamId]);
@@ -158,12 +183,20 @@ export function ChatScreen({ navigation, route }: Props) {
   const latestPin = useMemo(() => [...messages].filter((message) => message.pinnedAt && !message.deletedAt).sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0))[0], [messages]);
 
   useEffect(() => {
-    if (!isFocused || latestSequence <= 0) return;
+    if (!isFocused || !routeSettled || latestSequence <= 0) return;
     void markStreamRead(streamId, latestSequence).catch(() => undefined);
-  }, [isFocused, latestSequence, markStreamRead, streamId]);
+  }, [isFocused, latestSequence, markStreamRead, routeSettled, streamId]);
   useEffect(() => {
-    if (isFocused) void dismissMessageNotifications(streamId).catch(() => undefined);
-  }, [isFocused, streamId]);
+    if (isFocused && routeSettled) void dismissMessageNotifications(streamId).catch(() => undefined);
+  }, [isFocused, routeSettled, streamId]);
+
+  const recordFirstPaint = useCallback(() => {
+    if (firstPaintRecorded.current || route.params.openedAt === undefined) return;
+    firstPaintRecorded.current = true;
+    recordPerformance(cachedMessageCountAtOpen.current > 0 ? "cachedChatOpen" : "warmChatOpen", performance.now() - route.params.openedAt, {
+      cachedMessages: cachedMessageCountAtOpen.current,
+    });
+  }, [route.params.openedAt]);
 
   const jumpToMessage = useCallback(async (messageId: string) => {
     await loadMessageContext(streamId, messageId).catch(() => undefined);
@@ -413,7 +446,7 @@ export function ChatScreen({ navigation, route }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.background }]} behavior="height" automaticOffset keyboardVerticalOffset={0}>
+    <KeyboardAvoidingView onLayout={recordFirstPaint} style={[styles.screen, { backgroundColor: palette.background }]} behavior="height" automaticOffset keyboardVerticalOffset={0}>
       {selectedIds.size > 0
         ? <ScreenHeader title={String(selectedIds.size)} left={{ icon: "close", label: t("cancel"), onPress: () => setSelectedIds(new Set()) }} />
         : <ScreenHeader title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={[...(scheduledMessages.length ? [{ icon: "time-outline" as const, label: t("scheduledMessages"), onPress: () => setScheduledVisible(true) }] : []), { icon: "search", label: t("search"), onPress: () => setSearchVisible(true) }, ...(streamKind === "conversation" ? [{ icon: "call-outline" as const, label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : [])]} />}
