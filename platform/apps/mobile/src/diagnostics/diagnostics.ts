@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 import type { PerformanceBudget } from "./performanceBudgets";
 import { appendBounded } from "./boundedRingBuffer";
 import { evaluatePerformanceBudget } from "./performanceBudgets";
-import { sanitizeDiagnosticValue } from "./redaction";
+import { sanitizeDiagnosticContext, sanitizeDiagnosticValue } from "./redaction";
 
 const EVENTS_KEY = "@snezhok/diagnostics/events/v1";
 const INSTALLATION_KEY = "@snezhok/diagnostics/installation/v1";
@@ -71,8 +71,6 @@ export function installGlobalErrorCapture(): () => void {
   errorUtils.setGlobalHandler((error, isFatal) => {
     recordDiagnostic("error", "crash", isFatal ? "Fatal JavaScript error" : "Unhandled JavaScript error", {
       name: error.name,
-      error: error.message,
-      stack: error.stack ?? null,
       fatal: Boolean(isFatal),
     });
     previousGlobalHandler?.(error, isFatal);
@@ -95,7 +93,7 @@ export function recordDiagnostic(
     category: sanitizeText(category, 48),
     message: sanitizeText(message, 240),
     ...(durationMs === undefined ? {} : { durationMs: Math.max(0, Math.round(durationMs * 10) / 10) }),
-    ...(context ? { context: sanitizeContext(context) } : {}),
+    ...(context ? { context: sanitizeDiagnosticContext(context) } : {}),
   };
   appendBounded(events, event, MAX_EVENTS);
   schedulePersistence(level === "error");
@@ -130,25 +128,6 @@ export async function clearDiagnostics(): Promise<void> {
     .then(() => AsyncStorage.removeItem(EVENTS_KEY))
     .catch(() => undefined);
   await persistenceQueue;
-}
-
-function sanitizeContext(input: Record<string, unknown>): Record<string, string | number | boolean | null> {
-  const output: Record<string, string | number | boolean | null> = {};
-  for (const [rawKey, rawValue] of Object.entries(input).slice(0, 20)) {
-    const key = sanitizeText(rawKey, 48);
-    if (/password|token|secret|messageText|body/i.test(key)) {
-      output[key] = "[redacted]";
-    } else if (typeof rawValue === "string") {
-      output[key] = sanitizeText(rawValue, 160);
-    } else if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
-      output[key] = rawValue;
-    } else if (typeof rawValue === "boolean" || rawValue === null) {
-      output[key] = rawValue;
-    } else if (rawValue instanceof Error) {
-      output[key] = sanitizeText(`${rawValue.name}: ${rawValue.message}`, 160);
-    }
-  }
-  return output;
 }
 
 function sanitizeText(value: string, maxLength: number): string {

@@ -1,5 +1,4 @@
 import NetInfo from "@react-native-community/netinfo";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Component, type ComponentProps, type ErrorInfo, type ReactNode, useEffect } from "react";
@@ -130,8 +129,7 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => v
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("Chat screen failed", error, info.componentStack);
-    recordDiagnostic("error", "crash", "Chat screen failed", { error, componentStack: info.componentStack });
-    void AsyncStorage.setItem("@snezhok/last-chat-error/v1", JSON.stringify({ message: error.message, stack: error.stack, componentStack: info.componentStack, recordedAt: new Date().toISOString() })).catch(() => undefined);
+    recordDiagnostic("error", "crash", "Chat screen failed", { errorName: error.name, componentStack: info.componentStack });
   }
 
   render() {
