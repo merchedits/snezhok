@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, InteractionManager, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { ConversationSummary } from "@snezhok/contracts";
 
@@ -93,12 +93,27 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     sectionBreak: startsRegularConversationSection(filtered, index),
   })), [filtered]);
 
+  const chatParams = useCallback((conversation: ConversationSummary) => ({
+    streamId: conversation.id,
+    streamKind: "conversation" as const,
+    title: conversationTitle(conversation, language),
+  }), [language]);
+
+  useEffect(() => {
+    if (!active) return;
+    const likelyConversation = conversations.find((conversation) => !conversation.saved && Boolean(conversation.lastMessage)) ?? conversations[0];
+    if (!likelyConversation) return;
+    const task = InteractionManager.runAfterInteractions(() => navigation.preload("Chat", chatParams(likelyConversation)));
+    return () => task.cancel();
+  }, [active, chatParams, conversations, navigation]);
+
   const openConversation = useCallback((conversation: ConversationSummary) => {
-    navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversationTitle(conversation, language) });
-  }, [language, navigation]);
+    navigation.navigate("Chat", chatParams(conversation));
+  }, [chatParams, navigation]);
   const prefetchConversation = useCallback((conversation: ConversationSummary) => {
+    navigation.preload("Chat", chatParams(conversation));
     void loadMessages(conversation.id).catch(() => undefined);
-  }, [loadMessages]);
+  }, [chatParams, loadMessages, navigation]);
   const selectConversation = useCallback((conversation: ConversationSummary) => {
     if (conversation.saved) return;
     setSelectedConversation(conversation);

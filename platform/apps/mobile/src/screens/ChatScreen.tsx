@@ -39,6 +39,9 @@ import type { RootStackParamList, UploadInput } from "../types";
 type Props = NativeStackScreenProps<RootStackParamList, "Chat">;
 
 const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2 } as const;
+const INITIAL_RENDERED_MESSAGES = 80;
+const MESSAGE_PAGE_SIZE = 60;
+const FIRST_FRAME_MESSAGES = 10;
 const emptyMessages: Message[] = [];
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
@@ -106,9 +109,13 @@ export function ChatScreen({ navigation, route }: Props) {
   const [scheduledVisible, setScheduledVisible] = useState(false);
   const [cancellingScheduledId, setCancellingScheduledId] = useState<string | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
+  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
+  const [listReady, setListReady] = useState(false);
   const selectionProgress = useSharedValue(0);
   const selectionMode = selectedIds.size > 0;
   const initialPositioned = useRef(false);
+  const userDraggedHistory = useRef(false);
+  const loadingOlder = useRef(false);
   const draftBeforeEdit = useRef("");
 
   useEffect(() => {
@@ -129,6 +136,10 @@ export function ChatScreen({ navigation, route }: Props) {
     setEditingMessage(null);
     setText(useAppStore.getState().drafts[streamId] ?? "");
     initialPositioned.current = false;
+    userDraggedHistory.current = false;
+    loadingOlder.current = false;
+    setRenderLimit(INITIAL_RENDERED_MESSAGES);
+    setListReady(false);
   }, [streamId]);
   useEffect(() => {
     const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
@@ -139,6 +150,7 @@ export function ChatScreen({ navigation, route }: Props) {
   // Store reconciliation already maintains chronological order. Avoid copying,
   // sorting and reversing the entire history during the first navigation frame.
   const displayMessages = useMemo(() => visibleMessages(messages), [messages]);
+  const renderedMessages = useMemo(() => displayMessages.slice(-renderLimit), [displayMessages, renderLimit]);
   const sorted = displayMessages;
   const selectedMessages = useMemo(() => sorted.filter((message) => selectedIds.has(message.id)), [selectedIds, sorted]);
   const clipboardText = useMemo(() => selectedMessageText(selectedMessages), [selectedMessages]);
@@ -155,12 +167,17 @@ export function ChatScreen({ navigation, route }: Props) {
 
   const jumpToMessage = useCallback(async (messageId: string) => {
     await loadMessageContext(streamId, messageId).catch(() => undefined);
-    requestAnimationFrame(() => {
-      const current = visibleMessages(useAppStore.getState().messages[streamId] ?? []);
-      const index = current.findIndex((message) => message.id === messageId);
-      if (index >= 0) list.current?.scrollToIndex({ index, animated: true, viewPosition: 0.25 });
-    });
-  }, [loadMessageContext, streamId]);
+    const current = visibleMessages(useAppStore.getState().messages[streamId] ?? []);
+    const index = current.findIndex((message) => message.id === messageId);
+    if (index < 0) return;
+    const required = Math.min(current.length, current.length - index + 12);
+    const nextLimit = Math.max(renderLimit, required);
+    setRenderLimit(nextLimit);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const windowStart = Math.max(0, current.length - nextLimit);
+      list.current?.scrollToIndex({ index: index - windowStart, animated: true, viewPosition: 0.25 });
+    }));
+  }, [loadMessageContext, renderLimit, streamId]);
 
   const jumpToPinned = useCallback(() => {
     if (latestPin) void jumpToMessage(latestPin.id);
@@ -261,12 +278,32 @@ export function ChatScreen({ navigation, route }: Props) {
   };
 
   const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const previous = displayMessages[index - 1];
+    const previous = renderedMessages[index - 1];
     const showDay = !previous || new Date(previous.createdAt).toDateString() !== new Date(item.createdAt).toDateString();
     const groupedWithPrevious = !showDay && previous?.sender.id === item.sender.id && item.createdAt - previous.createdAt <= 5 * 60_000;
     const showSender = (streamKind === "channel" || isGroup) && !groupedWithPrevious;
     return <View>{showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}<SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}><MessageBubble message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })} onReplyPress={(messageId) => void jumpToMessage(messageId)} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")))} /></SwipeReplyRow></View>;
-  }, [displayMessages, isGroup, jumpToMessage, me?.id, palette.border, palette.secondaryText, selectedIds, selectionMode, selectionProgress, streamKind, t, toggleReaction, toggleSelected]);
+  }, [isGroup, jumpToMessage, me?.id, palette.border, palette.secondaryText, renderedMessages, selectedIds, selectionMode, selectionProgress, streamKind, t, toggleReaction, toggleSelected]);
+
+  const revealOlderMessages = useCallback(async () => {
+    if (!userDraggedHistory.current || loadingOlder.current) return;
+    userDraggedHistory.current = false;
+    if (renderLimit < displayMessages.length) {
+      setRenderLimit((current) => Math.min(displayMessages.length, current + MESSAGE_PAGE_SIZE));
+      return;
+    }
+    loadingOlder.current = true;
+    try {
+      await loadOlderMessages(streamId);
+      const available = visibleMessages(useAppStore.getState().messages[streamId] ?? []).length;
+      setRenderLimit((current) => Math.min(available, current + MESSAGE_PAGE_SIZE));
+    } finally {
+      loadingOlder.current = false;
+    }
+  }, [displayMessages.length, loadOlderMessages, renderLimit, streamId]);
+
+  const firstFrameMessages = useMemo(() => renderedMessages.slice(-FIRST_FRAME_MESSAGES), [renderedMessages]);
+  const firstFrameStart = renderedMessages.length - firstFrameMessages.length;
 
   const emptyState = useMemo(() => <View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>, [palette.secondaryText, palette.text, t, title]);
 
@@ -381,7 +418,12 @@ export function ChatScreen({ navigation, route }: Props) {
         ? <ScreenHeader title={String(selectedIds.size)} left={{ icon: "close", label: t("cancel"), onPress: () => setSelectedIds(new Set()) }} />
         : <ScreenHeader title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={[...(scheduledMessages.length ? [{ icon: "time-outline" as const, label: t("scheduledMessages"), onPress: () => setScheduledVisible(true) }] : []), { icon: "search", label: t("search"), onPress: () => setSearchVisible(true) }, ...(streamKind === "conversation" ? [{ icon: "call-outline" as const, label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : [])]} />}
       {latestPin ? <Pressable onPress={jumpToPinned} style={({ pressed }) => [styles.pinBanner, { borderColor: palette.border, backgroundColor: pressed ? palette.surface : palette.background }]}><View style={[styles.pinAccent, { backgroundColor: palette.accent }]} /><AppIcon name="pin" size={17} color={palette.accent} /><View style={styles.pinCopy}><Text style={[styles.pinLabel, { color: palette.accent }]}>{t("pinnedMessage")}</Text><Text numberOfLines={1} style={[styles.pinText, { color: palette.secondaryText }]}>{latestPin.text || t("attachment")}</Text></View></Pressable> : null}
-      <FlashList ref={list} data={displayMessages} keyExtractor={messageKey} getItemType={messageCellType} renderItem={renderMessage} style={styles.messageList} contentContainerStyle={styles.list} drawDistance={360} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" maintainVisibleContentPosition={maintainVisibleMessagePosition} onStartReached={() => void loadOlderMessages(streamId).catch(() => undefined)} onStartReachedThreshold={0.35} onContentSizeChange={() => { if (!initialPositioned.current && displayMessages.length) { initialPositioned.current = true; requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false })); } }} ListEmptyComponent={emptyState} />
+      <View style={styles.messageViewport}>
+        <FlashList ref={list} data={renderedMessages} keyExtractor={messageKey} getItemType={messageCellType} renderItem={renderMessage} style={styles.messageList} contentContainerStyle={styles.list} drawDistance={360} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" maintainVisibleContentPosition={maintainVisibleMessagePosition} onScrollBeginDrag={() => { userDraggedHistory.current = true; }} onStartReached={() => void revealOlderMessages().catch(() => undefined)} onStartReachedThreshold={0.2} onLoad={() => setListReady(true)} onContentSizeChange={() => { if (!initialPositioned.current && renderedMessages.length) { initialPositioned.current = true; requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false })); } }} ListEmptyComponent={emptyState} />
+        {!listReady && firstFrameMessages.length ? <View pointerEvents="none" style={[styles.firstFrameMessages, { backgroundColor: palette.background }]}>
+          {firstFrameMessages.map((message, index) => <View key={message.id}>{renderMessage({ item: message, index: firstFrameStart + index })}</View>)}
+        </View> : null}
+      </View>
       {selectedIds.size > 0 ? <View style={[styles.selectionToolbar, { paddingBottom: Math.max(insets.bottom, 8), borderColor: palette.border, backgroundColor: palette.background }]}>
         {clipboardText ? <SelectionAction icon="copy-outline" label={t("copy")} onPress={() => void copySelected()} /> : null}
         {editableMessage ? <SelectionAction icon="create-outline" label={t("editMessage")} onPress={beginEditing} /> : null}
@@ -527,7 +569,8 @@ function SelectionAction({ icon, label, danger = false, onPress }: { icon: AppIc
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 }, messageList: { flex: 1 }, list: { paddingVertical: 8 },
+  screen: { flex: 1 }, messageViewport: { flex: 1, overflow: "hidden" }, messageList: { flex: 1 }, list: { paddingVertical: 8 },
+  firstFrameMessages: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, justifyContent: "flex-end", overflow: "hidden", paddingVertical: 8 },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 18 },
   headerCopy: { minWidth: 0, maxWidth: 150 }, headerTitle: { fontSize: 15, lineHeight: 18, fontWeight: "800" }, headerSubtitle: { fontSize: 11, lineHeight: 14, marginTop: 1 },
   pinBanner: { minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },

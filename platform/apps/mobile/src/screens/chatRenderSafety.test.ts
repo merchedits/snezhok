@@ -20,3 +20,15 @@ test("productivity synchronization is single-flight and ignores duplicate online
   assert.match(storeSource, /if \(productivityRefresh\) return productivityRefresh/);
   assert.match(storeSource, /if \(get\(\)\.online === online\) return/);
 });
+
+test("cached chat rows paint before FlashList's deferred layout pass", () => {
+  assert.match(chatSource, /const INITIAL_RENDERED_MESSAGES = 80/);
+  assert.match(chatSource, /renderedMessages\.slice\(-FIRST_FRAME_MESSAGES\)/);
+  assert.match(chatSource, /!listReady && firstFrameMessages\.length/);
+  assert.match(chatSource, /onScrollBeginDrag=\{\(\) => \{ userDraggedHistory\.current = true/);
+});
+
+test("conversation press-in preloads the native chat route", () => {
+  assert.match(chatsSource, /navigation\.preload\("Chat", chatParams\(conversation\)\)/);
+  assert.match(chatsSource, /InteractionManager\.runAfterInteractions/);
+});
