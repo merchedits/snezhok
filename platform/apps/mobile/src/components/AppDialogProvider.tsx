@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { normalizeDialogActions, type AppDialogAction } from "../lib/dialogActions";
+import { enqueueUniqueDialog, normalizeDialogActions, type AppDialogAction } from "../lib/dialogActions";
 
 export type { AppDialogAction } from "../lib/dialogActions";
 
@@ -42,7 +42,7 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
       actions: normalizeDialogActions(actions, t("ok")),
       dismissible: options?.dismissible !== false,
     };
-    setDialogs((current) => [...current, request]);
+    setDialogs((current) => enqueueUniqueDialog(current, request));
   }, [t]);
   const value = useMemo(() => showDialog, [showDialog]);
   const active = dialogs[0] ?? null;
@@ -67,6 +67,11 @@ function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; on
   const insets = useSafeAreaInsets();
   const actionLocked = useRef(false);
   useEffect(() => { actionLocked.current = false; }, [dialog?.id]);
+  const dismissOnce = () => {
+    if (actionLocked.current) return;
+    actionLocked.current = true;
+    onDismiss();
+  };
   const activate = (action: AppDialogAction) => {
     if (actionLocked.current) return;
     actionLocked.current = true;
@@ -81,18 +86,18 @@ function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; on
       statusBarTranslucent
       navigationBarTranslucent
       animationType="fade"
-      onRequestClose={() => { if (dialog?.dismissible) onDismiss(); }}
+      onRequestClose={() => { if (dialog?.dismissible) dismissOnce(); }}
     >
       <View
         accessibilityViewIsModal
         accessibilityLabel={dialog?.title}
-        onAccessibilityEscape={() => { if (dialog?.dismissible) onDismiss(); }}
+        onAccessibilityEscape={() => { if (dialog?.dismissible) dismissOnce(); }}
         style={[styles.layer, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}
       >
         <Pressable
           accessible={false}
           disabled={!dialog?.dismissible}
-          onPress={onDismiss}
+          onPress={dismissOnce}
           style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]}
         />
         {dialog ? <View style={[styles.card, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
