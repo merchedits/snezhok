@@ -128,8 +128,13 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => v
   static getDerivedStateFromError() { return { failed: true }; }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("Chat screen failed", error, info.componentStack);
-    recordDiagnostic("error", "crash", "Chat screen failed", { errorName: error.name, componentStack: info.componentStack });
+    // Message text can appear in component stacks and exception messages. Keep
+    // production diagnostics useful without copying user-authored content into
+    // Logcat or the client report buffer.
+    recordDiagnostic("error", "crash", "Chat screen failed", {
+      errorName: error.name || "Error",
+      hasComponentStack: Boolean(info.componentStack),
+    });
   }
 
   render() {
