@@ -6,6 +6,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from "@snezhok/contra
 
 import { API_URL } from "../lib/api";
 import { readSession } from "../lib/secureSession";
+import { bindRealtimeSocket, receiveRealtimeTyping, rejoinRequestedStreams } from "../lib/realtimeBridge";
 import {
   handleCallUpdate,
   handleNotificationResponse,
@@ -53,6 +54,7 @@ export function useRealtime(enabled: boolean): void {
         timeout: 10_000,
       });
       socket.on("connect", () => {
+        rejoinRequestedStreams();
         socket?.emit("sync:resume", { cursor: useAppStore.getState().eventCursor }, (accepted) => {
           if (!accepted) void refreshBootstrap({ force: true, silent: true });
         });
@@ -73,17 +75,20 @@ export function useRealtime(enabled: boolean): void {
       socket.on("channel:updated", () => void refreshBootstrap({ force: true, silent: true }));
       socket.on("friend:updated", () => void refreshBootstrap({ force: true, silent: true }));
       socket.on("presence:updated", ({ userId, presence, lastSeenAt }) => applyPresence(userId, presence, lastSeenAt));
+      socket.on("typing:updated", ({ streamId, userId, typing }) => receiveRealtimeTyping(streamId, userId, typing));
       socket.io.on("reconnect_attempt", () => {
         void readSession().then((latest) => {
           if (socket && latest) socket.auth = { token: latest.accessToken };
         });
       });
+      bindRealtimeSocket(socket);
     });
 
     return () => {
       disposed = true;
       notificationResponse.remove();
       notificationReceived.remove();
+      bindRealtimeSocket(null);
       socket?.disconnect();
     };
   }, [applyConversation, applyMessage, applyMessageDeleted, applyPresence, applyReadReceipt, enabled, refreshBootstrap, removeConversation, setEventCursor]);
