@@ -53,16 +53,14 @@ The content header is 52 px high. It contains the current avatar or channel icon
 
 ### Android
 
-The default surface is the current conversation or the Chats list. The top-left profile or active-server control opens a left navigation drawer. The drawer contains the narrow server rail and the contextual chat or channel list. An edge swipe also opens it.
-
-There is no generic five-item bottom navigation bar. A compose floating action button appears only on the Chats list.
+The default surface is the current conversation or the Chats list. Four stable bottom destinations are **Chats**, **Servers**, **Profile**, and **Settings**. They use one consistent Tabler outline icon family, respect Android navigation insets, and switch directly to the destination with a single short directional transition; intermediate tabs are never rendered as a visible carousel. A compose floating action button appears only on the Chats list.
 
 System Back resolves the nearest transient state first:
 
 1. Close a menu, viewer, or dialog.
 2. Cancel message selection or composer reply/edit mode.
-3. Close the navigation or information drawer.
-4. Return to the previous list.
+3. Close any contextual sheet or transient server panel.
+4. Return to the previous list or root tab.
 5. Leave the application only when already at its root.
 
 The conversation composer stays above the software keyboard and respects gesture navigation insets. The app supports portrait and landscape layouts.
@@ -165,16 +163,7 @@ Verbose delivery labels are not shown beside every message. Reconnect reconcilia
 
 ### Message actions
 
-Desktop hover and Android long press expose the same ordered actions:
-
-1. Reply.
-2. React.
-3. Copy.
-4. Edit for the author.
-5. Pin for authorized members.
-6. Forward.
-7. Delete for the author or moderator.
-8. More.
+On Android, tapping a message opens the compact reaction picker, double-tapping applies a heart, and swiping the message left starts a reply. Long press enters Telegram-style multi-message selection: text selection is disabled, circular checkmarks animate into the left gutter, selected bubbles receive a restrained highlight, and the toolbar uses one-word labels **Copy**, **Forward**, **Pin**, and **Delete**. Actions that cannot apply to the complete selection are disabled or omitted. Desktop exposes the equivalent actions through hover and context menus.
 
 Deletion asks for confirmation when it affects other users. Pinning can optionally notify members. Pinned-message lists are chronological and jump to the original message.
 
@@ -182,7 +171,7 @@ Deletion asks for confirmation when it affects other users. Pinning can optional
 
 The emoji picker contains Search, Recent, People, Nature, Food, Activity, Travel, Objects, Symbols, and Flags. Category assets load lazily. The selected skin tone is retained across sessions.
 
-Reactions render below the message with emoji, count, and an explicit selected state for the current user. Repeated reactions update immediately and reconcile with the server.
+Reactions render below the message as compact emoji chips without numeric counts. The current user's selection remains visually explicit. Repeated reactions update optimistically and reconcile with the server.
 
 ### Search
 
@@ -209,18 +198,13 @@ Round video notes autoplay muted only while substantially visible. Selecting one
 
 ## Attachments and media
 
-The attachment menu contains Photos and videos, File, Camera on Android, and Audio. It does not contain irrelevant placeholder actions.
+Selecting the attachment control immediately opens a Telegram-style recent-media drawer. Its first tile is **Upload file**, which opens Android's document picker and sends the selected bytes as a file. There is no camera tile, video-message shortcut, overflow quality menu, or multi-mode picker in this drawer.
 
-Before media is sent, the client shows a thumbnail grid, caption field, quality selector, and estimated total size. Supported quality modes are:
-
-- **Auto**: default; adaptive compression, normally up to 1080p.
-- **High quality**: up to 2160p when supported by the source, with a higher bitrate.
-- **Data saver**: normally up to 720p with aggressive compression.
-- **Original / Send as file**: byte-for-byte transfer without recompression; original filename retained.
+Recent photos and videos use adaptive compression by default. A single **HQ** toggle raises media quality and gives immediate localized enabled/disabled feedback. Sending through **Upload file** is the explicit byte-for-byte original path and retains the original filename.
 
 Documents are never automatically compressed. Compressed media preserves orientation and strips embedded location metadata by default. The client presents progress, cancellation, retry, and resumable background transfer. Android continues eligible uploads through a foreground worker when the application leaves the foreground.
 
-Two to ten media items can be sent as one album with a single caption and a predictable tile layout. Media viewers expose download, save, open externally, copy link where allowed, and message navigation.
+One to ten media items are sent as one album with a single caption and a predictable tile layout. Larger selections are split deterministically into groups of ten, so 23 items become 10 + 10 + 3. A single image or video preserves its source aspect ratio within safe viewport bounds. Media viewers expose pinch and double-tap zoom, pan, download/save, open externally, and message navigation.
 
 ## Presence and notifications
 
@@ -361,20 +345,20 @@ The existing global conversation becomes a `General` text channel inside a defau
 
 ## Acceptance criteria
 
-A production release is not complete until the following are exercised on web and Android:
+The current Android-first production release is not complete until the following are exercised on Android against the production API. Web parity is a later milestone and does not block the private APK release:
 
 - Email registration, login, session persistence, session revocation, and logout.
 - Friend request, acceptance, removal, and block behavior.
 - Direct chat, private group, server, category, text channel, and voice channel flows.
 - Text, emoji, reactions, reply, edit, delete, pin, forward, and search.
 - Voice note and round-video-note gesture flows.
-- Auto, high-quality, data-saver, and original-file transfer modes.
+- Default compressed media, HQ media, and original-file transfer modes.
 - Upload cancellation, retry, resume, background Android upload, and authorization failure.
 - Direct call, group call, voice-channel join, late join, reconnect, TURN fallback, and screen share.
 - Notification overrides and quiet hours.
 - Cached startup, offline read, offline queue, and reconnect delta sync.
-- Keyboard-only desktop navigation and Android screen-reader traversal.
+- Android screen-reader traversal, 3-button navigation, gesture navigation, keyboard/inset handling, and destructive-confirmation flows.
 - Empty, loading, error, offline, reconnecting, and destructive-confirmation states.
-- Desktop widths of 1440 and 1024 px and Android viewports of 412 by 915 and 360 by 800 dp-equivalent layouts.
+- Android viewports of 412 by 915 and 360 by 800 dp-equivalent layouts, including the Samsung Galaxy A12 class of devices.
 
 Any screen should be rejected if it cannot be traced to an established Telegram or Discord pattern, displays metadata that does not support a decision, hides a frequent action behind a novel gesture, or requires explanatory marketing prose to understand.

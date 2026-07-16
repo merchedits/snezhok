@@ -45,9 +45,9 @@ The Android client uses a native custom build, never Expo Go. Its storage and ba
 
 ## Attachments
 
-Uploads are resumable and persisted before they are attached to messages. The server verifies declared length and SHA-256, detects type from content, and moves completed blobs into an immutable content-addressed object tree.
+Uploads are resumable and persisted before they are attached to messages. The server verifies declared length and SHA-256, detects type from content, and moves completed blobs to immutable generation-specific object keys. PostgreSQL deduplicates logical attachments by checksum; generation-specific physical keys prevent a stale collector from deleting a newly committed object that happens to contain identical bytes.
 
-The send modes are Data saver, Auto, High quality and Original. Original is byte-for-byte. Media variants are generated asynchronously with bounded concurrency. The initial private deployment uses a local filesystem behind an interface that can later target S3; MinIO is intentionally omitted to reduce memory use.
+The Android attachment drawer defaults to adaptive compressed media and exposes one High quality toggle. Selecting Upload file is the byte-for-byte original path. Media variants are generated asynchronously with bounded concurrency. The initial private deployment uses a local filesystem behind an interface that can later target S3; MinIO is intentionally omitted to reduce memory use.
 
 Nginx serves authorized immutable objects through an internal location after the API returns `X-Accel-Redirect`, preserving range requests and avoiding Node memory pressure.
 
@@ -60,9 +60,9 @@ The single-node private deployment uses:
 - LiveKit signaling on loopback port 7880, proxied at `/chat/livekit/`.
 - WebRTC TCP on 7881.
 - WebRTC UDP mux on 7882.
-- Authenticated embedded TURN/UDP on 3478.
+- Authenticated embedded TURN/UDP on 3478 and TURN/TLS advertised at `turn.merchedits.xyz:443` through the documented L4 SNI routing topology.
 
-The host firewall and router must forward those media ports. TURN/TLS on 443 is not enabled because Nginx already owns the single public 443 endpoint. Strict-firewall TURN/TLS would require a second public IP or an L4 SNI proxy.
+The host firewall and router must forward those media ports. Strict-firewall TURN/TLS shares public port 443 through an L4 SNI proxy that routes the TURN hostname separately from HTTPS; its certificate, DNS, router, and firewall prerequisites are release-gated and verified by the connectivity smoke test.
 
 Self-hosted calls receive WebRTC echo cancellation, automatic gain control and standard noise suppression. Enhanced proprietary cancellation is an optional licensed client processor, not a claim made by the base deployment.
 
