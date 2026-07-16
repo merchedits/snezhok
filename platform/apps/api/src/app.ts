@@ -27,7 +27,17 @@ import { uploadRoutes } from "./modules/uploads/routes.js";
 import { userRoutes } from "./modules/users/routes.js";
 
 export async function buildApp() {
-  const app = Fastify({ logger: config.NODE_ENV !== "test", trustProxy: config.TRUST_PROXY_HOPS, bodyLimit: 1024 * 1024, requestIdHeader: "x-request-id" });
+  const app = Fastify({
+    logger: config.NODE_ENV === "test" ? false : {
+      redact: {
+        paths: ["req.headers.authorization", "req.headers.cookie", "req.headers.upload-capability"],
+        censor: "[REDACTED]",
+      },
+    },
+    trustProxy: config.TRUST_PROXY_HOPS,
+    bodyLimit: 1024 * 1024,
+    requestIdHeader: "x-request-id",
+  });
   app.decorateRequest("auth");
   const requestStarts = new WeakMap<object, number>();
   app.addHook("onRequest", async (request, reply) => {

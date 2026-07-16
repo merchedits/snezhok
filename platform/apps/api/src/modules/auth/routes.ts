@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { loginSchema, registerSchema } from "@snezhok/contracts";
 import { z } from "zod";
 import { config } from "../../config.js";
-import { login, refresh, register, revokeSession, listSessions } from "./service.js";
+import { login, refresh, register, revokeOtherSessions, revokeSession, listSessions } from "./service.js";
 import { requireAuth } from "./middleware.js";
 
 const refreshSchema = z.object({ refreshToken: z.string().min(16).optional() });
@@ -40,10 +40,14 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get("/auth/me", { preHandler: requireAuth }, async (request) => ({ user: request.auth }));
   app.get("/auth/sessions", { preHandler: requireAuth }, async (request) => ({ sessions: await listSessions(request.auth) }));
-  app.delete("/auth/sessions/:id", { preHandler: requireAuth }, async (request) => {
+  app.delete("/auth/sessions/:id", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = sessionParams.parse(request.params);
     await revokeSession(request.auth.id, id);
-    return { success: true };
+    if (id === request.auth.sessionId) clearSessionCookies(reply);
+    return { success: true, current: id === request.auth.sessionId };
+  });
+  app.post("/auth/sessions/revoke-others", { preHandler: requireAuth }, async (request) => {
+    return { revoked: await revokeOtherSessions(request.auth.id, request.auth.sessionId) };
   });
 }
 

@@ -36,6 +36,7 @@ test("attachment and call copy follows the recipient language", () => {
   }, { language: "en", showPreview: true });
   assert.equal(call?.title, "Incoming call · Anna");
   assert.equal(call?.body, "Tap to answer");
+  assert.deepEqual(call?.data, { notificationType: "call", roomId: "r", streamId: "s", streamKind: "conversation", title: "Anna", callerId: "u1", callerName: "Anna", startedAt: undefined });
 });
 
 test("call end is a quiet background lifecycle event", () => {
@@ -43,6 +44,13 @@ test("call end is a quiet background lifecycle event", () => {
   assert.equal(result?._contentAvailable, true);
   assert.equal(result?.title, undefined);
   assert.deepEqual(result?.data, { notificationType: "call-ended", roomId: "r", answered: true });
+});
+
+test("voice channel joins never produce incoming-call push notifications", () => {
+  const result = pushContentForEvent("u2", "call:updated", {
+    roomId: "r", streamId: "voice", streamKind: "channel", state: "started", callerId: "u1", callerName: "Anna",
+  });
+  assert.equal(result, null);
 });
 
 test("Expo tickets are persisted only after provider acceptance", async () => {

@@ -34,6 +34,7 @@ export class PushGatewayError extends Error {
 export interface NotificationRenderOptions {
   language: "en" | "ru";
   showPreview: boolean;
+  sound?: boolean;
 }
 
 const defaultRenderOptions: NotificationRenderOptions = { language: "ru", showPreview: true };
@@ -57,7 +58,7 @@ export function pushContentForEvent(
     return {
       title: senderName,
       body: text.slice(0, 240),
-      sound: "default",
+      ...(options.sound === false ? {} : { sound: "default" as const }),
       priority: "high",
       channelId: "messages-v1",
       collapseId: `stream-${value.streamId}`.slice(0, 64),
@@ -70,13 +71,15 @@ export function pushContentForEvent(
     };
   }
   if (name === "call:updated" && value.state === "started") {
-    if (value.callerId === recipientId || typeof value.streamId !== "string" || typeof value.roomId !== "string") return null;
+    // Joining a Discord-style voice channel is intentional and must not ring
+    // every server member like a direct or group call.
+    if (value.streamKind === "channel" || value.callerId === recipientId || typeof value.streamId !== "string" || typeof value.roomId !== "string") return null;
     const caller = typeof value.callerName === "string" ? value.callerName : "Snezhok";
     const copy = localized(options.language);
     return {
       title: `${copy.incomingCall} · ${caller}`,
       body: copy.tapToAnswer,
-      sound: "default",
+      ...(options.sound === false ? {} : { sound: "default" as const }),
       priority: "high",
       channelId: "calls-v1",
       categoryId: "incoming-call-v1",
@@ -86,7 +89,11 @@ export function pushContentForEvent(
         notificationType: "call",
         roomId: value.roomId,
         streamId: value.streamId,
+        streamKind: value.streamKind,
         title: typeof value.title === "string" ? value.title : caller,
+        callerId: value.callerId,
+        callerName: caller,
+        startedAt: value.startedAt,
       },
     };
   }
@@ -110,7 +117,7 @@ export function pushContentForEvent(
 export async function pushMessageForEvent(recipientId: string, name: string, payload: unknown): Promise<Omit<ExpoPushMessage, "to"> | null> {
   const policy = await notificationPolicyForEvent(recipientId, name, payload);
   if (!policy.enabled) return null;
-  return pushContentForEvent(recipientId, name, payload, { language: policy.language, showPreview: policy.showPreview });
+  return pushContentForEvent(recipientId, name, payload, { language: policy.language, showPreview: policy.showPreview, sound: policy.sound });
 }
 
 export async function sendExpoPush(
@@ -160,27 +167,37 @@ export async function notificationPolicyForEvent(
   name: string,
   payload: unknown,
   client: Pick<DbClient, "query"> = pool,
-): Promise<{ enabled: boolean; language: "en" | "ru"; showPreview: boolean }> {
+): Promise<{ enabled: boolean; language: "en" | "ru"; showPreview: boolean; sound: boolean }> {
   const settingsResult = await client.query<{ settings: Record<string, unknown> }>("SELECT settings FROM user_settings WHERE user_id=$1", [recipientId]);
   const settings = settingsResult.rows[0]?.settings ?? {};
   const language = settings.language === "en" ? "en" : "ru";
   const globallyEnabled = name === "message:created"
-    ? settings.messageNotifications !== false
+    ? settings.messageNotifications !== false && settings.notificationMobile !== false
     : name === "call:updated"
       ? settings.callNotifications !== false
       : true;
   let showPreview = settings.notificationPreviews !== false;
+  let sound = settings.notificationSound !== false;
   // Ended-call pushes dismiss a previously displayed incoming-call surface and
   // must not be suppressed by a mute that was changed while the call rang.
   const value = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
-  if (name === "call:updated" && value?.state === "ended") return { enabled: true, language, showPreview: false };
-  if (!globallyEnabled || !value) return { enabled: globallyEnabled, language, showPreview };
+  if (name === "call:updated" && value?.state === "ended") return { enabled: true, language, showPreview: false, sound: false };
+  if (!globallyEnabled || !value) return { enabled: globallyEnabled, language, showPreview, sound };
+  if (name === "message:created" && isQuietHours(settings, new Date())) return { enabled: false, language, showPreview, sound };
   if ((value.streamKind !== "conversation" && value.streamKind !== "channel") || typeof value.streamId !== "string") {
-    return { enabled: globallyEnabled, language, showPreview };
+    return { enabled: globallyEnabled, language, showPreview, sound };
   }
-  const result = await client.query<{ enabled: boolean | null; show_preview: boolean | null; override_muted: boolean; membership_muted: boolean }>(
-    `SELECT policy.enabled,policy.show_preview,
+  const result = await client.query<{
+    enabled: boolean | null; show_preview: boolean | null; sound: boolean | null; mobile_enabled: boolean | null;
+    mentions_only: boolean | null; server_enabled: boolean | null; server_show_preview: boolean | null;
+    server_sound: boolean | null; server_mobile_enabled: boolean | null; server_mentions_only: boolean | null;
+    override_muted: boolean; server_muted: boolean; membership_muted: boolean; mentioned: boolean;
+  }>(
+    `SELECT policy.enabled,policy.show_preview,policy.sound,policy.mobile_enabled,policy.mentions_only,
+       server_policy.enabled server_enabled,server_policy.show_preview server_show_preview,server_policy.sound server_sound,
+       server_policy.mobile_enabled server_mobile_enabled,server_policy.mentions_only server_mentions_only,
        coalesce(policy.muted_until>now(),false) override_muted,
+       coalesce(server_policy.muted_until>now(),false) server_muted,
        CASE WHEN $2='conversation' THEN coalesce((
          SELECT member.muted_until>now() FROM conversation_members member
          WHERE member.user_id=$1 AND member.conversation_id=$3
@@ -189,19 +206,44 @@ export async function notificationPolicyForEvent(
          SELECT member.muted_until>now() FROM channels channel
          JOIN server_members member ON member.server_id=channel.server_id AND member.user_id=$1
          WHERE channel.id=$3
-       ),false) END membership_muted
+       ),false) END membership_muted,
+       CASE WHEN $4::uuid IS NULL THEN false ELSE EXISTS(
+         SELECT 1 FROM message_mentions mention WHERE mention.message_id=$4 AND mention.user_id=$1
+       ) END mentioned
      FROM (SELECT 1) singleton
      LEFT JOIN stream_notification_settings policy
-       ON policy.user_id=$1 AND policy.stream_kind=$2 AND policy.stream_id=$3`,
-    [recipientId, value.streamKind, value.streamId],
+       ON policy.user_id=$1 AND policy.stream_kind=$2 AND policy.stream_id=$3
+     LEFT JOIN LATERAL (
+       SELECT setting.* FROM server_notification_settings setting
+       JOIN channels channel ON channel.server_id=setting.server_id
+       WHERE $2='channel' AND channel.id=$3 AND setting.user_id=$1
+     ) server_policy ON true`,
+    [recipientId, value.streamKind, value.streamId, typeof value.id === "string" ? value.id : null],
   );
   const row = result.rows[0];
-  if (row?.show_preview !== null && row?.show_preview !== undefined) showPreview = row.show_preview;
+  showPreview = row?.show_preview ?? row?.server_show_preview ?? showPreview;
+  sound = row?.sound ?? row?.server_sound ?? sound;
+  const enabled = row?.enabled ?? row?.server_enabled ?? true;
+  const mobile = row?.mobile_enabled ?? row?.server_mobile_enabled ?? true;
+  const mentionsOnly = row?.mentions_only ?? row?.server_mentions_only ?? settings.notificationMentionsOnly === true;
   return {
-    enabled: globallyEnabled && row?.enabled !== false && row?.override_muted !== true && row?.membership_muted !== true,
+    enabled: globallyEnabled && enabled && mobile && !(mentionsOnly && !row?.mentioned)
+      && row?.override_muted !== true && row?.server_muted !== true && row?.membership_muted !== true,
     language,
     showPreview,
+    sound,
   };
+}
+
+export function isQuietHours(settings: Record<string, unknown>, now: Date) {
+  const start = settings.quietHoursStart;
+  const end = settings.quietHoursEnd;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start === end) return false;
+  const offset = Number.isInteger(settings.quietHoursTimezoneOffsetMinutes) ? Number(settings.quietHoursTimezoneOffsetMinutes) : 0;
+  const localMinutes = ((Math.floor(now.getTime() / 60_000) - offset) % 1440 + 1440) % 1440;
+  return Number(start) < Number(end)
+    ? localMinutes >= Number(start) && localMinutes < Number(end)
+    : localMinutes >= Number(start) || localMinutes < Number(end);
 }
 
 function attachmentLabel(kind: unknown, language: "en" | "ru"): string {

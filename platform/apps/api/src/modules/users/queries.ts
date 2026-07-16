@@ -19,5 +19,5 @@ export function mapUser(row: PublicUserRow): UserSummary {
 }
 
 export async function findUser(userId: string, client: Pick<DbClient, "query"> = pool) {
-  return (await client.query<PublicUserRow>(`SELECT ${publicUserSelect} FROM users u WHERE u.id=$1`, [userId])).rows[0];
+  return (await client.query<PublicUserRow>(`SELECT ${publicUserSelect} FROM users u WHERE u.id=$1 AND u.deleted_at IS NULL`, [userId])).rows[0];
 }

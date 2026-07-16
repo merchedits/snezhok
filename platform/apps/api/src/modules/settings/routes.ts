@@ -15,6 +15,9 @@ const settingsSchema = z.object({
   callAudioRoute: z.enum(["auto","earpiece","speaker","headset","bluetooth"]),
   callQuality: z.enum(["data-saver","auto","high"]), screenShareQuality: z.enum(["data-saver","auto","high"]), pushToTalk: z.boolean(),
   messageNotifications: z.boolean(), callNotifications: z.boolean(), notificationPreviews: z.boolean(),
+  notificationSound: z.boolean(), notificationMobile: z.boolean(), notificationMentionsOnly: z.boolean(),
+  quietHoursStart: z.number().int().min(0).max(1439).nullable(), quietHoursEnd: z.number().int().min(0).max(1439).nullable(),
+  quietHoursTimezoneOffsetMinutes: z.number().int().min(-840).max(840),
 }).partial();
 
 export async function settingsRoutes(app: FastifyInstance) {

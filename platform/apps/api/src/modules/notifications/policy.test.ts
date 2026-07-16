@@ -21,7 +21,7 @@ test("push policy combines global, per-stream, conversation, and server mute sta
     const client = db as unknown as Pick<DbClient, "query">;
 
     const directMuted = await notificationPolicyForEvent(userId, "message:created", stream("conversation", conversationId), client);
-    assert.deepEqual(directMuted, { enabled: false, language: "en", showPreview: false });
+    assert.deepEqual(directMuted, { enabled: false, language: "en", showPreview: false, sound: true });
 
     await db.query("UPDATE conversation_members SET muted_until=NULL WHERE user_id=$1 AND conversation_id=$2", [userId, conversationId]);
     await db.query(
@@ -29,18 +29,18 @@ test("push policy combines global, per-stream, conversation, and server mute sta
       [userId, conversationId],
     );
     const directDisabled = await notificationPolicyForEvent(userId, "message:created", stream("conversation", conversationId), client);
-    assert.deepEqual(directDisabled, { enabled: false, language: "en", showPreview: true });
+    assert.deepEqual(directDisabled, { enabled: false, language: "en", showPreview: true, sound: true });
 
     const serverMuted = await notificationPolicyForEvent(userId, "message:created", stream("channel", channelId), client);
     assert.equal(serverMuted.enabled, false);
 
     await db.query("UPDATE server_members SET muted_until=NULL WHERE user_id=$1 AND server_id=$2", [userId, serverId]);
     const channelEnabled = await notificationPolicyForEvent(userId, "message:created", stream("channel", channelId), client);
-    assert.deepEqual(channelEnabled, { enabled: true, language: "en", showPreview: false });
+    assert.deepEqual(channelEnabled, { enabled: true, language: "en", showPreview: false, sound: true });
 
     await db.query("UPDATE user_settings SET settings=settings||'{\"callNotifications\":false}'::jsonb WHERE user_id=$1", [userId]);
     const dismissal = await notificationPolicyForEvent(userId, "call:updated", { ...stream("channel", channelId), state: "ended" }, client);
-    assert.deepEqual(dismissal, { enabled: true, language: "en", showPreview: false }, "call dismissal must clear an already visible notification");
+    assert.deepEqual(dismissal, { enabled: true, language: "en", showPreview: false, sound: false }, "call dismissal must clear an already visible notification");
   } finally {
     await db.close();
   }

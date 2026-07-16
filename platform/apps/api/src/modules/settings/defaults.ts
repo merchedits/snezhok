@@ -26,4 +26,10 @@ export const defaultSettings: AppSettings = {
   messageNotifications: true,
   callNotifications: true,
   notificationPreviews: true,
+  notificationSound: true,
+  notificationMobile: true,
+  notificationMentionsOnly: false,
+  quietHoursStart: null,
+  quietHoursEnd: null,
+  quietHoursTimezoneOffsetMinutes: 0,
 };

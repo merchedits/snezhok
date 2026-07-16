@@ -1,4 +1,4 @@
-import type { ChannelSummary, ConversationSummary, FriendEntry, Id, Message, Presence, ServerSummary, Timestamp } from "./models.js";
+import type { ChannelCategory, ChannelSummary, ConversationSummary, FriendEntry, Id, Message, Presence, ServerRoleDefinition, ServerSummary, Timestamp } from "./models.js";
 
 export interface CallUpdatePayload {
   roomId: Id;
@@ -27,11 +27,17 @@ export interface ServerToClientEvents {
   "server:removed": (payload: { id: Id }) => void;
   "membership:updated": (payload: { serverId: Id; userId: Id; state: "joined" | "updated" | "removed" }) => void;
   "channel:updated": (channel: ChannelSummary) => void;
+  "channel:removed": (payload: { id: Id; serverId: Id }) => void;
+  "category:updated": (category: ChannelCategory) => void;
+  "category:removed": (payload: { id: Id; serverId: Id }) => void;
+  "server-role:updated": (role: ServerRoleDefinition) => void;
+  "server-role:removed": (payload: { id: Id; serverId: Id }) => void;
   "friend:updated": (entry: FriendEntry) => void;
   "friend:removed": (payload: { userId: Id }) => void;
   "presence:updated": (payload: { userId: Id; presence: Presence; lastSeenAt: Timestamp }) => void;
+  "user:deleted": (payload: { id: Id }) => void;
   "typing:updated": (payload: { streamId: Id; userId: Id; typing: boolean }) => void;
-  "read:updated": (payload: { streamId: Id; userId: Id; sequence: number }) => void;
+  "read:updated": (payload: { streamId: Id; userId: Id; sequence: number; markedUnread?: boolean }) => void;
   "call:updated": (payload: CallUpdatePayload) => void;
 }
 

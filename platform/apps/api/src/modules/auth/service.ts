@@ -64,7 +64,7 @@ export async function register(input: LoginInput & { email: string }) {
     if (existing.rows[0]?.email_taken) throw conflict("Email is already in use");
 
     const userId = newId();
-    const isFirst = (await client.query<{ count: string }>("SELECT count(*)::text AS count FROM users")).rows[0]?.count === "0";
+    const isFirst = (await client.query<{ count: string }>("SELECT count(*)::text AS count FROM users WHERE deleted_at IS NULL")).rows[0]?.count === "0";
     await client.query(
       `INSERT INTO users(id, email, username, display_name, avatar_color, is_admin)
        VALUES ($1,$2,$3,$3,$4,$5)`,
@@ -75,6 +75,7 @@ export async function register(input: LoginInput & { email: string }) {
       [userId, await argon2.hash(input.password, { type: argon2.argon2id })],
     );
     await client.query("INSERT INTO user_settings(user_id, settings) VALUES ($1,$2)", [userId, defaultSettings]);
+    await client.query("INSERT INTO user_privacy_settings(user_id) VALUES ($1)", [userId]);
     const savedConversationId = newId();
     await client.query(
       "INSERT INTO conversations(id,kind,title,owner_id,saved_owner_id) VALUES ($1,'direct','',$2,$2)",
@@ -103,7 +104,7 @@ export async function login(input: LoginInput) {
   });
 }
 
-async function verifyPassword(row: UserRow, password: string) {
+async function verifyPassword(row: Pick<UserRow, "algorithm" | "password_hash">, password: string) {
   return row.algorithm === "bcrypt" ? bcrypt.compare(password, row.password_hash) : argon2.verify(row.password_hash, password);
 }
 
@@ -112,7 +113,7 @@ async function getUserWithCredential(client: DbClient, username: string) {
     `SELECT u.id,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin,
             (extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms,
             c.password_hash,c.algorithm
-     FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.username=$1`,
+     FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.username=$1 AND u.deleted_at IS NULL`,
     [username],
   );
   return result.rows[0];
@@ -145,7 +146,7 @@ export async function refresh(refreshToken: string) {
       `SELECT s.id,s.user_id,s.platform,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin,
               (extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms
        FROM device_sessions s JOIN users u ON u.id=s.user_id
-       WHERE s.refresh_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now() FOR UPDATE`,
+       WHERE s.refresh_token_hash=$1 AND u.deleted_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > now() FOR UPDATE`,
       [hashOpaqueToken(refreshToken)],
     );
     const row = result.rows[0];
@@ -184,7 +185,7 @@ export async function authenticateAccessToken(token: string): Promise<Authentica
     }>(
       `SELECT u.id,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin
        FROM users u JOIN device_sessions s ON s.user_id=u.id
-       WHERE u.id=$1 AND s.id=$2 AND s.revoked_at IS NULL AND s.expires_at > now()`,
+       WHERE u.id=$1 AND u.deleted_at IS NULL AND s.id=$2 AND s.revoked_at IS NULL AND s.expires_at > now()`,
       [payload.sub, payload.sid],
     );
     const user = result.rows[0];
@@ -200,20 +201,43 @@ export async function authenticateAccessToken(token: string): Promise<Authentica
 }
 
 export async function revokeSession(userId: string, sessionId: string) {
-  const result = await pool.query("UPDATE device_sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL", [sessionId, userId]);
+  const result = await pool.query("UPDATE device_sessions SET revoked_at=now(),revoked_reason='user_requested' WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL", [sessionId, userId]);
   if (!result.rowCount) throw forbidden("Session does not belong to this account");
+}
+
+export async function revokeOtherSessions(userId: string, currentSessionId: string) {
+  const result = await pool.query(
+    "UPDATE device_sessions SET revoked_at=now(),revoked_reason='revoked_from_device' WHERE user_id=$1 AND id<>$2 AND revoked_at IS NULL RETURNING id",
+    [userId, currentSessionId],
+  );
+  return result.rowCount ?? 0;
 }
 
 export async function listSessions(user: AuthenticatedUser) {
   const result = await pool.query<{
-    id: string; label: string; platform: "web" | "android"; ip_address: string | null; last_used_at_ms: number;
+    id: string; label: string; platform: "web" | "android"; ip_address: string | null; user_agent: string;
+    last_used_at_ms: number; created_at_ms: number; expires_at_ms: number;
   }>(
-    `SELECT id,label,platform,coalesce(host(ip_address),'') AS ip_address,
-            (extract(epoch from last_used_at)*1000)::bigint::float8 AS last_used_at_ms
+    `SELECT id,label,platform,coalesce(host(ip_address),'') AS ip_address,user_agent,
+            (extract(epoch from last_used_at)*1000)::bigint::float8 AS last_used_at_ms,
+            (extract(epoch from created_at)*1000)::bigint::float8 AS created_at_ms,
+            (extract(epoch from expires_at)*1000)::bigint::float8 AS expires_at_ms
      FROM device_sessions WHERE user_id=$1 AND revoked_at IS NULL AND expires_at > now() ORDER BY last_used_at DESC`,
     [user.id],
   );
-  return result.rows.map((row) => ({ id: row.id, label: row.label, platform: row.platform, ipAddress: row.ip_address ?? "", lastUsedAt: row.last_used_at_ms, current: row.id === user.sessionId }));
+  return result.rows.map((row) => ({
+    id: row.id, label: row.label, platform: row.platform, ipAddress: row.ip_address ?? "", userAgent: row.user_agent,
+    lastUsedAt: row.last_used_at_ms, createdAt: row.created_at_ms, expiresAt: row.expires_at_ms, current: row.id === user.sessionId,
+  }));
+}
+
+export async function verifyCurrentPassword(userId: string, password: string, client: DbClient) {
+  const result = await client.query<Pick<UserRow, "password_hash" | "algorithm">>(
+    "SELECT password_hash,algorithm FROM credentials WHERE user_id=$1 FOR UPDATE",
+    [userId],
+  );
+  const row = result.rows[0];
+  return row ? verifyPassword(row, password) : false;
 }
 
 function avatarColor(seed: string) {

@@ -15,13 +15,19 @@ export async function listFriends(userId: string, client: Pick<DbClient, "query"
          CASE WHEN r.sender_id=$1 THEN 'outgoing' ELSE 'incoming' END,r.id FROM friend_requests r
          WHERE (r.sender_id=$1 OR r.receiver_id=$1) AND r.status='pending'
        UNION ALL SELECT b.blocked_id,'blocked',NULL::uuid FROM user_blocks b WHERE b.blocker_id=$1
-     ) x JOIN users u ON u.id=x.user_id ORDER BY u.display_name`, [userId]);
-  return result.rows.map((row) => ({ user: mapUser(row), relationship: row.relationship, ...(row.request_id ? { requestId: row.request_id } : {}) }));
+     ) x JOIN users u ON u.id=x.user_id AND u.deleted_at IS NULL ORDER BY u.display_name`, [userId]);
+  return result.rows.map((row) => {
+    const mapped = mapUser(row);
+    const user = row.relationship === "blocked"
+      ? { ...mapped, avatarUrl: null, bio: "", statusText: "", presence: "offline" as const, lastSeenAt: 0 }
+      : mapped;
+    return { user, relationship: row.relationship, ...(row.request_id ? { requestId: row.request_id } : {}) };
+  });
 }
 
 export async function requestFriend(senderId: string, username: string) {
   const result = await transaction(async (client) => {
-    const receiver = (await client.query<{ id: string }>("SELECT id FROM users WHERE username=$1", [username])).rows[0];
+    const receiver = (await client.query<{ id: string }>("SELECT id FROM users WHERE username=$1 AND deleted_at IS NULL", [username])).rows[0];
     if (!receiver) throw notFound("User not found");
     if (receiver.id === senderId) throw conflict("You cannot add yourself");
     if (await pairExists(client, "friendships", senderId, receiver.id)) throw conflict("You are already friends");
@@ -82,15 +88,18 @@ export async function cancelRequest(userId: string, requestId: string) {
 
 export async function blockUser(userId: string, otherId: string) {
   if (userId === otherId) throw conflict("You cannot block yourself");
-  const event = await transaction(async (client) => {
+  const events = await transaction(async (client) => {
     const user = await findUser(otherId, client); if (!user) throw notFound("User not found");
     const [low, high] = orderedPair(userId, otherId);
     await client.query("DELETE FROM friendships WHERE user_low_id=$1 AND user_high_id=$2", [low, high]);
     await client.query("UPDATE friend_requests SET status='cancelled',responded_at=now() WHERE status='pending' AND ((sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1))", [userId, otherId]);
     await client.query("INSERT INTO user_blocks(blocker_id,blocked_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [userId, otherId]);
-    return storeEvent(client, [userId, otherId], "friend:removed", (recipient: string) => ({ userId: recipient === userId ? otherId : userId }));
+    return [
+      await storeEvent(client, [userId, otherId], "friend:removed", (recipient: string) => ({ userId: recipient === userId ? otherId : userId })),
+      await storeEvent(client, [userId, otherId], "presence:updated", (recipient: string) => ({ userId: recipient === userId ? otherId : userId, presence: "offline", lastSeenAt: 0 })),
+    ];
   });
-  publishStoredEvent(event);
+  events.forEach(publishStoredEvent);
 }
 
 export async function unblockUser(userId: string, otherId: string) {

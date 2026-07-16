@@ -7,6 +7,7 @@ import { eventDelivery, replayEvents } from "./events.js";
 import { pool } from "../../db/pool.js";
 import { resolveStreamAccess } from "../streams/access.js";
 import { markRead } from "../messages/service.js";
+import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
 
 type InterServerEvents = Record<string, never>;
 interface SocketData { userId: string; }
@@ -51,7 +52,11 @@ export async function setupRealtime(server: HttpServer) {
     });
     socket.on("stream:leave", ({ streamId }) => { void socket.leave(`stream:${streamId}`); });
     socket.on("typing:set", async ({ streamId, typing }) => {
-      try { await resolveStreamAccess(userId, streamId); socket.to(`stream:${streamId}`).volatile.emit("typing:updated", { streamId, userId, typing }); } catch { /* unauthorized */ }
+      try {
+        const access = await resolveStreamAccess(userId, streamId);
+        if (access.streamKind === "conversation") await assertDirectConversationMessagingAllowed(userId, streamId);
+        socket.to(`stream:${streamId}`).volatile.emit("typing:updated", { streamId, userId, typing });
+      } catch { /* unauthorized */ }
     });
     socket.on("read:set", async ({ streamId, sequence }) => { try { await markRead(userId, streamId, sequence); } catch { /* HTTP sync will reconcile */ } });
     socket.on("disconnect", () => {
@@ -87,17 +92,21 @@ export async function setupRealtime(server: HttpServer) {
   return io;
 }
 
-async function presenceRecipients(userId: string) {
+export async function presenceRecipients(userId: string) {
   const visible = await pool.query<{ visible: boolean }>("SELECT coalesce((settings->>'showLastSeen')::boolean,true) visible FROM user_settings WHERE user_id=$1", [userId]);
   if (visible.rows[0]?.visible === false) return [];
-  const result = await pool.query<{ user_id: string }>(
-    `SELECT DISTINCT user_id FROM (
+  const result = await pool.query<{ user_id: string }>(presenceRecipientsSql, [userId]);
+  return result.rows.map((row) => row.user_id);
+}
+
+export const presenceRecipientsSql = `SELECT DISTINCT peers.user_id FROM (
        SELECT CASE WHEN user_low_id=$1 THEN user_high_id ELSE user_low_id END user_id FROM friendships WHERE user_low_id=$1 OR user_high_id=$1
        UNION SELECT cm2.user_id FROM conversation_members cm1 JOIN conversation_members cm2 ON cm2.conversation_id=cm1.conversation_id WHERE cm1.user_id=$1 AND cm2.user_id<>$1
        UNION SELECT sm2.user_id FROM server_members sm1 JOIN server_members sm2 ON sm2.server_id=sm1.server_id WHERE sm1.user_id=$1 AND sm2.user_id<>$1
-     ) peers`, [userId]);
-  return result.rows.map((row) => row.user_id);
-}
+     ) peers JOIN users recipient ON recipient.id=peers.user_id AND recipient.deleted_at IS NULL
+     WHERE NOT EXISTS(SELECT 1 FROM user_blocks block
+       WHERE (block.blocker_id=$1 AND block.blocked_id=peers.user_id)
+          OR (block.blocker_id=peers.user_id AND block.blocked_id=$1))`;
 
 function cookie(header: string | undefined, name: string) {
   if (!header) return undefined;

@@ -8,6 +8,13 @@ export type ChannelKind = "text" | "voice";
 export type ConversationKind = "direct" | "group";
 export type MessageKind = "text" | "system" | "voice" | "video-note" | "media" | "file";
 export type MemberRole = "owner" | "admin" | "moderator" | "member";
+export type PrivacyAudience = "everyone" | "contacts" | "nobody";
+export type ServerPermission =
+  | "view_channels" | "send_messages" | "attach_files" | "add_reactions"
+  | "manage_messages" | "connect" | "speak" | "video" | "screen_share"
+  | "move_members" | "manage_channels" | "manage_categories" | "manage_members"
+  | "kick_members" | "ban_members" | "manage_roles" | "manage_server"
+  | "view_audit_log";
 
 export interface UserSummary {
   id: Id;
@@ -41,6 +48,68 @@ export interface SessionDevice {
   ipAddress: string;
   lastUsedAt: Timestamp;
   current: boolean;
+  userAgent?: string;
+  createdAt?: Timestamp;
+  expiresAt?: Timestamp;
+}
+
+export interface PrivacySettings {
+  directMessages: PrivacyAudience;
+  groupInvites: PrivacyAudience;
+  profilePhotos: PrivacyAudience;
+}
+
+export interface ServerRoleDefinition {
+  id: Id;
+  serverId: Id;
+  name: string;
+  color: string | null;
+  position: number;
+  permissions: ServerPermission[];
+}
+
+export interface ChannelPermissionOverride {
+  channelId: Id;
+  targetType: "everyone" | "role" | "member";
+  targetId: Id;
+  allow: ServerPermission[];
+  deny: ServerPermission[];
+}
+
+export interface NotificationPolicy {
+  enabled: boolean | null;
+  showPreview: boolean | null;
+  sound: boolean | null;
+  mobile: boolean | null;
+  mentionsOnly: boolean | null;
+  mutedUntil: Timestamp | null;
+}
+
+export interface StreamNotificationPolicy extends NotificationPolicy {
+  streamKind: "conversation" | "channel";
+  streamId: Id;
+}
+
+export interface ServerNotificationPolicy extends NotificationPolicy {
+  serverId: Id;
+}
+
+export interface ServerMember {
+  user: UserSummary;
+  role: MemberRole;
+  roles: ServerRoleDefinition[];
+  joinedAt: Timestamp;
+}
+
+export interface ServerAuditEntry {
+  id: string;
+  serverId: Id;
+  actorId: Id | null;
+  action: string;
+  targetUserId: Id | null;
+  targetEntityId: Id | null;
+  metadata: Record<string, unknown>;
+  createdAt: Timestamp;
 }
 
 export interface FriendEntry {
@@ -188,6 +257,13 @@ export interface AppSettings {
   messageNotifications?: boolean;
   callNotifications?: boolean;
   notificationPreviews?: boolean;
+  notificationSound?: boolean;
+  notificationMobile?: boolean;
+  notificationMentionsOnly?: boolean;
+  /** Local minutes after midnight. Both values are null when quiet hours are disabled. */
+  quietHoursStart?: number | null;
+  quietHoursEnd?: number | null;
+  quietHoursTimezoneOffsetMinutes?: number;
 }
 
 export interface BootstrapPayload {

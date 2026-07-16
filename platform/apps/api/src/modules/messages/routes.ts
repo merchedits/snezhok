@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { messageCreateSchema, messageEditSchema, reactionSchema } from "@snezhok/contracts";
+import { markUnreadSchema, messageCreateSchema, messageEditSchema, reactionSchema } from "@snezhok/contracts";
 import { z } from "zod";
 import { requireAuth } from "../auth/middleware.js";
-import { createMessage, deleteMessage, editMessage, forwardMessage, hideMessage, listMessageContext, listMessages, listPinnedMessages, markRead, setPinned, setReaction } from "./service.js";
+import { createMessage, deleteMessage, editMessage, forwardMessage, hideMessage, listMessageContext, listMessages, listPinnedMessages, markRead, markUnread, setPinned, setReaction } from "./service.js";
 
 const streamParams = z.object({ streamId: z.string().uuid() });
 const messageParams = z.object({ id: z.string().uuid() });
@@ -28,6 +28,10 @@ export async function messageRoutes(app: FastifyInstance) {
   app.post("/streams/:streamId/read", { preHandler: requireAuth }, async (request) => {
     const { streamId } = streamParams.parse(request.params);
     return markRead(request.auth.id, streamId, readSchema.parse(request.body).sequence);
+  });
+  app.post("/streams/:streamId/unread", { preHandler: requireAuth }, async (request) => {
+    const { streamId } = streamParams.parse(request.params);
+    return markUnread(request.auth.id, streamId, markUnreadSchema.parse(request.body ?? {}).sequence);
   });
   app.get("/streams/:streamId/pins", { preHandler: requireAuth }, async (request) => {
     const { streamId } = streamParams.parse(request.params);

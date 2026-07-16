@@ -1,10 +1,11 @@
 import type { Message, MessageKind } from "@snezhok/contracts";
 import type { DbClient } from "../../db/pool.js";
-import { pool, transaction } from "../../db/pool.js";
+import { pool, readSnapshot, transaction } from "../../db/pool.js";
 import { conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { allocateMessageSequence, canManageMessages, resolveStreamAccess, streamRecipients } from "../streams/access.js";
 import { publishStoredEvent, storeEvent } from "../realtime/events.js";
+import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
 
 export interface MessageCreateInput {
   clientId: string;
@@ -32,6 +33,10 @@ export async function createMessage(userId: string, streamId: string, input: Mes
   const result = await transaction(async (client) => {
     const stream = await resolveStreamAccess(userId, streamId, client);
     if (stream.streamKind === "channel" && stream.channelKind !== "text") throw forbidden("Messages cannot be sent to a voice channel");
+    if (stream.streamKind === "channel" && !stream.serverPermissions.includes("send_messages")) throw forbidden("Message sending permission is required");
+    if (stream.streamKind === "channel" && input.attachmentIds.length && !stream.serverPermissions.includes("attach_files")) throw forbidden("File attachment permission is required");
+    if (stream.streamKind === "conversation") await assertDirectConversationMessagingAllowed(userId, streamId, client);
+    validateMessageAttachmentShape(input.kind, input.attachmentIds.length);
 
     // Serialize retries carrying the same sender-generated id. Without this
     // lock two concurrent HTTP attempts can both miss the preflight SELECT and
@@ -49,11 +54,12 @@ export async function createMessage(userId: string, streamId: string, input: Mes
       if (!reply.rowCount) throw conflict("Reply target is not in this stream");
     }
     if (input.attachmentIds.length) {
-      const attachments = await client.query<{ id: string }>(
-        "SELECT id FROM attachments WHERE id=ANY($1::uuid[]) AND owner_id=$2 AND status IN ('ready','processing')",
+      const attachments = await client.query<{ id: string; kind: "image" | "video" | "audio" | "document" }>(
+        "SELECT id,kind FROM attachments WHERE id=ANY($1::uuid[]) AND owner_id=$2 AND status IN ('ready','processing')",
         [input.attachmentIds, userId],
       );
       if (attachments.rowCount !== input.attachmentIds.length) throw forbidden("One or more attachments are unavailable");
+      validateMessageAttachmentKinds(input.kind, attachments.rows.map((attachment) => attachment.kind));
       if (input.kind === "voice" || input.kind === "video-note") {
         const purpose = input.kind;
         await client.query("UPDATE upload_sessions SET media_purpose=$2,updated_at=now() WHERE id=ANY($1::uuid[]) AND owner_id=$3", [input.attachmentIds, purpose, userId]);
@@ -79,8 +85,9 @@ export async function createMessage(userId: string, streamId: string, input: Mes
     for (const [position, attachmentId] of input.attachmentIds.entries()) {
       await client.query("INSERT INTO message_attachments(message_id,attachment_id,position) VALUES ($1,$2,$3)", [id, attachmentId, position]);
     }
-    const message = await getMessageById(client, id, userId);
     const recipients = await streamRecipients(stream, client);
+    await replaceMentions(client, id, input.text, recipients);
+    const message = await getMessageById(client, id, userId);
     const event = await storeEvent(client, recipients, "message:created", (recipientId: string) => personalizeMessage(message, recipientId));
     return { message, event };
   });
@@ -99,6 +106,12 @@ export async function forwardMessage(userId: string, messageId: string, targetSt
 
     const target = await resolveStreamAccess(userId, targetStreamId, client);
     if (target.streamKind === "channel" && target.channelKind !== "text") throw forbidden("Messages cannot be forwarded to a voice channel");
+    if (target.streamKind === "channel" && !target.serverPermissions.includes("send_messages")) throw forbidden("Message sending permission is required");
+    if (target.streamKind === "channel") {
+      const hasAttachments = ((await client.query("SELECT 1 FROM message_attachments WHERE message_id=$1 LIMIT 1", [source.id])).rowCount ?? 0) > 0;
+      if (hasAttachments && !target.serverPermissions.includes("attach_files")) throw forbidden("File attachment permission is required");
+    }
+    if (target.streamKind === "conversation") await assertDirectConversationMessagingAllowed(userId, targetStreamId, client);
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`message:${userId}:${clientId}`]);
     const duplicate = await client.query<{ id: string; stream_kind: "conversation" | "channel"; stream_id: string }>(
       "SELECT id,stream_kind,stream_id FROM messages WHERE sender_id=$1 AND client_id=$2",
@@ -124,6 +137,7 @@ export async function forwardMessage(userId: string, messageId: string, targetSt
     );
     const message = await getMessageById(client, id, userId);
     const recipients = await streamRecipients(target, client);
+    await replaceMentions(client, id, source.text, recipients);
     const event = await storeEvent(client, recipients, "message:created", (recipientId: string) => personalizeMessage(message, recipientId));
     return { message, event };
   });
@@ -132,47 +146,55 @@ export async function forwardMessage(userId: string, messageId: string, targetSt
 }
 
 export async function listMessages(userId: string, streamId: string, before: number | null, limit: number) {
-  const stream = await resolveStreamAccess(userId, streamId);
-  const result = await pool.query<MessageRow>(`${messageSelectSql}
-    WHERE m.stream_kind=$1 AND m.stream_id=$2 AND ($3::bigint IS NULL OR m.sequence < $3)
-      AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$5 AND hm.message_id=m.id)
-    ORDER BY m.sequence DESC LIMIT $4`, [stream.streamKind, streamId, before, limit, userId]);
-  const items = result.rows.map((row) => mapMessage(row, userId)).reverse();
-  return { items, nextCursor: items.length === limit ? String(items[0]!.sequence) : null };
+  return readSnapshot(async (client) => {
+    const stream = await resolveStreamAccess(userId, streamId, client);
+    const result = await client.query<MessageRow>(`${messageSelectSql}
+      WHERE m.stream_kind=$1 AND m.stream_id=$2 AND ($3::bigint IS NULL OR m.sequence < $3)
+        AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$5 AND hm.message_id=m.id)
+      ORDER BY m.sequence DESC LIMIT $4`, [stream.streamKind, streamId, before, limit, userId]);
+    const items = (await mapMessagesForViewer(client, result.rows, userId)).reverse();
+    return { items, nextCursor: items.length === limit ? String(items[0]!.sequence) : null };
+  });
 }
 
 export async function listPinnedMessages(userId: string, streamId: string) {
-  const stream = await resolveStreamAccess(userId, streamId);
-  const result = await pool.query<MessageRow>(`${messageSelectSql}
-    WHERE m.stream_kind=$1 AND m.stream_id=$2 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$3 AND hm.message_id=m.id)
-    ORDER BY m.pinned_at DESC LIMIT 100`, [stream.streamKind, streamId, userId]);
-  return result.rows.map((row) => mapMessage(row, userId));
+  return readSnapshot(async (client) => {
+    const stream = await resolveStreamAccess(userId, streamId, client);
+    const result = await client.query<MessageRow>(`${messageSelectSql}
+      WHERE m.stream_kind=$1 AND m.stream_id=$2 AND m.pinned_at IS NOT NULL AND m.deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$3 AND hm.message_id=m.id)
+      ORDER BY m.pinned_at DESC LIMIT 100`, [stream.streamKind, streamId, userId]);
+    return mapMessagesForViewer(client, result.rows, userId);
+  });
 }
 
 export async function listMessageContext(userId: string, messageId: string, limit: number) {
-  const target = (await pool.query<{ stream_id: string; stream_kind: "conversation" | "channel"; sequence: string }>(
+  return readSnapshot(async (client) => {
+  const target = (await client.query<{ stream_id: string; stream_kind: "conversation" | "channel"; sequence: string }>(
     "SELECT stream_id,stream_kind,sequence::text FROM messages WHERE id=$1",
     [messageId],
   )).rows[0];
   if (!target) throw notFound("Message not found");
-  const access = await resolveStreamAccess(userId, target.stream_id);
+  const access = await resolveStreamAccess(userId, target.stream_id, client);
   if (access.streamKind !== target.stream_kind) throw forbidden();
-  const result = await pool.query<MessageRow>(`${messageSelectSql}
+  const result = await client.query<MessageRow>(`${messageSelectSql}
     WHERE m.stream_kind=$1 AND m.stream_id=$2 AND m.sequence<=$3
       AND NOT EXISTS (SELECT 1 FROM hidden_messages hm WHERE hm.user_id=$5 AND hm.message_id=m.id)
     ORDER BY m.sequence DESC LIMIT $4`, [target.stream_kind, target.stream_id, Number(target.sequence), limit, userId]);
   return {
     streamId: target.stream_id,
     targetId: messageId,
-    items: result.rows.map((row) => mapMessage(row, userId)).reverse(),
+    items: (await mapMessagesForViewer(client, result.rows, userId)).reverse(),
   };
+  });
 }
 
 export async function editMessage(userId: string, messageId: string, text: string) {
-  return mutateMessage(userId, messageId, async (client, row) => {
+  return mutateMessage(userId, messageId, async (client, row, access) => {
+    if (row.deleted_at) throw conflict("Deleted messages cannot be edited");
     if (row.sender_id !== userId) throw forbidden("Only the author may edit this message");
     await client.query("UPDATE messages SET text=$2,edited_at=now() WHERE id=$1 AND deleted_at IS NULL", [messageId, text]);
+    await replaceMentions(client, messageId, text, await streamRecipients(access, client));
     return "message:updated";
   });
 }
@@ -181,8 +203,12 @@ export async function deleteMessage(userId: string, messageId: string) {
   return mutateMessage(userId, messageId, async (client, row, access) => {
     // Telegram-style private conversations allow either participant to remove
     // a message for both sides. Server channels keep their moderation boundary.
-    if (access.streamKind === "channel" && row.sender_id !== userId && !canManageMessages(access.memberRole)) throw forbidden("You cannot delete this message");
-    await client.query("UPDATE messages SET text='',deleted_at=now(),edited_at=NULL WHERE id=$1 AND deleted_at IS NULL", [messageId]);
+    if (access.streamKind === "channel" && row.sender_id !== userId && !canManageMessages(access)) throw forbidden("You cannot delete this message");
+    if (row.deleted_at) return null;
+    await client.query("DELETE FROM message_attachments WHERE message_id=$1", [messageId]);
+    await client.query("DELETE FROM message_reactions WHERE message_id=$1", [messageId]);
+    await client.query("DELETE FROM message_mentions WHERE message_id=$1", [messageId]);
+    await client.query("UPDATE messages SET text='',deleted_at=now(),edited_at=NULL,pinned_at=NULL,pinned_by=NULL WHERE id=$1", [messageId]);
     return "message:deleted";
   });
 }
@@ -205,7 +231,10 @@ export async function hideMessage(userId: string, messageId: string) {
 }
 
 export async function setReaction(userId: string, messageId: string, emoji: string, active: boolean) {
-  return mutateMessage(userId, messageId, async (client) => {
+  return mutateMessage(userId, messageId, async (client, row, access) => {
+    if (row.deleted_at) throw conflict("Deleted messages cannot be reacted to");
+    if (access.streamKind === "conversation") await assertDirectConversationMessagingAllowed(userId, row.stream_id, client);
+    if (access.streamKind === "channel" && !access.serverPermissions.includes("add_reactions")) throw forbidden("Reaction permission is required");
     if (active) await client.query("INSERT INTO message_reactions(message_id,user_id,emoji) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [messageId, userId, emoji]);
     else await client.query("DELETE FROM message_reactions WHERE message_id=$1 AND user_id=$2 AND emoji=$3", [messageId, userId, emoji]);
     return "message:updated";
@@ -213,10 +242,12 @@ export async function setReaction(userId: string, messageId: string, emoji: stri
 }
 
 export async function setPinned(userId: string, messageId: string, pinned: boolean) {
-  return mutateMessage(userId, messageId, async (client, _row, access) => {
+  return mutateMessage(userId, messageId, async (client, row, access) => {
+    if (row.deleted_at) throw conflict("Deleted messages cannot be pinned");
     // Every participant can curate a private/direct conversation. Server
     // channels retain their moderation permission boundary.
-    if (access.streamKind === "channel" && !canManageMessages(access.memberRole)) throw forbidden("You cannot pin messages in this stream");
+    if (access.streamKind === "channel" && !canManageMessages(access)) throw forbidden("You cannot pin messages in this stream");
+    if (access.streamKind === "conversation") await assertDirectConversationMessagingAllowed(userId, row.stream_id, client);
     await client.query("UPDATE messages SET pinned_at=CASE WHEN $2 THEN now() ELSE NULL END,pinned_by=CASE WHEN $2 THEN $3::uuid ELSE NULL END WHERE id=$1", [messageId, pinned, userId]);
     return "message:updated";
   });
@@ -244,18 +275,46 @@ export async function markRead(userId: string, streamId: string, sequence: numbe
   return result.payload;
 }
 
+/**
+ * Marks a stream unread without moving its read receipt backwards. The marker
+ * is a separate, per-user presentation hint and is cleared by the next
+ * explicit markRead call. A supplied sequence is clamped to the stream's
+ * committed high-water mark; omitting it marks the newest committed message.
+ */
+export async function markUnread(userId: string, streamId: string, requestedSequence?: number) {
+  const result = await transaction(async (client) => {
+    const access = await resolveStreamAccess(userId, streamId, client);
+    const maxSequence = access.streamKind === "conversation"
+      ? Number((await client.query<{ value: string }>("SELECT (next_message_sequence-1)::text value FROM conversations WHERE id=$1", [streamId])).rows[0]?.value ?? 0)
+      : Number((await client.query<{ value: string }>("SELECT (next_message_sequence-1)::text value FROM channels WHERE id=$1", [streamId])).rows[0]?.value ?? 0);
+    const sequence = clampReadSequence(requestedSequence ?? maxSequence, maxSequence);
+    await client.query(
+      `INSERT INTO read_states(user_id,stream_kind,stream_id,last_read_sequence,marked_unread_at_sequence)
+       VALUES ($1,$2,$3,0,$4)
+       ON CONFLICT (user_id,stream_kind,stream_id) DO UPDATE
+       SET marked_unread_at_sequence=EXCLUDED.marked_unread_at_sequence,updated_at=now()`,
+      [userId, access.streamKind, streamId, sequence],
+    );
+    const payload = { streamId, userId, sequence, markedUnread: true as const };
+    return { payload, event: await storeEvent(client, [userId], "read:updated", payload) };
+  });
+  publishStoredEvent(result.event);
+  return result.payload;
+}
+
 async function mutateMessage(
   userId: string,
   messageId: string,
-  mutation: (client: DbClient, row: { sender_id: string; stream_id: string; stream_kind: "conversation" | "channel" }, access: Awaited<ReturnType<typeof resolveStreamAccess>>) => Promise<string>,
+  mutation: (client: DbClient, row: { sender_id: string; stream_id: string; stream_kind: "conversation" | "channel"; deleted_at: Date | null }, access: Awaited<ReturnType<typeof resolveStreamAccess>>) => Promise<string | null>,
 ) {
   const result = await transaction(async (client) => {
-    const row = (await client.query<{ sender_id: string; stream_id: string; stream_kind: "conversation" | "channel" }>("SELECT sender_id,stream_id,stream_kind FROM messages WHERE id=$1 FOR UPDATE", [messageId])).rows[0];
+    const row = (await client.query<{ sender_id: string; stream_id: string; stream_kind: "conversation" | "channel"; deleted_at: Date | null }>("SELECT sender_id,stream_id,stream_kind,deleted_at FROM messages WHERE id=$1 FOR UPDATE", [messageId])).rows[0];
     if (!row) throw notFound("Message not found");
     const access = await resolveStreamAccess(userId, row.stream_id, client);
     if (access.streamKind !== row.stream_kind) throw forbidden();
     const eventName = await mutation(client, row, access);
     const message = await getMessageById(client, messageId, userId);
+    if (!eventName) return { message, event: null };
     const streamRecipientIds = await streamRecipients(access, client);
     const hidden = await client.query<{ user_id: string }>(
       "SELECT user_id FROM hidden_messages WHERE message_id=$1 AND user_id=ANY($2::uuid[])",
@@ -268,8 +327,20 @@ async function mutateMessage(
       : (recipientId: string) => personalizeMessage(message, recipientId);
     return { message, event: await storeEvent(client, recipients, eventName, payload) };
   });
-  publishStoredEvent(result.event);
+  if (result.event) publishStoredEvent(result.event);
   return result.message;
+}
+
+export function validateMessageAttachmentShape(kind: Exclude<MessageKind, "system">, attachmentCount: number) {
+  if ((kind === "voice" || kind === "video-note") && attachmentCount !== 1) throw conflict(`${kind} messages require exactly one attachment`);
+  if ((kind === "media" || kind === "file") && attachmentCount < 1) throw conflict(`${kind} messages require an attachment`);
+  if (kind === "text" && attachmentCount > 0) throw conflict("Text messages cannot contain attachments");
+}
+
+export function validateMessageAttachmentKinds(kind: Exclude<MessageKind, "system">, attachmentKinds: Array<"image" | "video" | "audio" | "document">) {
+  if (kind === "voice" && attachmentKinds.some((item) => item !== "audio")) throw conflict("Voice messages require an audio attachment");
+  if (kind === "video-note" && attachmentKinds.some((item) => item !== "video")) throw conflict("Video messages require a video attachment");
+  if (kind === "media" && attachmentKinds.some((item) => item !== "image" && item !== "video")) throw conflict("Media messages only support photos and videos");
 }
 
 export function personalizeMessage(message: Message, viewerId: string): Message {
@@ -277,10 +348,49 @@ export function personalizeMessage(message: Message, viewerId: string): Message 
 }
 export function clampReadSequence(requested: number, maximum: number) { return Math.max(0, Math.min(requested, maximum)); }
 
+export function extractMentionUsernames(text: string) {
+  const usernames = new Set<string>();
+  for (const match of text.matchAll(/(^|[^a-zA-Z0-9_.-])@([a-zA-Z0-9_.-]{3,32})(?![a-zA-Z0-9_.-])/g)) {
+    const username = match[2]!.replace(/[.-]+$/, "").toLowerCase();
+    if (username.length >= 3) usernames.add(username);
+  }
+  return [...usernames];
+}
+
+async function replaceMentions(client: DbClient, messageId: string, text: string, recipientIds: string[]) {
+  await client.query("DELETE FROM message_mentions WHERE message_id=$1", [messageId]);
+  const usernames = extractMentionUsernames(text);
+  if (!usernames.length || !recipientIds.length) return;
+  await client.query(
+    `INSERT INTO message_mentions(message_id,user_id)
+     SELECT $1,u.id FROM users u
+     WHERE u.username=ANY($2::text[]) AND u.id=ANY($3::uuid[]) AND u.deleted_at IS NULL
+       AND u.id<>(SELECT sender_id FROM messages WHERE id=$1)
+     ON CONFLICT DO NOTHING`,
+    [messageId, usernames, recipientIds],
+  );
+}
+
 export async function getMessageById(client: Pick<DbClient, "query">, id: string, viewerId?: string) {
   const row = (await client.query<MessageRow>(`${messageSelectSql} WHERE m.id=$1`, [id])).rows[0];
   if (!row) throw notFound("Message not found");
-  return mapMessage(row, viewerId);
+  return viewerId ? (await mapMessagesForViewer(client, [row], viewerId))[0]! : mapMessage(row);
+}
+
+async function mapMessagesForViewer(client: Pick<DbClient, "query">, rows: MessageRow[], viewerId: string) {
+  const senderIds = [...new Set(rows.map((row) => row.sender_id).filter((id) => id !== viewerId))];
+  const blocked = senderIds.length ? await client.query<{ user_id: string }>(
+    `SELECT CASE WHEN blocker_id=$1 THEN blocked_id ELSE blocker_id END user_id FROM user_blocks
+     WHERE (blocker_id=$1 AND blocked_id=ANY($2::uuid[])) OR (blocked_id=$1 AND blocker_id=ANY($2::uuid[]))`,
+    [viewerId, senderIds],
+  ) : { rows: [] as { user_id: string }[] };
+  const blockedIds = new Set(blocked.rows.map((row) => row.user_id));
+  return rows.map((row) => {
+    const message = mapMessage(row, viewerId);
+    return blockedIds.has(row.sender_id)
+      ? { ...message, sender: { ...message.sender, avatarUrl: null, bio: "", statusText: "", presence: "offline" as const, lastSeenAt: 0 } }
+      : message;
+  });
 }
 
 const messageSelectSql = `

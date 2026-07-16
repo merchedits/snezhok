@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import type { ProfilePhoto, UserProfile } from "@snezhok/contracts";
-import { profilePhotoOrderSchema, profilePhotoSchema, profileUpdateSchema } from "@snezhok/contracts";
+import { accountDeletionSchema, privacySettingsUpdateSchema, profilePhotoOrderSchema, profilePhotoSchema, profileUpdateSchema } from "@snezhok/contracts";
 import { z } from "zod";
-import { pool, transaction, type DbClient } from "../../db/pool.js";
+import { pool, readSnapshot, transaction, type DbClient } from "../../db/pool.js";
 import { conflict, forbidden, notFound } from "../../lib/errors.js";
 import { requireAuth } from "../auth/middleware.js";
 import { mapUser, publicUserSelect, type PublicUserRow } from "./queries.js";
+import { deleteAccount } from "./account.js";
+import { loadPrivacy, mayViewProfilePhotos, updatePrivacy, usersAreBlocked } from "./privacy.js";
 
 const searchQuery = z.object({ q: z.string().trim().min(1).max(64) });
 const userParams = z.object({ id: z.string().uuid() });
@@ -15,15 +17,25 @@ export async function userRoutes(app: FastifyInstance) {
   app.get("/users/search", { preHandler: requireAuth }, async (request) => {
     const { q } = searchQuery.parse(request.query);
     const result = await pool.query<PublicUserRow>(
-      `SELECT ${publicUserSelect} FROM users u WHERE u.id<>$1 AND (u.username ILIKE $2 OR u.display_name ILIKE $2) ORDER BY u.username LIMIT 20`,
+      `SELECT ${publicUserSelect} FROM users u
+       WHERE u.id<>$1 AND u.deleted_at IS NULL AND (u.username ILIKE $2 OR u.display_name ILIKE $2)
+         AND NOT EXISTS (SELECT 1 FROM user_blocks b WHERE (b.blocker_id=$1 AND b.blocked_id=u.id) OR (b.blocker_id=u.id AND b.blocked_id=$1))
+       ORDER BY u.username LIMIT 20`,
       [request.auth.id, `%${q}%`],
     );
     return { users: result.rows.map(mapUser) };
   });
 
   app.get("/users/:id/profile", { preHandler: requireAuth }, async (request) => {
-    return { profile: await loadProfile(userParams.parse(request.params).id) };
+    const userId = userParams.parse(request.params).id;
+    return { profile: await readSnapshot((client) => loadProfile(userId, request.auth.id, client)) };
   });
+
+  app.get("/users/me/privacy", { preHandler: requireAuth }, async (request) => ({ privacy: await loadPrivacy(request.auth.id) }));
+
+  app.patch("/users/me/privacy", { preHandler: requireAuth }, async (request) => ({
+    privacy: await updatePrivacy(request.auth.id, withoutUndefined(privacySettingsUpdateSchema.parse(request.body))),
+  }));
 
   app.patch("/users/me", { preHandler: requireAuth }, async (request) => {
     const body = profileUpdateSchema.parse(request.body);
@@ -31,7 +43,7 @@ export async function userRoutes(app: FastifyInstance) {
       `UPDATE users SET display_name=coalesce($2,display_name),bio=coalesce($3,bio),status_text=coalesce($4,status_text),updated_at=now() WHERE id=$1`,
       [request.auth.id, body.displayName ?? null, body.bio ?? null, body.statusText ?? null],
     );
-    return { user: (await loadProfile(request.auth.id)).user };
+    return { user: (await loadProfile(request.auth.id, request.auth.id)).user };
   });
 
   app.post("/users/me/profile-photos", { preHandler: requireAuth }, async (request, reply) => {
@@ -50,7 +62,7 @@ export async function userRoutes(app: FastifyInstance) {
       }
       await setPhotoOrder(request.auth.id, [attachmentId, ...current.filter((id) => id !== attachmentId)], client);
     });
-    return reply.status(201).send({ profile: await loadProfile(request.auth.id) });
+    return reply.status(201).send({ profile: await loadProfile(request.auth.id, request.auth.id) });
   });
 
   app.patch("/users/me/profile-photos/order", { preHandler: requireAuth }, async (request) => {
@@ -61,7 +73,7 @@ export async function userRoutes(app: FastifyInstance) {
       if (!samePhotoSet(current, attachmentIds)) throw conflict("Photo order must contain every current profile photo exactly once");
       await setPhotoOrder(request.auth.id, attachmentIds, client);
     });
-    return { profile: await loadProfile(request.auth.id) };
+    return { profile: await loadProfile(request.auth.id, request.auth.id) };
   });
 
   app.delete("/users/me/profile-photos/:attachmentId", { preHandler: requireAuth }, async (request) => {
@@ -72,14 +84,31 @@ export async function userRoutes(app: FastifyInstance) {
       if (!result.rowCount) throw notFound("Profile photo not found");
       await setPhotoOrder(request.auth.id, await photoIds(request.auth.id, client), client);
     });
-    return { profile: await loadProfile(request.auth.id) };
+    return { profile: await loadProfile(request.auth.id, request.auth.id) };
+  });
+
+  app.delete("/users/me", { preHandler: requireAuth, config: { rateLimit: { max: 3, timeWindow: "1 hour" } } }, async (request, reply) => {
+    const body = accountDeletionSchema.parse(request.body);
+    await deleteAccount(request.auth.id, body.password);
+    reply.clearCookie("access_token", { path: "/" });
+    reply.clearCookie("refresh_token", { path: "/" });
+    return { success: true };
   });
 }
 
-async function loadProfile(userId: string): Promise<UserProfile> {
-  const userResult = await pool.query<PublicUserRow>(`SELECT ${publicUserSelect} FROM users u WHERE u.id=$1`, [userId]);
+function withoutUndefined<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as { [K in keyof T]?: Exclude<T[K], undefined> };
+}
+
+async function loadProfile(userId: string, viewerId: string, client: Pick<DbClient, "query"> = pool): Promise<UserProfile> {
+  const userResult = await client.query<PublicUserRow>(`SELECT ${publicUserSelect} FROM users u WHERE u.id=$1 AND u.deleted_at IS NULL`, [userId]);
   if (!userResult.rows[0]) throw notFound("User not found");
-  const photos = await pool.query<{
+  const blocked = await usersAreBlocked(viewerId, userId, client);
+  const mappedUser = mapUser(userResult.rows[0]);
+  const user = blocked ? { ...mappedUser, avatarUrl: null, bio: "", statusText: "", presence: "offline" as const, lastSeenAt: 0 } : mappedUser;
+  const showPhotos = !blocked && await mayViewProfilePhotos(viewerId, userId, client);
+  if (!showPhotos) return { user, photos: [] };
+  const photos = await client.query<{
     attachment_id: string; position: number; created_at_ms: number; primary_id: string | null; thumbnail_id: string | null; thumbnail_attachment_id: string | null;
   }>(
     `SELECT p.attachment_id,p.position,(extract(epoch from p.created_at)*1000)::bigint::float8 created_at_ms,
@@ -91,7 +120,7 @@ async function loadProfile(userId: string): Promise<UserProfile> {
     [userId],
   );
   return {
-    user: mapUser(userResult.rows[0]),
+    user,
     photos: photos.rows.map((row): ProfilePhoto => ({
       id: row.attachment_id,
       url: row.primary_id ? `/api/v1/files/${row.attachment_id}?variant=${row.primary_id}` : `/api/v1/files/${row.attachment_id}`,
