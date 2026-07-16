@@ -184,6 +184,10 @@ export interface AppSettings {
   callQuality: "data-saver" | "auto" | "high";
   screenShareQuality: "data-saver" | "auto" | "high";
   pushToTalk: boolean;
+  /** Global push controls; optional for backward compatibility with older cached settings. */
+  messageNotifications?: boolean;
+  callNotifications?: boolean;
+  notificationPreviews?: boolean;
 }
 
 export interface BootstrapPayload {

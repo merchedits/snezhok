@@ -9,7 +9,6 @@ import { pool, transaction } from "../../db/pool.js";
 import { AppError, conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { requireAuth } from "../auth/middleware.js";
-import { resolveStreamAccess } from "../streams/access.js";
 import { appendChunk, detectTemporaryMimeType, ensureStorage, initializeTemporary, objectPath, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
 import { stat } from "node:fs/promises";
 import type { Readable } from "node:stream";
@@ -22,6 +21,47 @@ const initSchema = uploadMetadataSchema.extend({
 const idParams = z.object({ id: z.string().uuid() });
 const fileQuery = z.object({ variant: z.string().uuid().optional() });
 const completeBody = z.object({ uploadId: z.string().uuid() });
+
+/**
+ * A file is visible when it belongs to the requester, is an active profile
+ * photo (or its legacy thumbnail), or is attached to at least one non-deleted
+ * message that is both visible to and readable by the requester. Keeping this
+ * as one snapshot query avoids a time-of-check/time-of-use gap and an N+1
+ * stream-access loop for attachments reused by forwarding.
+ */
+export const attachmentAuthorizationSql = `SELECT EXISTS(
+  SELECT 1 FROM attachments requested
+  WHERE requested.id=$1 AND (
+    requested.owner_id=$2
+    OR EXISTS (
+      SELECT 1 FROM user_profile_photos profile
+      JOIN attachments source ON source.id=profile.attachment_id
+      WHERE profile.attachment_id=$1 OR source.thumbnail_attachment_id=$1
+    )
+    OR EXISTS (
+      SELECT 1 FROM message_attachments link
+      JOIN messages message ON message.id=link.message_id
+      WHERE link.attachment_id=$1
+        AND message.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM hidden_messages hidden
+          WHERE hidden.user_id=$2 AND hidden.message_id=message.id
+        )
+        AND (
+          (message.stream_kind='conversation' AND EXISTS (
+            SELECT 1 FROM conversation_members member
+            WHERE member.conversation_id=message.stream_id AND member.user_id=$2
+          ))
+          OR
+          (message.stream_kind='channel' AND EXISTS (
+            SELECT 1 FROM channels channel
+            JOIN server_members member ON member.server_id=channel.server_id
+            WHERE channel.id=message.stream_id AND member.user_id=$2
+          ))
+        )
+    )
+  )
+) allowed`;
 
 export async function uploadRoutes(app: FastifyInstance) {
   await ensureStorage();
@@ -107,20 +147,8 @@ export async function uploadRoutes(app: FastifyInstance) {
        LEFT JOIN media_variants v ON v.attachment_id=a.id AND v.id=$2 LEFT JOIN blobs vb ON vb.id=v.blob_id WHERE a.id=$1`, [id, variant ?? null]);
     const file = result.rows[0]; if (!file) throw notFound("File not found");
     if (variant && !file.variant_id) throw notFound("Media variant not found");
-    if (file.owner_id !== request.auth.id) {
-      const profilePhoto = await pool.query(
-        `SELECT 1 FROM user_profile_photos p JOIN attachments a ON a.id=p.attachment_id
-         WHERE p.attachment_id=$1 OR a.thumbnail_attachment_id=$1 LIMIT 1`,
-        [id],
-      );
-      if (profilePhoto.rowCount) {
-        return sendFile(reply, file, request.headers);
-      }
-      const links = await pool.query<{ stream_id: string }>("SELECT m.stream_id FROM message_attachments ma JOIN messages m ON m.id=ma.message_id WHERE ma.attachment_id=$1", [id]);
-      let allowed = false;
-      for (const link of links.rows) { try { await resolveStreamAccess(request.auth.id, link.stream_id); allowed = true; break; } catch { /* try another linked stream */ } }
-      if (!allowed) throw forbidden("You cannot access this file");
-    }
+    const authorization = await pool.query<{ allowed: boolean }>(attachmentAuthorizationSql, [id, request.auth.id]);
+    if (authorization.rows[0]?.allowed !== true) throw forbidden("You cannot access this file");
     return sendFile(reply, file, request.headers);
   });
 

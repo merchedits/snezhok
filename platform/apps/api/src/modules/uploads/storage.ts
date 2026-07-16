@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { constants } from "node:fs";
-import { copyFile, mkdir, open, rename, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Transform, type Readable } from "node:stream";
 import path from "node:path";
@@ -74,6 +74,22 @@ export async function detectTemporaryMimeType(key: string): Promise<string> {
 }
 
 export async function removeTemporary(key: string) { await rm(tempPath(key), { force: true }); }
+
+/** Removes temp files that have no live database session after a generous grace period. */
+export async function removeUntrackedTemporaryFiles(activeKeys: Set<string>, olderThanMs: number, limit = 500): Promise<number> {
+  const entries = await readdir(temporaryRoot, { withFileTypes: true }).catch(() => []);
+  let removed = 0;
+  for (const entry of entries) {
+    if (removed >= limit || !entry.isFile() || activeKeys.has(entry.name)) continue;
+    let target: string;
+    try { target = tempPath(entry.name); } catch { continue; }
+    const info = await stat(target).catch(() => null);
+    if (!info || info.mtimeMs > olderThanMs) continue;
+    await rm(target, { force: true });
+    removed += 1;
+  }
+  return removed;
+}
 
 function safeKey(value: string) {
   if (value === "." || value === ".." || !/^[a-zA-Z0-9._-]+$/.test(value)) throw new Error("Unsafe storage key");

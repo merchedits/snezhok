@@ -23,4 +23,7 @@ export const defaultSettings: AppSettings = {
   callQuality: "auto",
   screenShareQuality: "auto",
   pushToTalk: false,
+  messageNotifications: true,
+  callNotifications: true,
+  notificationPreviews: true,
 };

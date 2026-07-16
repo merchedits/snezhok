@@ -14,6 +14,7 @@ const settingsSchema = z.object({
   microphoneMode: z.enum(["system","phone","speakerphone"]),
   callAudioRoute: z.enum(["auto","earpiece","speaker","headset","bluetooth"]),
   callQuality: z.enum(["data-saver","auto","high"]), screenShareQuality: z.enum(["data-saver","auto","high"]), pushToTalk: z.boolean(),
+  messageNotifications: z.boolean(), callNotifications: z.boolean(), notificationPreviews: z.boolean(),
 }).partial();
 
 export async function settingsRoutes(app: FastifyInstance) {
