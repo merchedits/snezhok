@@ -164,6 +164,13 @@ class ApiClient {
     });
   }
 
+  markUnread(streamId: string, sequence?: number): Promise<{ streamId: string; userId: string; sequence: number; markedUnread: true }> {
+    return this.request(`/streams/${encodeURIComponent(streamId)}/unread`, {
+      method: "POST",
+      ...(sequence === undefined ? {} : { body: { sequence } }),
+    });
+  }
+
   pinnedMessages(streamId: string): Promise<Message[]> {
     return this.request<{ messages: Message[] }>(`/streams/${encodeURIComponent(streamId)}/pins`).then((result) => result.messages);
   }

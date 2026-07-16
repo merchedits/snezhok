@@ -4,6 +4,7 @@ import { Animated, Easing, Modal, Pressable, StyleSheet, Switch, Text, useWindow
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../../hooks/usePalette";
+import { useUiPreferences } from "../../hooks/useUiPreferences";
 import { AppIcon, type AppIconName } from "../AppIcon";
 
 export interface SettingsChoiceOption {
@@ -14,20 +15,22 @@ export interface SettingsChoiceOption {
 
 export function SettingsSection({ title, children, footer }: { title?: string; children: ReactNode; footer?: ReactNode }) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   return (
     <View style={styles.section}>
-      {title ? <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{title}</Text> : null}
+      {title ? <Text style={[styles.sectionTitle, { color: palette.secondaryText, fontSize: ui.font(13), lineHeight: ui.font(17) }]}>{title}</Text> : null}
       <View style={styles.cardStack}>{children}</View>
-      {footer ? <View style={styles.footer}>{typeof footer === "string" ? <Text style={[styles.footerText, { color: palette.secondaryText }]}>{footer}</Text> : footer}</View> : null}
+      {footer ? <View style={styles.footer}>{typeof footer === "string" ? <Text style={[styles.footerText, { color: palette.secondaryText, fontSize: ui.font(12), lineHeight: ui.font(17) }]}>{footer}</Text> : footer}</View> : null}
     </View>
   );
 }
 
 export function SettingsCard({ children }: { children: ReactNode }) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const rows = Children.toArray(children);
   return (
-    <View style={[styles.card, { backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border }]}>
+    <View style={[styles.card, { borderRadius: Math.max(10, ui.bubbleRadius), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border }]}>
       {rows.map((row, index) => (
         <Fragment key={index}>
           {row}
@@ -58,19 +61,20 @@ export function SettingsRow({
   disabled?: boolean;
 }) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const content = (
     <>
       <View style={styles.iconSlot}><AppIcon name={icon} size={22} color={palette.accent} strokeWidth={1.9} /></View>
       <View style={styles.copy}>
-        <Text numberOfLines={1} style={[styles.label, { color: palette.text }]}>{label}</Text>
-        {detail ? <Text numberOfLines={2} style={[styles.detail, { color: palette.secondaryText }]}>{detail}</Text> : null}
+        <Text numberOfLines={1} style={[styles.label, { color: palette.text, fontSize: ui.font(15), lineHeight: ui.font(20) }]}>{label}</Text>
+        {detail ? <Text numberOfLines={2} style={[styles.detail, { color: palette.secondaryText, fontSize: ui.font(12), lineHeight: ui.font(16) }]}>{detail}</Text> : null}
       </View>
       {valueDot ? <View style={[styles.valueDot, { backgroundColor: valueDot }]} /> : null}
-      {value ? <Text numberOfLines={1} style={[styles.value, { color: valueColor ?? palette.secondaryText }]}>{value}</Text> : null}
+      {value ? <Text numberOfLines={1} style={[styles.value, { color: valueColor ?? palette.secondaryText, fontSize: ui.font(14), lineHeight: ui.font(19) }]}>{value}</Text> : null}
     </>
   );
 
-  if (!onPress) return <View style={[styles.row, disabled && styles.disabled]}>{content}</View>;
+  if (!onPress) return <View style={[styles.row, { minHeight: ui.dense(56, 48), paddingVertical: ui.dense(8, 5) }, disabled && styles.disabled]}>{content}</View>;
   const activate = () => {
     void Haptics.selectionAsync().catch(() => undefined);
     onPress();
@@ -83,7 +87,7 @@ export function SettingsRow({
       disabled={disabled}
       onPress={activate}
       android_ripple={{ color: palette.accentSoft }}
-      style={({ pressed }) => [styles.row, disabled && styles.disabled, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.row, { minHeight: ui.dense(56, 48), paddingVertical: ui.dense(8, 5) }, disabled && styles.disabled, pressed && styles.pressed]}
     >
       {content}
     </Pressable>
@@ -92,6 +96,7 @@ export function SettingsRow({
 
 export function SettingsSwitchRow({ icon, label, value, onChange }: { icon: AppIconName; label: string; value: boolean; onChange: (value: boolean) => void }) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const immediateValue = useRef(value);
   useEffect(() => { immediateValue.current = value; }, [value]);
   const toggle = () => {
@@ -107,10 +112,10 @@ export function SettingsSwitchRow({ icon, label, value, onChange }: { icon: AppI
       accessibilityState={{ checked: value }}
       onPress={toggle}
       android_ripple={{ color: palette.accentSoft }}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      style={({ pressed }) => [styles.row, { minHeight: ui.dense(56, 48), paddingVertical: ui.dense(8, 5) }, pressed && styles.pressed]}
     >
       <View style={styles.iconSlot}><AppIcon name={icon} size={22} color={palette.accent} strokeWidth={1.9} /></View>
-      <Text numberOfLines={2} style={[styles.label, styles.switchLabel, { color: palette.text }]}>{label}</Text>
+      <Text numberOfLines={2} style={[styles.label, styles.switchLabel, { color: palette.text, fontSize: ui.font(15), lineHeight: ui.font(20) }]}>{label}</Text>
       <View pointerEvents="none">
         <Switch
           value={value}
@@ -143,6 +148,7 @@ export function SettingsChoiceSheet({
   onClose: () => void;
 }) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const insets = useSafeAreaInsets();
   const { height: viewportHeight } = useWindowDimensions();
   const [presented, setPresented] = useState(visible);
@@ -217,7 +223,7 @@ export function SettingsChoiceSheet({
         <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={StyleSheet.absoluteFill} />
         <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border, transform: [{ translateY: sheetTranslateY }] }]}>
           <View style={[styles.grabber, { backgroundColor: palette.faintText }]} />
-          <Text style={[styles.sheetTitle, { color: palette.text }]}>{display.title}</Text>
+          <Text style={[styles.sheetTitle, { color: palette.text, fontSize: ui.font(18), lineHeight: ui.font(23) }]}>{display.title}</Text>
           <View style={styles.options}>
             {display.options.map((option, index) => {
               const active = option.value === display.selected;
@@ -230,19 +236,20 @@ export function SettingsChoiceSheet({
                   android_ripple={{ color: palette.accentSoft }}
                   style={({ pressed }) => [
                     styles.choice,
+                    { minHeight: ui.dense(52, 46) },
                     index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
                     pressed && styles.pressed,
                   ]}
                 >
                   {option.color ? <View style={[styles.choiceDot, { backgroundColor: option.color }]} /> : null}
-                  <Text style={[styles.choiceLabel, { color: active ? palette.accent : palette.text }]}>{option.label}</Text>
+                  <Text style={[styles.choiceLabel, { color: active ? palette.accent : palette.text, fontSize: ui.font(15), lineHeight: ui.font(20) }]}>{option.label}</Text>
                   {active ? <AppIcon name="checkmark" size={20} color={palette.accent} strokeWidth={2.2} /> : <View style={styles.checkPlaceholder} />}
                 </Pressable>
               );
             })}
           </View>
           <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.cancel, { backgroundColor: palette.surface }, pressed && styles.pressed]}>
-            <Text style={[styles.cancelText, { color: palette.accent }]}>{cancelLabel}</Text>
+            <Text style={[styles.cancelText, { color: palette.accent, fontSize: ui.font(15), lineHeight: ui.font(20) }]}>{cancelLabel}</Text>
           </Pressable>
         </Animated.View>
       </View>

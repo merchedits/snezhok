@@ -16,16 +16,18 @@ interface ConversationActionsSheetProps {
   pinned: boolean;
   archived: boolean;
   muted: boolean;
+  unread: boolean;
   onPin: () => void;
   onArchive: () => void;
   onMute: () => void;
+  onMarkUnread: () => void;
   onAddToFolder: () => void;
   folders: ChatFolder[];
   conversationId: string | null;
   onToggleFolder: (folder: ChatFolder, included: boolean) => void;
 }
 
-export const ConversationActionsSheet = memo(function ConversationActionsSheet({ visible, title, busy, pinned, archived, muted, onClose, onDelete, onPin, onArchive, onMute, onAddToFolder, folders, conversationId, onToggleFolder }: ConversationActionsSheetProps) {
+export const ConversationActionsSheet = memo(function ConversationActionsSheet({ visible, title, busy, pinned, archived, muted, unread, onClose, onDelete, onPin, onArchive, onMute, onMarkUnread, onAddToFolder, folders, conversationId, onToggleFolder }: ConversationActionsSheetProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -37,6 +39,7 @@ export const ConversationActionsSheet = memo(function ConversationActionsSheet({
         <SheetAction icon="pin-outline" label={t(pinned ? "unpinChat" : "pinChat")} onPress={onPin} />
         <SheetAction icon="bookmark" label={t(archived ? "unarchiveChat" : "archiveChat")} onPress={onArchive} />
         <SheetAction icon="volume-mute" label={t(muted ? "unmuteChat" : "muteChat")} onPress={onMute} />
+        {!unread ? <SheetAction icon="mail-outline" label={t("markUnread")} onPress={onMarkUnread} /> : null}
         {folders.map((folder) => {
           const included = Boolean(conversationId && folder.streams.some((stream) => stream.streamKind === "conversation" && stream.streamId === conversationId));
           return <SheetAction key={folder.id} icon={included ? "checkmark" : "bookmark"} label={`${included ? "✓ " : "+ "}${folder.name}`} onPress={() => onToggleFolder(folder, !included)} />;
@@ -51,7 +54,7 @@ export const ConversationActionsSheet = memo(function ConversationActionsSheet({
   </Modal>;
 });
 
-function SheetAction({ icon, label, onPress }: { icon: "pin-outline" | "bookmark" | "volume-mute" | "checkmark"; label: string; onPress: () => void }) {
+function SheetAction({ icon, label, onPress }: { icon: "pin-outline" | "bookmark" | "volume-mute" | "checkmark" | "mail-outline"; label: string; onPress: () => void }) {
   const palette = usePalette();
   return <Pressable onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: pressed ? palette.surface : "transparent" }]}><AppIcon name={icon} size={22} color={palette.accent} /><Text style={[styles.actionText, { color: palette.text }]}>{label}</Text></Pressable>;
 }

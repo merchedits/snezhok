@@ -20,6 +20,7 @@ export function usePalette() {
   // settings object made all of them rerender for unrelated audio/data changes.
   const theme = useAppStore((state) => state.settings.theme);
   const accent = useAppStore((state) => state.settings.accent);
+  const highContrast = useAppStore((state) => state.settings.highContrast);
   const scheme = theme === "system" ? system : theme;
-  return useMemo(() => createPalette(scheme, accents[accent]), [accent, scheme]);
+  return useMemo(() => createPalette(scheme, accents[accent], highContrast), [accent, highContrast, scheme]);
 }

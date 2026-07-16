@@ -1,5 +1,5 @@
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, type GestureResponderEvent, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
@@ -14,6 +14,16 @@ import {
   voiceWaveformBars,
   voiceWaveformPath,
 } from "../lib/voiceWaveform";
+import {
+  completeVoicePlayback,
+  cycleVoicePlaybackSpeed,
+  pauseVoicePlayback,
+  registerVoiceController,
+  requestVoicePlayback,
+  subscribeVoicePlayback,
+  voicePlaybackSnapshot,
+  type VoicePlaybackSpeed,
+} from "../lib/voicePlaybackCoordinator";
 import { AppIcon } from "./AppIcon";
 
 const DEFAULT_WAVEFORM_WIDTH = 176;
@@ -21,6 +31,7 @@ const SEEK_STEP_SECONDS = 5;
 
 export interface VoiceMessageAttachmentProps {
   attachment: Attachment;
+  streamId: string;
 }
 
 /**
@@ -29,14 +40,14 @@ export interface VoiceMessageAttachmentProps {
  * The native audio player is only allocated after the first play request. That
  * matters in long chat lists and on memory-constrained devices such as the A12.
  */
-export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ attachment }: VoiceMessageAttachmentProps) {
-  const [activatedAttachmentId, setActivatedAttachmentId] = useState<string | null>(null);
-  const activated = activatedAttachmentId === attachment.id;
+export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ attachment, streamId }: VoiceMessageAttachmentProps) {
+  const playback = useSyncExternalStore(subscribeVoicePlayback, voicePlaybackSnapshot, voicePlaybackSnapshot);
+  const activated = playback.requestedKey === `${streamId}:${attachment.id}`;
   const source = useAuthorizedMedia(attachment.url);
   const bars = useMemo(() => voiceWaveformBars(attachment.waveform), [attachment.waveform]);
 
   if (activated) {
-    return <ActiveVoiceMessage attachment={attachment} bars={bars} source={source} />;
+    return <ActiveVoiceMessage attachment={attachment} bars={bars} source={source} speed={playback.speed} streamId={streamId} />;
   }
   return (
     <VoiceMessageFrame
@@ -46,7 +57,9 @@ export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ att
       loading={false}
       playing={false}
       progress={0}
-      onToggle={() => setActivatedAttachmentId(attachment.id)}
+      speed={playback.speed}
+      onSpeedChange={cycleVoicePlaybackSpeed}
+      onToggle={() => requestVoicePlayback(streamId, attachment.id)}
     />
   );
 });
@@ -55,9 +68,11 @@ interface ActiveVoiceMessageProps {
   attachment: Attachment;
   bars: readonly number[];
   source: ReturnType<typeof useAuthorizedMedia>;
+  speed: VoicePlaybackSpeed;
+  streamId: string;
 }
 
-function ActiveVoiceMessage({ attachment, bars, source }: ActiveVoiceMessageProps) {
+function ActiveVoiceMessage({ attachment, bars, source, speed, streamId }: ActiveVoiceMessageProps) {
   // 120ms is smooth enough for a continuously clipped fill without making a
   // low-end device reconcile the entire message row every animation frame.
   const player = useAudioPlayer(source, { updateInterval: 120 });
@@ -66,21 +81,40 @@ function ActiveVoiceMessage({ attachment, bars, source }: ActiveVoiceMessageProp
   const duration = positiveOr(status.duration, fallbackDuration);
   const currentTime = clamp(status.currentTime, 0, duration || Number.MAX_SAFE_INTEGER);
   const progress = duration > 0 ? clamp(currentTime / duration, 0, 1) : 0;
+  const completed = useRef(false);
 
   useEffect(() => {
-    player.play();
-  }, [player]);
+    return registerVoiceController(streamId, attachment.id, {
+      pause: () => player.pause(),
+      play: () => player.play(),
+      setRate: (rate) => player.setPlaybackRate(rate),
+    });
+  }, [attachment.id, player, streamId]);
+
+  useEffect(() => {
+    player.setPlaybackRate(speed);
+  }, [player, speed]);
+
+  useEffect(() => {
+    if (!status.didJustFinish) {
+      completed.current = false;
+      return;
+    }
+    if (completed.current) return;
+    completed.current = true;
+    completeVoicePlayback(streamId, attachment.id);
+  }, [attachment.id, status.didJustFinish, streamId]);
 
   const toggle = () => {
     if (status.playing) {
-      player.pause();
+      pauseVoicePlayback(streamId, attachment.id);
       return;
     }
     if (status.didJustFinish || duration > 0 && currentTime >= duration - 0.05) {
-      void player.seekTo(0).then(() => player.play());
+      void player.seekTo(0).then(() => requestVoicePlayback(streamId, attachment.id));
       return;
     }
-    player.play();
+    requestVoicePlayback(streamId, attachment.id);
   };
 
   const seekToProgress = (nextProgress: number) => {
@@ -97,6 +131,8 @@ function ActiveVoiceMessage({ attachment, bars, source }: ActiveVoiceMessageProp
       loading={status.isBuffering && !status.playing}
       playing={status.playing}
       progress={progress}
+      speed={speed}
+      onSpeedChange={cycleVoicePlaybackSpeed}
       onSeek={seekToProgress}
       onToggle={toggle}
     />
@@ -110,11 +146,13 @@ interface VoiceMessageFrameProps {
   loading: boolean;
   playing: boolean;
   progress: number;
+  speed: VoicePlaybackSpeed;
   onToggle: () => void;
+  onSpeedChange: () => void;
   onSeek?: (progress: number) => void;
 }
 
-function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, playing, progress, onToggle, onSeek }: VoiceMessageFrameProps) {
+function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, playing, progress, speed, onToggle, onSpeedChange, onSeek }: VoiceMessageFrameProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const [waveformWidth, setWaveformWidth] = useState(DEFAULT_WAVEFORM_WIDTH);
@@ -184,7 +222,12 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, pla
             </Animated.View>
           </View>
         </Pressable>
-        <Text style={[styles.time, { color: palette.secondaryText }]}>{formatDuration(currentSeconds || durationSeconds)}</Text>
+        <View style={styles.meta}>
+          <Text style={[styles.time, { color: palette.secondaryText }]}>{formatDuration(currentSeconds || durationSeconds)}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("playbackSpeed")} onPress={onSpeedChange} hitSlop={7}>
+            <Text style={[styles.speed, { color: palette.accent }]}>{speed}x</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -250,6 +293,19 @@ const styles = StyleSheet.create({
     marginTop: 1,
     fontSize: 11,
     lineHeight: 13,
+    fontVariant: ["tabular-nums"],
+  },
+  meta: {
+    minHeight: 15,
+    marginTop: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  speed: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
     fontVariant: ["tabular-nums"],
   },
 });

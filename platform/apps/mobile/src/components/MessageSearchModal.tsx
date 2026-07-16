@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Message } from "@snezhok/contracts";
+import type { Message, UserSummary } from "@snezhok/contracts";
 
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
@@ -10,9 +10,9 @@ import { api } from "../lib/api";
 import { AppIcon } from "./AppIcon";
 
 type SearchScope = "all" | "messages" | "media" | "files" | "links";
-type ResultRow = { type: "message"; message: Message } | { type: "file"; id: string; filename: string; kind: string; bytes: number };
+type ResultRow = { type: "user"; user: UserSummary } | { type: "message"; message: Message } | { type: "file"; id: string; filename: string; kind: string; bytes: number };
 
-export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage }: { visible: boolean; streamId?: string; onClose: () => void; onOpenMessage: (message: Message) => void }) {
+export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage, onOpenUser }: { visible: boolean; streamId?: string; onClose: () => void; onOpenMessage: (message: Message) => void; onOpenUser?: (user: UserSummary) => void }) {
   const palette = usePalette();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -31,6 +31,7 @@ export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage }
       void api.search(trimmed, streamId, scope).then((result) => {
         if (cancelled) return;
         setRows([
+          ...(streamId ? [] : result.users.map((user): ResultRow => ({ type: "user", user }))),
           ...result.messages.map((message): ResultRow => ({ type: "message", message })),
           ...result.files.map((file): ResultRow => ({ type: "file", id: file.id, filename: file.filename, kind: file.kind, bytes: file.bytes })),
         ]);
@@ -52,7 +53,9 @@ export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage }
       <View style={[styles.header, { borderColor: palette.border }]}><Pressable onPress={onClose} style={styles.close}><AppIcon name="chevron-back" size={25} color={palette.accent} /></Pressable><TextInput autoFocus value={query} onChangeText={setQuery} placeholder={t("searchMessagesAndFiles")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text, backgroundColor: palette.surface }]} /></View>
       <FlatList horizontal style={{ flexGrow: 0, height: 52 }} data={scopes} keyExtractor={(item) => item.value} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scopes} renderItem={({ item }) => <Pressable onPress={() => setScope(item.value)} style={[styles.chip, { backgroundColor: scope === item.value ? palette.accent : palette.surface }]}><Text style={[styles.chipText, { color: scope === item.value ? "white" : palette.secondaryText }]}>{item.label}</Text></Pressable>} />
       {loading ? <ActivityIndicator style={styles.loading} color={palette.accent} /> : null}
-      <FlatList data={rows} keyExtractor={(item) => item.type === "message" ? `m:${item.message.id}` : `f:${item.id}`} contentContainerStyle={styles.results} renderItem={({ item }) => item.type === "message"
+      <FlatList data={rows} keyExtractor={(item) => item.type === "user" ? `u:${item.user.id}` : item.type === "message" ? `m:${item.message.id}` : `f:${item.id}`} contentContainerStyle={styles.results} renderItem={({ item }) => item.type === "user"
+        ? <Pressable disabled={!onOpenUser} onPress={() => onOpenUser?.(item.user)} style={[styles.row, { borderColor: palette.border }]}><AppIcon name="person-outline" size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.user.displayName}</Text><Text numberOfLines={1} style={[styles.subtitle, { color: palette.secondaryText }]}>@{item.user.username}</Text></View></Pressable>
+        : item.type === "message"
         ? <Pressable onPress={() => onOpenMessage(item.message)} style={[styles.row, { borderColor: palette.border }]}><AppIcon name={item.message.attachments.length ? "document-outline" : "chatbubble-outline"} size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.message.sender.displayName}</Text><Text numberOfLines={2} style={[styles.subtitle, { color: palette.secondaryText }]}>{item.message.text || t("attachment")}</Text></View><Text style={[styles.time, { color: palette.faintText }]}>{new Date(item.message.createdAt).toLocaleDateString()}</Text></Pressable>
         : <View style={[styles.row, { borderColor: palette.border }]}><AppIcon name="document-outline" size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.filename}</Text><Text style={[styles.subtitle, { color: palette.secondaryText }]}>{item.kind} · {formatBytes(item.bytes)}</Text></View></View>} ListEmptyComponent={!loading ? <Text style={[styles.empty, { color: palette.secondaryText }]}>{query || scope !== "all" ? t("nothingFound") : t("searchPromptGlobal")}</Text> : null} />
     </View>

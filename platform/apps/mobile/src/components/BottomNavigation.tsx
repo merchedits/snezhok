@@ -6,6 +6,7 @@ import Animated, { Easing, interpolateColor, useAnimatedStyle, useSharedValue, w
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
+import { useUiPreferences } from "../hooks/useUiPreferences";
 import { useTranslation } from "../i18n";
 import type { MainTab } from "../navigation/mainTabs";
 import { useAppStore } from "../store/useAppStore";
@@ -21,10 +22,11 @@ const tabs: Array<{ id: MainTab; icon: AppIconName; activeIcon: AppIconName }> =
 
 export const BottomNavigation = memo(function BottomNavigation({ selected, onSelect }: { selected: MainTab; onSelect: (tab: MainTab) => void }) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   return (
-    <View style={[styles.nav, { minHeight: 62 + insets.bottom, paddingBottom: insets.bottom + 4, backgroundColor: palette.background, borderColor: palette.border }]}>
+    <View style={[styles.nav, { minHeight: ui.dense(62, 56) + insets.bottom, paddingBottom: insets.bottom + 4, backgroundColor: palette.background, borderColor: palette.border }]}>
       {tabs.map((tab) => <TabButton key={tab.id} tab={tab} active={selected === tab.id} label={t(tab.id)} onSelect={onSelect} />)}
     </View>
   );
@@ -32,6 +34,7 @@ export const BottomNavigation = memo(function BottomNavigation({ selected, onSel
 
 const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { tab: (typeof tabs)[number]; active: boolean; label: string; onSelect: (tab: MainTab) => void }) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
   const progress = useSharedValue(active ? 1 : 0);
   useEffect(() => {
@@ -53,7 +56,7 @@ const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { ta
       <Animated.View style={[styles.iconWrap, iconStyle]}>
         <AppIcon name={active ? tab.activeIcon : tab.icon} size={23} color={active ? palette.accent : palette.secondaryText} strokeWidth={active ? 2 : 1.8} />
       </Animated.View>
-      <Text numberOfLines={1} style={[styles.label, { color: active ? palette.accent : palette.secondaryText }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.label, { color: active ? palette.accent : palette.secondaryText, fontSize: ui.font(10.5) }]}>{label}</Text>
     </Pressable>
   );
 });

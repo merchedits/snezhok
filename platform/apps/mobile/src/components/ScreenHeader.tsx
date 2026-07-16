@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
+import { useUiPreferences } from "../hooks/useUiPreferences";
 
 type IconName = AppIconName;
 
@@ -23,18 +24,19 @@ interface ScreenHeaderProps {
 
 export function ScreenHeader({ title, subtitle, left, right = [], center }: ScreenHeaderProps) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.outer, { paddingTop: insets.top, backgroundColor: palette.background, borderColor: palette.border }]}>
-      <View style={styles.row}>
+      <View style={[styles.row, { minHeight: ui.dense(52, 46) }]}>
         <View style={styles.side}>
           {left ? <HeaderButton {...left} /> : null}
         </View>
         <View style={styles.center}>
           {center ?? (
             <>
-              <Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{title}</Text>
-              {subtitle ? <Text numberOfLines={1} style={[styles.subtitle, { color: palette.secondaryText }]}>{subtitle}</Text> : null}
+              <Text numberOfLines={1} style={[styles.title, { color: palette.text, fontSize: ui.font(17), lineHeight: ui.font(21) }]}>{title}</Text>
+              {subtitle ? <Text numberOfLines={1} style={[styles.subtitle, { color: palette.secondaryText, fontSize: ui.font(12), lineHeight: ui.font(15) }]}>{subtitle}</Text> : null}
             </>
           )}
         </View>

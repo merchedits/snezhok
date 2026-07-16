@@ -64,6 +64,7 @@ interface AppState {
   loadOlderMessages: (streamId: string) => Promise<void>;
   loadMessageContext: (streamId: string, messageId: string) => Promise<void>;
   markStreamRead: (streamId: string, sequence: number) => Promise<void>;
+  markStreamUnread: (streamId: string, sequence?: number) => Promise<void>;
   loadPinnedMessages: (streamId: string) => Promise<void>;
   uploadAttachment: (input: UploadInput) => Promise<Attachment>;
   cancelUpload: () => Promise<void>;
@@ -568,6 +569,34 @@ export const useAppStore = create<AppState>((set, get) => ({
         set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
         schedulePersistence({ outbox: true });
       }
+      throw error;
+    }
+  },
+
+  markStreamUnread: async (streamId, sequence) => {
+    const previousConversationCount = get().conversations.find((item) => item.id === streamId)?.unreadCount ?? 0;
+    const previousChannelCount = get().channels.find((item) => item.id === streamId)?.unreadCount ?? 0;
+    set((state) => ({
+      conversations: state.conversations.map((conversation) => conversation.id === streamId
+        ? { ...conversation, unreadCount: Math.max(1, conversation.unreadCount) }
+        : conversation),
+      channels: state.channels.map((channel) => channel.id === streamId
+        ? { ...channel, unreadCount: Math.max(1, channel.unreadCount) }
+        : channel),
+    }));
+    schedulePersistence({ bootstrap: true });
+    try {
+      await api.markUnread(streamId, sequence);
+    } catch (error) {
+      set((state) => ({
+        conversations: state.conversations.map((conversation) => conversation.id === streamId && conversation.unreadCount === 1
+          ? { ...conversation, unreadCount: previousConversationCount }
+          : conversation),
+        channels: state.channels.map((channel) => channel.id === streamId && channel.unreadCount === 1
+          ? { ...channel, unreadCount: previousChannelCount }
+          : channel),
+      }));
+      schedulePersistence({ bootstrap: true });
       throw error;
     }
   },

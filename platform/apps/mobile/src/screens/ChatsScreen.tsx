@@ -15,6 +15,7 @@ import { MessageSearchModal } from "../components/MessageSearchModal";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { TextEntryModal } from "../components/TextEntryModal";
 import { usePalette } from "../hooks/usePalette";
+import { useUiPreferences } from "../hooks/useUiPreferences";
 import { prefetchAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import { recentMediaPreviewUris } from "../lib/chatWarmup";
@@ -32,6 +33,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const screenFocused = useIsFocused();
   const palette = usePalette();
+  const ui = useUiPreferences();
   const { language, t } = useTranslation();
   const showDialog = useAppDialog();
   const conversations = useAppStore((state) => state.conversations);
@@ -46,6 +48,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const createFolder = useAppStore((state) => state.createFolder);
   const setFolderMembership = useAppStore((state) => state.setFolderMembership);
   const setConversationPreference = useAppStore((state) => state.setConversationPreference);
+  const markStreamUnread = useAppStore((state) => state.markStreamUnread);
   const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
@@ -54,6 +57,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const [newFolder, setNewFolder] = useState(false);
   const [globalSearch, setGlobalSearch] = useState(false);
   const foregroundActive = active && screenFocused;
+  const rowHeight = ui.dense(72, 62);
   const warmConversationKey = useMemo(() => conversations.slice(0, 6).map((conversation) => conversation.id).join(","), [conversations]);
 
   useEffect(() => {
@@ -151,7 +155,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         maxToRenderPerBatch={8}
         updateCellsBatchingPeriod={40}
         windowSize={5}
-        getItemLayout={(_data, index) => ({ length: 72, offset: 72 * index, index })}
+        getItemLayout={(_data, index) => ({ length: rowHeight, offset: rowHeight * index, index })}
         refreshControl={<RefreshControl refreshing={syncing} tintColor={palette.accent} onRefresh={() => void refresh({ force: true })} />}
         renderItem={renderConversation}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
@@ -173,10 +177,17 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         pinned={selectedConversation?.pinned ?? false}
         archived={selectedConversation?.archived ?? false}
         muted={selectedConversation?.muted ?? false}
+        unread={(selectedConversation?.unreadCount ?? 0) > 0}
         onClose={() => { if (!deleting) setSelectedConversation(null); }}
         onPin={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { pinned: !selectedConversation.pinned }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
         onArchive={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { archived: !selectedConversation.archived }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
         onMute={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { muted: !selectedConversation.muted }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
+        onMarkUnread={() => {
+          const conversation = selectedConversation;
+          if (!conversation) return;
+          setSelectedConversation(null);
+          void markStreamUnread(conversation.id).catch(() => showDialog(t("requestFailed"), t("markUnreadFailed")));
+        }}
         onAddToFolder={() => setNewFolder(true)}
         folders={folders}
         conversationId={selectedConversation?.id ?? null}
@@ -190,7 +201,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         onDelete={confirmDelete}
       />
       <TextEntryModal visible={newFolder} title={t("newFolder")} placeholder={t("folderName")} submitLabel={t("create")} onClose={() => setNewFolder(false)} onSubmit={async (name) => { await createFolder(name, selectedConversation ? [{ streamKind: "conversation", streamId: selectedConversation.id }] : []); setSelectedConversation(null); }} />
-      <MessageSearchModal visible={globalSearch} onClose={() => setGlobalSearch(false)} onOpenMessage={(message) => {
+      <MessageSearchModal visible={globalSearch} onClose={() => setGlobalSearch(false)} onOpenUser={(user) => { setGlobalSearch(false); navigation.navigate("Profile", { userId: user.id }); }} onOpenMessage={(message) => {
         setGlobalSearch(false);
         const conversation = conversations.find((item) => item.id === message.streamId);
         const channel = channels.find((item) => item.id === message.streamId);
@@ -210,6 +221,7 @@ interface ConversationRowProps extends ConversationListRow {
 
 const ConversationRow = memo(function ConversationRow({ conversation, currentUserId, sectionBreak, draft, onPress, onLongPress }: ConversationRowProps) {
   const palette = usePalette();
+  const ui = useUiPreferences();
   const { language, t } = useTranslation();
   const title = conversationTitle(conversation, language);
   const peer = directPeer(conversation, currentUserId);
@@ -218,18 +230,18 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
       delayLongPress={320}
       onPress={() => onPress(conversation)}
       onLongPress={() => onLongPress(conversation)}
-      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { backgroundColor: pressed ? palette.surface : palette.background }]}
+      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(72, 62), backgroundColor: pressed ? palette.surface : palette.background }]}
     >
       {conversation.saved
-        ? <View style={[styles.savedAvatar, { backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color="white" /></View>
-        : <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={title} color={peer?.avatarColor} online={peer?.presence === "online"} size={52} />}
+        ? <View style={[styles.savedAvatar, { width: ui.dense(52, 46), height: ui.dense(52, 46), borderRadius: ui.dense(26, 23), backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color="white" /></View>
+        : <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={title} color={peer?.avatarColor} online={peer?.presence === "online"} size={ui.dense(52, 46)} />}
       <View style={[styles.rowBody, { borderColor: palette.border }]}> 
         <View style={styles.rowTop}>
-          <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.text }]}>{title}</Text>
-          <Text style={[styles.time, { color: conversation.unreadCount ? palette.accent : palette.faintText }]}>{formatListTime(conversation.updatedAt)}</Text>
+          <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.text, fontSize: ui.font(16) }]}>{title}</Text>
+          <Text style={[styles.time, { color: conversation.unreadCount ? palette.accent : palette.faintText, fontSize: ui.font(12) }]}>{formatListTime(conversation.updatedAt)}</Text>
         </View>
         <View style={styles.rowBottom}>
-          <Text numberOfLines={1} style={[styles.preview, { color: conversation.unreadCount ? palette.text : palette.secondaryText }]}>
+          <Text numberOfLines={1} style={[styles.preview, { color: conversation.unreadCount ? palette.text : palette.secondaryText, fontSize: ui.font(14) }]}>
             {draft ? `${t("draft")}: ${draft}` : conversation.lastMessage ? `${conversation.lastMessage.senderName}: ${conversation.lastMessage.text || mediaLabel(conversation.lastMessage.kind, t)}` : peer ? `@${peer.username}` : t("noMessagesYet")}
           </Text>
           {conversation.muted ? <AppIcon name="volume-mute" size={14} color={palette.faintText} /> : null}
@@ -242,7 +254,8 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
 
 function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const palette = usePalette();
-  return <Pressable onPress={onPress} style={[styles.filterChip, { backgroundColor: active ? palette.accent : palette.surface }]}><Text style={[styles.filterText, { color: active ? "white" : palette.secondaryText }]}>{label}</Text></Pressable>;
+  const ui = useUiPreferences();
+  return <Pressable onPress={onPress} style={[styles.filterChip, { minHeight: ui.dense(32, 28), borderRadius: ui.dense(16, 14), backgroundColor: active ? palette.accent : palette.surface }]}><Text style={[styles.filterText, { color: active ? "white" : palette.secondaryText, fontSize: ui.font(13) }]}>{label}</Text></Pressable>;
 }
 
 function conversationTitle(conversation: ConversationSummary, language: "en" | "ru"): string {
