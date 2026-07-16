@@ -27,9 +27,11 @@ export const TypingIndicator = memo(function TypingIndicator({ streamId, partici
         ? t("typingMany", { count: names.length })
         : "";
 
+  if (!label) return null;
   return (
     <View accessibilityLiveRegion="polite" style={styles.container}>
-      {label ? <><View style={styles.dots}><TypingDot delay={0} reducedMotion={reducedMotion} color={palette.accent} /><TypingDot delay={120} reducedMotion={reducedMotion} color={palette.accent} /><TypingDot delay={240} reducedMotion={reducedMotion} color={palette.accent} /></View><Text numberOfLines={1} style={[styles.label, { color: palette.secondaryText }]}>{label}</Text></> : null}
+      <View style={styles.dots}><TypingDot delay={0} reducedMotion={reducedMotion} color={palette.accent} /><TypingDot delay={120} reducedMotion={reducedMotion} color={palette.accent} /><TypingDot delay={240} reducedMotion={reducedMotion} color={palette.accent} /></View>
+      <Text numberOfLines={1} style={[styles.label, { color: palette.secondaryText }]}>{label}</Text>
     </View>
   );
 });

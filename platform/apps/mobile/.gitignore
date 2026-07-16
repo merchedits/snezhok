@@ -1,6 +1,7 @@
 node_modules/
 .expo/
 /android/
+modules/**/android/build/
 *.jks
 *.keystore
 *.apk

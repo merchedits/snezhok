@@ -13,6 +13,7 @@ import { StatusBar } from "expo-status-bar";
 import { OfflineBar } from "./src/components/OfflineBar";
 import { AppDialogProvider } from "./src/components/AppDialogProvider";
 import { initializeDiagnostics, installGlobalErrorCapture, recordDiagnostic } from "./src/diagnostics/diagnostics";
+import { ingestNativeDiagnostics, installNativeDiagnostics } from "./src/diagnostics/nativeDiagnostics";
 import { usePalette } from "./src/hooks/usePalette";
 import { useTranslation } from "./src/i18n";
 import { useRealtime } from "./src/hooks/useRealtime";
@@ -35,6 +36,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 // behind an open chat, profile, or call. This is especially visible on low-end
 // devices while message and recording events arrive frequently.
 enableFreeze(true);
+installNativeDiagnostics();
 
 export default function App() {
   return (
@@ -57,7 +59,7 @@ function AppRoot() {
   const palette = usePalette();
 
   useEffect(() => {
-    void initializeDiagnostics();
+    void initializeDiagnostics().then(ingestNativeDiagnostics).catch(() => undefined);
     void initializeMediaCache().catch((error) => recordDiagnostic("warn", "media", "Could not configure media cache", { error }));
     const uninstallErrorCapture = installGlobalErrorCapture();
     void initialize();

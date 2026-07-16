@@ -23,6 +23,7 @@ import { ReactionPicker } from "../components/ReactionPicker";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { ScheduledMessagesModal } from "../components/ScheduledMessagesModal";
 import { SwipeReplyRow } from "../components/SwipeReplyRow";
+import { TypingIndicator } from "../components/TypingIndicator";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { recordPerformance } from "../diagnostics/diagnostics";
@@ -32,6 +33,7 @@ import { selectedMessageText } from "../lib/messageSelection";
 import { isUploadCancelled } from "../lib/uploadPolicy";
 import { userFacingError } from "../lib/userFacingError";
 import { dismissMessageNotifications } from "../notifications/androidNotifications";
+import { emitRealtimeTyping, joinRealtimeStream, leaveRealtimeStream } from "../lib/realtimeBridge";
 import { appendRecordingLevel, recordingSourceForMicrophone, routeThroughEarpieceForMicrophone } from "../lib/recordingWaveform";
 import { visibleMessages } from "../store/messageReconciliation";
 import { useAppStore } from "../store/useAppStore";
@@ -62,6 +64,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const messages = useAppStore((state) => state.messages[streamId] ?? emptyMessages);
   const me = useAppStore((state) => state.me);
   const conversation = useAppStore((state) => state.conversations.find((item) => item.id === streamId));
+  const channel = useAppStore((state) => state.channels.find((item) => item.id === streamId));
   const peer = conversation?.saved ? undefined : conversation?.participants.find((participant) => participant.id !== me?.id) ?? conversation?.participants[0];
   const isGroup = conversation?.kind === "group";
   const online = useAppStore((state) => state.online);
@@ -120,6 +123,8 @@ export function ChatScreen({ navigation, route }: Props) {
   const firstPaintRecorded = useRef(false);
   const cachedMessageCountAtOpen = useRef(messages.length);
   const draftBeforeEdit = useRef("");
+  const typingActive = useRef(false);
+  const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     selectionProgress.value = withTiming(selectionMode ? 1 : 0, {
@@ -149,6 +154,17 @@ export function ChatScreen({ navigation, route }: Props) {
     if (!routeSettled) return;
     void Promise.all([loadMessages(streamId), loadPinnedMessages(streamId)]).catch(() => undefined);
   }, [loadMessages, loadPinnedMessages, routeSettled, streamId]);
+  useEffect(() => {
+    if (!isFocused || !routeSettled) return;
+    joinRealtimeStream(streamId);
+    return () => {
+      if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = null;
+      if (typingActive.current) emitRealtimeTyping(streamId, false);
+      typingActive.current = false;
+      leaveRealtimeStream(streamId);
+    };
+  }, [isFocused, routeSettled, streamId]);
   useEffect(() => {
     setSelectedIds(new Set());
     setForwardPicker(false);
@@ -187,6 +203,14 @@ export function ChatScreen({ navigation, route }: Props) {
     }
     return latest;
   }, [messages]);
+  const typingParticipants = useMemo(() => {
+    const users = new Map<string, NonNullable<typeof me>>();
+    for (const participant of conversation?.participants ?? []) users.set(participant.id, participant);
+    for (const participant of channel?.connectedMembers ?? []) users.set(participant.id, participant);
+    for (const message of messages) users.set(message.sender.id, message.sender);
+    if (me) users.delete(me.id);
+    return [...users.values()];
+  }, [channel?.connectedMembers, conversation?.participants, me, messages]);
 
   useEffect(() => {
     if (!isFocused || !routeSettled || latestSequence <= 0) return;
@@ -235,14 +259,33 @@ export function ChatScreen({ navigation, route }: Props) {
     });
   }, []);
 
+  const stopTyping = useCallback(() => {
+    if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+    typingStopTimer.current = null;
+    if (!typingActive.current) return;
+    typingActive.current = false;
+    emitRealtimeTyping(streamId, false);
+  }, [streamId]);
+
   const handleTextChange = (value: string) => {
     setText(value);
     if (!editingMessage) setDraft(streamId, value);
+    if (!value.trim() || editingMessage || !online) {
+      stopTyping();
+      return;
+    }
+    if (!typingActive.current) {
+      typingActive.current = true;
+      emitRealtimeTyping(streamId, true);
+    }
+    if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+    typingStopTimer.current = setTimeout(stopTyping, 4_000);
   };
 
   const sendText = async (silent = false) => {
     const value = text.trim();
     if (!value) return;
+    stopTyping();
     if (editingMessage) {
       const restoringDraft = draftBeforeEdit.current;
       setText(restoringDraft);
@@ -470,6 +513,7 @@ export function ChatScreen({ navigation, route }: Props) {
         <SelectionAction icon={selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "pin-outline" : "pin"} label={t(selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "unpinMessage" : "pinMessage")} onPress={() => void toggleSelectedPins()} />
         <SelectionAction danger icon="trash-outline" label={t("deleteMessage")} onPress={confirmDeleteSelected} />
       </View> : <>
+        <TypingIndicator streamId={streamId} participants={typingParticipants} reducedMotion={reducedMotion} />
         {recording ? <RecordingStatus levels={recordingLevels} durationMillis={recordingDuration} /> : null}
         {editingMessage ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text style={[styles.replyName, { color: palette.accent }]}>{t("editMessage")}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{editingMessage.text}</Text></View><Pressable onPress={cancelEditing} style={styles.replyClose}><AppIcon name="close" size={21} color={palette.secondaryText} /></Pressable></View> : replyingTo ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{replyingTo.sender.displayName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{replyingTo.text || t("attachment")}</Text></View><Pressable onPress={() => setReplyingTo(null)} style={styles.replyClose}><AppIcon name="close" size={21} color={palette.secondaryText} /></Pressable></View> : null}
         <View style={[styles.composer, { borderColor: palette.border, backgroundColor: palette.background, paddingBottom: composerBottomPadding(insets.bottom, keyboardVisible) }]}>
