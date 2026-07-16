@@ -56,7 +56,12 @@ export async function stageObject(key: string) {
   const hash = createHash("sha256");
   await new Promise<void>((resolve, reject) => createReadStream(source).on("data", (chunk) => hash.update(chunk)).on("end", resolve).on("error", reject));
   const checksum = hash.digest("hex");
-  const storageKey = `objects/${checksum.slice(0, 2)}/${checksum}`;
+  // The checksum remains the database deduplication key, while each staging
+  // attempt owns a distinct immutable object generation. This prevents a
+  // collector deleting an old checksum path after a concurrent upload has
+  // already reused it for a new blob row.
+  const generation = createHash("sha256").update(safeKey(key)).digest("hex").slice(0, 24);
+  const storageKey = `objects/${checksum.slice(0, 2)}/${checksum}-${generation}`;
   const target = objectPath(storageKey);
   await mkdir(path.dirname(target), { recursive: true });
   try { await copyFile(source, target, constants.COPYFILE_EXCL); } catch (error) {
@@ -74,6 +79,7 @@ export async function detectTemporaryMimeType(key: string): Promise<string> {
 }
 
 export async function removeTemporary(key: string) { await rm(tempPath(key), { force: true }); }
+export async function removeObject(key: string) { await rm(objectPath(key), { force: true }); }
 
 /** Removes temp files that have no live database session after a generous grace period. */
 export async function removeUntrackedTemporaryFiles(activeKeys: Set<string>, olderThanMs: number, limit = 500): Promise<number> {
@@ -87,6 +93,39 @@ export async function removeUntrackedTemporaryFiles(activeKeys: Set<string>, old
     if (!info || info.mtimeMs > olderThanMs) continue;
     await rm(target, { force: true });
     removed += 1;
+  }
+  return removed;
+}
+
+/**
+ * Removes abandoned generation-keyed objects after a generous grace period.
+ * Immutable objects with a database row are always retained. Symlinks and
+ * malformed paths are ignored rather than followed.
+ */
+export async function removeUntrackedObjectFiles(activeKeys: Set<string>, olderThanMs: number, limit = 500): Promise<number> {
+  const pending = [objectRoot];
+  let removed = 0;
+  while (pending.length && removed < limit) {
+    const directory = pending.pop()!;
+    for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
+      if (removed >= limit) break;
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(target);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const storageKey = path.relative(uploadRoot, target).split(path.sep).join("/");
+      try {
+        if (objectPath(storageKey) !== target || activeKeys.has(storageKey)) continue;
+      } catch {
+        continue;
+      }
+      const info = await stat(target).catch(() => null);
+      if (!info || info.mtimeMs > olderThanMs) continue;
+      await rm(target, { force: true });
+      removed += 1;
+    }
   }
   return removed;
 }

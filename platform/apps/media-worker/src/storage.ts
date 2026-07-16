@@ -10,7 +10,7 @@ export const storageRoot = path.resolve(config.STORAGE_ROOT);
 
 export function objectPath(storageKey: string) {
   const parts = storageKey.split("/");
-  if (parts.length !== 3 || parts[0] !== "objects" || !/^[a-f0-9]{2}$/.test(parts[1] ?? "") || !/^[a-f0-9]{64}$/.test(parts[2] ?? "")) {
+  if (parts.length !== 3 || parts[0] !== "objects" || !/^[a-f0-9]{2}$/.test(parts[1] ?? "") || !/^[a-f0-9]{64}(?:-[a-f0-9-]{16,64})?$/.test(parts[2] ?? "")) {
     throw new Error("Invalid content-addressed storage key");
   }
   return path.join(storageRoot, ...parts);
@@ -33,7 +33,8 @@ export async function commitOutput(source: string) {
   const hash = createHash("sha256");
   await new Promise<void>((resolve, reject) => createReadStream(source).on("data", (chunk) => hash.update(chunk)).on("end", resolve).on("error", reject));
   const checksum = hash.digest("hex");
-  const storageKey = `objects/${checksum.slice(0, 2)}/${checksum}`;
+  const id = randomUUID();
+  const storageKey = `objects/${checksum.slice(0, 2)}/${checksum}-${id}`;
   const target = objectPath(storageKey);
   await mkdir(path.dirname(target), { recursive: true });
   try { await copyFile(source, target, constants.COPYFILE_EXCL); } catch (error) {
@@ -42,7 +43,11 @@ export async function commitOutput(source: string) {
   }
   const info = await stat(target);
   if (!info.isFile() || info.size !== sourceInfo.size) throw new Error("Committed media output does not match the processed file");
-  return { id: randomUUID(), checksum, storageKey, bytes: info.size };
+  return { id, checksum, storageKey, bytes: info.size };
+}
+
+export async function removeCommittedOutput(storageKey: string) {
+  await rm(objectPath(storageKey), { force: true });
 }
 
 export function hostHasCapacity() {

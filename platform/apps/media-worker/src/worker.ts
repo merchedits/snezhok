@@ -2,7 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { config } from "./config.js";
 import { callsAreActive, cancellationRequested, claimJob, completeJob, failJob, heartbeat, recoverInterruptedJobs } from "./database.js";
 import { processMedia } from "./processors.js";
-import { commitOutput, createJobDirectory, hostHasCapacity, objectPath, removeJobDirectory } from "./storage.js";
+import { commitOutput, createJobDirectory, hostHasCapacity, objectPath, removeCommittedOutput, removeJobDirectory } from "./storage.js";
 
 export async function runWorker(signal: AbortSignal) {
   await recoverInterruptedJobs();
@@ -29,7 +29,8 @@ export async function runWorker(signal: AbortSignal) {
       const committed = [];
       for (const output of outputs) committed.push({ ...output, ...(await commitOutput(output.path)), blobId: "" });
       // commitOutput's id is the proposed blob ID; database deduplication may choose an existing blob.
-      await completeJob(job, committed.map(({ id, ...output }) => ({ ...output, blobId: id })));
+      const unusedStorageKeys = await completeJob(job, committed.map(({ id, ...output }) => ({ ...output, blobId: id })));
+      await Promise.allSettled(unusedStorageKeys.map(removeCommittedOutput));
       console.info(JSON.stringify({ event: "media_job_complete", jobId: job.id, kind: job.kind, purpose: job.purpose, profile: job.profile, inputBytes: job.originalBytes, outputBytes: committed.reduce((sum, output) => sum + output.bytes, 0), durationMs: Math.round(performance.now() - startedAt), attempts: job.attempts }));
     } catch (error) {
       console.warn(JSON.stringify({ event: "media_job_failed", jobId: job.id, kind: job.kind, purpose: job.purpose, profile: job.profile, inputBytes: job.originalBytes, durationMs: Math.round(performance.now() - startedAt), attempts: job.attempts, error: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : String(error).slice(0, 500) }));

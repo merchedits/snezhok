@@ -5,7 +5,7 @@ import { migrate } from "../db/migrate.js";
 import { pool, transaction, type DbClient } from "../db/pool.js";
 import { deterministicId, newId } from "../lib/ids.js";
 import { defaultSettings } from "../modules/settings/defaults.js";
-import { ensureStorage, finalizeObject, tempPath } from "../modules/uploads/storage.js";
+import { ensureStorage, finalizeObject, removeObject, tempPath } from "../modules/uploads/storage.js";
 import { orderedPair } from "../modules/friends/service.js";
 import { safeLegacyFile } from "../lib/legacy-files.js";
 
@@ -72,14 +72,17 @@ async function importLegacy(sqlite: Database.Database, uploadsRoot: string) {
     const tempKey = `legacy-${deterministicId("legacy-temp", file.id)}.upload`;
     await mkdir(path.dirname(tempPath(tempKey)), { recursive: true }); await copyFile(source, tempPath(tempKey));
     const object = await finalizeObject(tempKey); const attachmentId = deterministicId("legacy-attachment", file.id); fileMap.set(file.id, attachmentId);
+    let adoptedStorageKey = object.storageKey;
     await transaction(async (client) => {
-      const blobId = await upsertBlob(client, object);
+      const blob = await upsertBlob(client, object);
+      adoptedStorageKey = blob.storageKey;
       await client.query(
         `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,quality,status,created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,'original','ready',to_timestamp($8/1000.0)) ON CONFLICT (id) DO NOTHING`,
-        [attachmentId, userId(file.user_id), blobId, file.original_name, attachmentKind(object.detectedMimeType), object.detectedMimeType, object.bytes, file.created_at]);
+        [attachmentId, userId(file.user_id), blob.id, file.original_name, attachmentKind(object.detectedMimeType), object.detectedMimeType, object.bytes, file.created_at]);
       await mapLegacy(client, "file", file.id, attachmentId);
     });
+    if (adoptedStorageKey !== object.storageKey) await removeObject(object.storageKey).catch(() => undefined);
   }
 
   await transaction(async (client) => {
@@ -164,11 +167,11 @@ async function importLegacy(sqlite: Database.Database, uploadsRoot: string) {
 }
 
 async function upsertBlob(client: DbClient, object: { checksum: string; storageKey: string; bytes: number; detectedMimeType: string }) {
-  const result = await client.query<{ id: string }>(
+  const result = await client.query<{ id: string; storage_key: string }>(
     `INSERT INTO blobs(id,checksum_sha256,storage_key,bytes,detected_mime_type) VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (checksum_sha256) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256 RETURNING id`,
+     ON CONFLICT (checksum_sha256) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256 RETURNING id,storage_key`,
     [newId(), object.checksum, object.storageKey, object.bytes, object.detectedMimeType]);
-  return result.rows[0]!.id;
+  return { id: result.rows[0]!.id, storageKey: result.rows[0]!.storage_key };
 }
 async function mapLegacy(client: DbClient, kind: string, legacyId: string, id: string) { await client.query("INSERT INTO legacy_import_map(entity_kind,legacy_id,new_id) VALUES ($1,$2,$3) ON CONFLICT (entity_kind,legacy_id) DO UPDATE SET new_id=EXCLUDED.new_id", [kind, legacyId, id]); }
 function all<T>(db: Database.Database, table: string): T[] { return hasTable(db, table) ? db.prepare(`SELECT * FROM ${table}`).all() as T[] : []; }

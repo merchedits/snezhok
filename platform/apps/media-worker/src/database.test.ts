@@ -10,6 +10,14 @@ test("media work ignores abandoned call sessions after the configured window", (
   assert.match(activeCallSql, /started_at\s*>=\s*now\(\)-\(\$1::text\s*\|\|\s*' hours'\)::interval/i);
 });
 
+test("media storage accepts legacy and generation-keyed immutable objects", async () => {
+  const { objectPath } = await import("./storage.js");
+  const checksum = "a".repeat(64);
+  assert.match(objectPath(`objects/aa/${checksum}`), new RegExp(`${checksum}$`));
+  assert.match(objectPath(`objects/aa/${checksum}-00000000-0000-4000-8000-000000000001`), /000000000001$/);
+  assert.throws(() => objectPath(`objects/aa/${checksum}-..`), /Invalid content-addressed storage key/);
+});
+
 test("SKIP LOCKED claim atomically leases one eligible media job", async () => {
   const here = path.dirname(fileURLToPath(import.meta.url)); const migrations = path.resolve(here, "../../api/migrations");
   const db = new PGlite();

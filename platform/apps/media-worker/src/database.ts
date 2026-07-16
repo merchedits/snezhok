@@ -50,18 +50,20 @@ export async function cancellationRequested(jobId: string) {
   return !row || row.cancelled;
 }
 
-export async function completeJob(job: MediaJob, outputs: Array<OutputVariant & { blobId: string; checksum: string; storageKey: string; bytes: number }>) {
+export async function completeJob(job: MediaJob, outputs: Array<OutputVariant & { blobId: string; checksum: string; storageKey: string; bytes: number }>): Promise<string[]> {
   const client = await pool.connect();
+  const unusedStorageKeys: string[] = [];
   try {
     await client.query("BEGIN");
     const owned = await client.query("SELECT 1 FROM media_jobs WHERE id=$1 AND status='running' AND locked_by=$2 AND cancel_requested_at IS NULL FOR UPDATE", [job.id, config.WORKER_ID]);
     if (!owned.rowCount) throw new DOMException("Media job lease lost", "AbortError");
     for (const output of outputs) {
-      const blob = await client.query<{ id: string }>(
+      const blob = await client.query<{ id: string; storage_key: string }>(
         `INSERT INTO blobs(id,checksum_sha256,storage_key,bytes,detected_mime_type) VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT(checksum_sha256) DO UPDATE SET checksum_sha256=excluded.checksum_sha256 RETURNING id`,
+         ON CONFLICT(checksum_sha256) DO UPDATE SET checksum_sha256=excluded.checksum_sha256 RETURNING id,storage_key`,
         [output.blobId, output.checksum, output.storageKey, output.bytes, output.mimeType],
       );
+      if (blob.rows[0]!.storage_key !== output.storageKey) unusedStorageKeys.push(output.storageKey);
       await client.query(
         `INSERT INTO media_variants(id,attachment_id,blob_id,role,profile,mime_type,bytes,checksum_sha256,width,height,duration_ms,waveform)
          VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -76,6 +78,7 @@ export async function completeJob(job: MediaJob, outputs: Array<OutputVariant & 
     if (thumbnail) await client.query("UPDATE attachments SET thumbnail_attachment_id=NULL WHERE id=$1", [job.attachmentId]);
     await client.query("UPDATE media_jobs SET status='complete',completed_at=now(),heartbeat_at=NULL,locked_by=NULL,error=NULL,updated_at=now() WHERE id=$1", [job.id]);
     await client.query("COMMIT");
+    return unusedStorageKeys;
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }
 

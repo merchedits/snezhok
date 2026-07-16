@@ -9,7 +9,7 @@ import { pool, transaction } from "../../db/pool.js";
 import { AppError, conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { requireAuth } from "../auth/middleware.js";
-import { appendChunk, detectTemporaryMimeType, ensureStorage, initializeTemporary, objectPath, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
+import { appendChunk, detectTemporaryMimeType, ensureStorage, initializeTemporary, objectPath, removeObject, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
 import { stat } from "node:fs/promises";
 import type { Readable } from "node:stream";
 import { validateDetectedMedia, validateUploadDeclaration } from "./mediaValidation.js";
@@ -225,14 +225,16 @@ async function completeUpload(userId: string, uploadId: string) {
   if (object.bytes !== Number(upload.declared_bytes)) throw conflict("Final object size does not match the upload");
   const attachmentId = upload.id;
   const processMedia = canProcessMedia(upload.kind, upload.media_purpose, object.detectedMimeType);
+  let adoptedStorageKey = object.storageKey;
   await transaction(async (client) => {
     const locked = await ownedUpload(userId, uploadId, client, true);
     if (locked.status === "complete") return;
     if (locked.status !== "finalizing") throw conflict("Upload is not ready to finalize");
-    const blob = await client.query<{ id: string }>(
+    const blob = await client.query<{ id: string; storage_key: string }>(
       `INSERT INTO blobs(id,checksum_sha256,storage_key,bytes,detected_mime_type) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (checksum_sha256) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256 RETURNING id`,
+       ON CONFLICT (checksum_sha256) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256 RETURNING id,storage_key`,
       [newId(), object.checksum, object.storageKey, object.bytes, object.detectedMimeType]);
+    adoptedStorageKey = blob.rows[0]!.storage_key;
     await client.query(
       `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,quality,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (id) DO NOTHING`, [attachmentId, userId, blob.rows[0]!.id, upload.filename, upload.kind, object.detectedMimeType, object.bytes, upload.quality, processMedia ? "processing" : "ready"]);
@@ -241,6 +243,7 @@ async function completeUpload(userId: string, uploadId: string) {
     }
     await client.query("UPDATE upload_sessions SET status='complete',checksum_sha256=$2,updated_at=now() WHERE id=$1", [uploadId, object.checksum]);
   });
+  if (adoptedStorageKey !== object.storageKey) await removeObject(object.storageKey).catch(() => undefined);
   await removeTemporary(upload.temp_key);
   return { attachment: await attachment(attachmentId) };
 }

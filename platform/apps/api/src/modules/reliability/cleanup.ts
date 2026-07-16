@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { config } from "../../config.js";
 import type { DbClient } from "../../db/pool.js";
 import { pool, transaction } from "../../db/pool.js";
-import { objectPath, removeTemporary, removeUntrackedTemporaryFiles } from "../uploads/storage.js";
+import { objectPath, removeTemporary, removeUntrackedObjectFiles, removeUntrackedTemporaryFiles } from "../uploads/storage.js";
 
 interface MaintenanceLog {
   info: (fields: object, message: string) => void;
@@ -56,7 +56,12 @@ export function startReliabilityMaintenance(log: MaintenanceLog): () => void {
         new Set(active.rows.map((row) => row.temp_key)),
         Date.now() - 48 * 60 * 60 * 1_000,
       );
-      log.info({ ...result, objectKeys: result.objectKeys.length, temporaryKeys: result.temporaryKeys.length, untrackedTemporaryFiles }, "reliability maintenance completed");
+      const liveObjects = await pool.query<{ storage_key: string }>("SELECT storage_key FROM blobs");
+      const untrackedObjectFiles = await removeUntrackedObjectFiles(
+        new Set(liveObjects.rows.map((row) => row.storage_key)),
+        Date.now() - 48 * 60 * 60 * 1_000,
+      );
+      log.info({ ...result, objectKeys: result.objectKeys.length, temporaryKeys: result.temporaryKeys.length, untrackedTemporaryFiles, untrackedObjectFiles }, "reliability maintenance completed");
     } catch (error) {
       log.error({ error }, "reliability maintenance failed");
     } finally {
@@ -143,11 +148,20 @@ export async function cleanupReliabilityData(
        RETURNING attachment.id`,
     [options.orphanMediaRetentionDays, options.batchSize],
   );
-  // Blob rows and their content-addressed objects must be reclaimed as one
-  // coordinated operation. Deleting the row here and unlinking the object
-  // after commit leaves a race where a concurrent upload can recreate the
-  // same checksum row before the old object is removed. Keep the immutable
-  // blob until the generation-keyed collector can quarantine it safely.
+  // Physical keys are generation-specific even though checksum rows dedupe.
+  // A concurrent uploader therefore cannot recreate and adopt the path that
+  // this committed row returns for deletion.
+  const deletedBlobs = await client.query<{ storage_key: string }>(
+    `WITH doomed AS (
+       SELECT blob.id FROM blobs blob
+       WHERE blob.created_at<now()-($1::text||' days')::interval
+         AND NOT EXISTS(SELECT 1 FROM attachments attachment WHERE attachment.blob_id=blob.id)
+         AND NOT EXISTS(SELECT 1 FROM media_variants variant WHERE variant.blob_id=blob.id)
+       ORDER BY blob.created_at,blob.id LIMIT $2
+     ) DELETE FROM blobs blob USING doomed WHERE blob.id=doomed.id
+       RETURNING blob.storage_key`,
+    [options.orphanMediaRetentionDays, options.batchSize],
+  );
 
   await client.query(
     `DELETE FROM push_delivery_outbox
@@ -162,8 +176,8 @@ export async function cleanupReliabilityData(
     expiredUploads: expiredUploads.rows.length,
     detachedDeletedMessageFiles: detached.rows.length,
     deletedAttachments: deletedAttachments.rows.length,
-    deletedBlobs: 0,
-    objectKeys: [],
+    deletedBlobs: deletedBlobs.rows.length,
+    objectKeys: deletedBlobs.rows.map((row) => row.storage_key),
     temporaryKeys: expiredUploads.rows.map((row) => row.temp_key),
   };
 }

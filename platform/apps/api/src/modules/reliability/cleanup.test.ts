@@ -10,7 +10,7 @@ import { cleanupReliabilityData } from "./cleanup.js";
 
 const userId = "10000000-0000-4000-8000-000000000001";
 
-test("maintenance advances replay watermarks and removes attachments without racing immutable blob storage", async () => {
+test("maintenance advances replay watermarks and collects generation-owned immutable blobs", async () => {
   const db = new PGlite();
   try {
     await applyMigrations(db);
@@ -27,7 +27,7 @@ test("maintenance advances replay watermarks and removes attachments without rac
     assert.equal(result.expiredUploads, 1);
     assert.equal(result.detachedDeletedMessageFiles, 1);
     assert.equal(result.deletedAttachments, 2, "unattached and deleted-message-only attachments are collectible");
-    assert.equal(result.deletedBlobs, 0, "live maintenance must not unlink content-addressed objects without coordinated storage GC");
+    assert.equal(result.deletedBlobs, 2);
     assert.deepEqual(result.temporaryKeys, ["expired.upload"]);
 
     const watermark = await db.query<{ discarded_through_cursor: string }>(
@@ -38,7 +38,7 @@ test("maintenance advances replay watermarks and removes attachments without rac
     const attachmentIds = await db.query<{ id: string }>("SELECT id FROM attachments ORDER BY id");
     assert.deepEqual(attachmentIds.rows.map((row) => row.id), ["30000000-0000-4000-8000-000000000002"], "an active message reference must preserve its attachment");
     const blobIds = await db.query<{ id: string }>("SELECT id FROM blobs ORDER BY id");
-    assert.equal(blobIds.rows.length, 3, "immutable blobs stay available until the coordinated collector owns their lifecycle");
+    assert.deepEqual(blobIds.rows.map((row) => row.id), ["40000000-0000-4000-8000-000000000002"]);
   } finally {
     await db.close();
   }
