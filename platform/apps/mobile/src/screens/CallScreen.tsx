@@ -118,7 +118,7 @@ export function CallScreen({ navigation, route }: Props) {
         },
       }}
       connectOptions={{ maxRetries: 5, websocketTimeout: 15_000, peerConnectionTimeout: 20_000, rtcConfig: { iceTransportPolicy: "all" } }}
-      onError={(reason) => { recordDiagnostic("error", "call", "LiveKit connection failed", { failure: classifyCallFailure(reason), error: reason, callId: credentials.callId }); setError(reason.message); }}
+      onError={(reason) => { recordDiagnostic("error", "call", "LiveKit connection failed", { failure: classifyCallFailure(reason), error: reason, callId: credentials.callId }); setError(userFacingError(reason, t, "callUnavailable")); }}
       onMediaDeviceFailure={(failure) => recordDiagnostic("error", "call", "LiveKit media device failure", { failure: classifyCallFailure(failure), mediaFailure: failure ?? "unknown", callId: credentials.callId })}
     >
       <CallRoom title={route.params.title} audioRoutes={audioRoutes} initialAudioRoute={audioRoute} profile={profile} onLeave={() => { endOwnedCall(); navigation.goBack(); }} />

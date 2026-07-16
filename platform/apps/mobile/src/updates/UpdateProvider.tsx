@@ -10,7 +10,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import type { AndroidReleaseManifest } from "../types";
 import { api, resolveApiResource } from "../lib/api";
-import { ApiError } from "../lib/apiError";
 import { userFacingError } from "../lib/userFacingError";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
@@ -20,6 +19,8 @@ const AUTO_UPDATE_KEY = "snezhok.android.auto-update.v1";
 const CHECK_INTERVAL_MS = 15 * 60 * 1_000;
 const APK_MIME_TYPE = "application/vnd.android.package-archive";
 const FLAG_GRANT_READ_URI_PERMISSION = 1;
+
+class LocalizedUpdateError extends Error {}
 
 export type UpdatePhase = "idle" | "checking" | "up-to-date" | "available" | "downloading" | "ready" | "error";
 
@@ -61,7 +62,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
 
   const openInstaller = useCallback(async () => {
     const file = downloadedFile.current;
-    if (!file?.exists) throw new Error("The downloaded update is no longer available.");
+    if (!file?.exists) throw new LocalizedUpdateError(t("updateFileUnavailable"));
     setState((current) => ({ ...current, phase: "ready", message: t("updateConfirmInstaller") }));
     try {
       await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
@@ -106,10 +107,10 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
       });
       try {
         const file = await task.downloadAsync();
-        if (!file || file.size !== manifest.bytes) throw new Error(t("updateBadSize"));
+        if (!file || file.size !== manifest.bytes) throw new LocalizedUpdateError(t("updateBadSize"));
         setState((current) => ({ ...current, message: t("updateVerifying"), progress: 1 }));
         const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, await file.bytes());
-        if (arrayBufferToHex(digest) !== manifest.sha256.toLowerCase()) throw new Error(t("updateVerificationFailed"));
+        if (arrayBufferToHex(digest) !== manifest.sha256.toLowerCase()) throw new LocalizedUpdateError(t("updateVerificationFailed"));
 
         const previousFile = downloadedFile.current;
         if (previousFile?.exists && previousFile.uri !== file.uri) previousFile.delete();
@@ -155,7 +156,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
         if (autoUpdate && (network.type === "wifi" || network.type === "ethernet")) await downloadRelease(manifest);
       } catch (error) {
         if (manual || foundRelease) {
-          const message = error instanceof ApiError || error instanceof TypeError ? userFacingError(error, t, "updateFailed") : error instanceof Error ? error.message : t("updateFailed");
+          const message = error instanceof LocalizedUpdateError ? error.message : userFacingError(error, t, "updateFailed");
           setState((current) => ({ ...current, phase: "error", message }));
         }
       }
@@ -171,7 +172,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     try {
       await downloadRelease(state.manifest);
     } catch (error) {
-      const message = error instanceof ApiError || error instanceof TypeError ? userFacingError(error, t, "updateFailed") : error instanceof Error ? error.message : t("updateFailed");
+      const message = error instanceof LocalizedUpdateError ? error.message : userFacingError(error, t, "updateFailed");
       setState((current) => ({ ...current, phase: "error", message }));
     }
   }, [checkForUpdate, downloadRelease, state.manifest, t]);

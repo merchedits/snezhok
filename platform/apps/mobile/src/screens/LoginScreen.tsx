@@ -66,7 +66,7 @@ export function LoginScreen() {
             <View style={[styles.field, { backgroundColor: palette.surface, borderColor: password && !passwordIsValid ? palette.danger : palette.border }]}>
               <AppIcon name="lock-closed-outline" size={21} color={palette.faintText} />
               <TextInput autoCapitalize="none" autoComplete={registering ? "new-password" : "current-password"} placeholder={t("password")} placeholderTextColor={palette.faintText} secureTextEntry={!showPassword} value={password} onChangeText={edit(setPassword)} onSubmitEditing={() => void submit()} style={[styles.input, { color: palette.text }]} />
-              <Pressable accessibilityLabel={showPassword ? "Hide password" : "Show password"} onPress={() => setShowPassword((value) => !value)} style={styles.eye}><AppIcon name={showPassword ? "eye-off-outline" : "eye-outline"} size={22} color={palette.faintText} /></Pressable>
+              <Pressable accessibilityLabel={showPassword ? t("hidePassword") : t("showPassword")} onPress={() => setShowPassword((value) => !value)} style={styles.eye}><AppIcon name={showPassword ? "eye-off-outline" : "eye-outline"} size={22} color={palette.faintText} /></Pressable>
             </View>
             {password && !passwordIsValid ? <Text style={[styles.fieldHint, { color: palette.danger }]}>{t("passwordRules")}</Text> : null}
             {registering ? <AuthField icon="shield-checkmark-outline" autoCapitalize="none" placeholder={t("confirmPassword")} secureTextEntry={!showPassword} value={confirmPassword} onChangeText={edit(setConfirmPassword)} onSubmitEditing={() => void submit()} invalid={Boolean(confirmPassword && confirmPassword !== password)} /> : null}
