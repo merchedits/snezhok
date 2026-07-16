@@ -12,6 +12,9 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev": "concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,blue \"npm run dev --workspace=@snezhok/api\" \"npm run dev --workspace=@snezhok/web\"",
+    "lint": "npm run typecheck && node --test scripts/**/*.test.mjs",
+    "release:verify-config": "node scripts/android/verify-release-config.mjs",
+    "release:verify-apk": "node scripts/android/verify-release-artifact.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

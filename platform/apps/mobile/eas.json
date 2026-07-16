@@ -7,19 +7,36 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
+      "env": {
+        "SNEZHOK_RELEASE_BUILD": "0"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "preview": {
+      "developmentClient": false,
       "distribution": "internal",
+      "environment": "preview",
       "channel": "preview",
+      "env": {
+        "NPM_CONFIG_OMIT": "dev",
+        "SNEZHOK_RELEASE_BUILD": "1"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
+      "developmentClient": false,
+      "distribution": "store",
+      "environment": "production",
       "channel": "production",
+      "env": {
+        "NPM_CONFIG_OMIT": "dev",
+        "SNEZHOK_RELEASE_BUILD": "1"
+      },
       "android": {
         "buildType": "app-bundle"
       }

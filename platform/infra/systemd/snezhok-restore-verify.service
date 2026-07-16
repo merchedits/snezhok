@@ -1,0 +1,30 @@
+[Unit]
+Description=Verify the newest Snezhok backup through an isolated restore
+Documentation=file:///home/merchedits/sites/snezhok-v3/platform/docs/OPERATIONS.md
+RequiresMountsFor=/var/backups/snezhok
+After=docker.service snezhok-backup.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=merchedits
+Group=merchedits
+UMask=0077
+WorkingDirectory=/home/merchedits/sites/snezhok-v3/platform
+EnvironmentFile=/etc/snezhok/maintenance.env
+Environment=MAINTENANCE_LOCK_ROOT=/var/lib/snezhok-maintenance
+StateDirectory=snezhok-maintenance
+StateDirectoryMode=0700
+ExecStart=/usr/bin/bash /home/merchedits/sites/snezhok-v3/platform/scripts/maintenance/verify-backup-restore.sh
+Nice=15
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/backups/snezhok
+TimeoutStartSec=6h

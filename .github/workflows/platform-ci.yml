@@ -1,0 +1,125 @@
+name: Snezhok platform CI
+
+on:
+  pull_request:
+    paths:
+      - "platform/**"
+      - ".github/workflows/platform-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "platform/**"
+      - ".github/workflows/platform-ci.yml"
+
+concurrency:
+  group: platform-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: platform
+
+jobs:
+  quality:
+    name: Types, tests, builds and configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run release:verify-config
+      - run: npm run doctor --workspace=@snezhok/mobile
+      - name: Validate host scripts and deployment composition
+        env:
+          POSTGRES_PASSWORD: ci-not-a-production-secret
+          JWT_SECRET: ci-only-value-that-is-at-least-32-random-bytes
+          LIVEKIT_API_KEY: ci-livekit-key
+          LIVEKIT_API_SECRET: ci-livekit-secret
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck scripts/**/*.sh
+          python3 -m py_compile scripts/livekit/connectivity-smoke.py
+          curl --fail --location --silent --show-error \
+            --output /tmp/actionlint.tar.gz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  /tmp/actionlint.tar.gz" | sha256sum --check
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          /tmp/actionlint ../.github/workflows/platform-ci.yml
+          systemd-analyze verify infra/systemd/*.service infra/systemd/*.timer
+          cp .env.example .env
+          docker compose --file docker-compose.production.yml config --quiet
+          docker compose --file docker-compose.production.yml --file infra/docker-compose.turn-tls.yml config --quiet
+          docker compose --file docker-compose.production.yml build app media-worker
+          rm .env
+
+  release-apk:
+    name: Production-like Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+      - uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@017a9effdb900e5b5b2fddfb590a105619dca3c3 # v4.4.2
+      - name: Install production dependencies only
+        run: npm ci --omit=dev
+      - name: Prove development native modules are absent
+        run: |
+          test ! -e node_modules/expo-dev-client
+          test ! -e node_modules/expo-dev-launcher
+          test ! -e node_modules/expo-dev-menu
+          node scripts/android/verify-release-config.mjs
+      - name: Generate ephemeral CI release signing key
+        shell: bash
+        run: |
+          keytool -genkeypair -noprompt \
+            -keystore "$RUNNER_TEMP/snezhok-ci-release.jks" \
+            -storepass ci-release-password \
+            -keypass ci-release-password \
+            -alias snezhok-ci \
+            -keyalg RSA -keysize 3072 -validity 2 \
+            -dname "CN=Snezhok CI,OU=CI,O=Snezhok,C=RU"
+      - name: Generate native project
+        env:
+          SNEZHOK_RELEASE_BUILD: "1"
+          SNEZHOK_KEYSTORE_FILE: ${{ runner.temp }}/snezhok-ci-release.jks
+          SNEZHOK_KEYSTORE_PASSWORD: ci-release-password
+          SNEZHOK_KEY_ALIAS: snezhok-ci
+          SNEZHOK_KEY_PASSWORD: ci-release-password
+        run: npx expo prebuild --platform android --clean --no-install
+        working-directory: platform/apps/mobile
+      - name: Assemble minimized release APK
+        env:
+          SNEZHOK_RELEASE_BUILD: "1"
+          SNEZHOK_KEYSTORE_FILE: ${{ runner.temp }}/snezhok-ci-release.jks
+          SNEZHOK_KEYSTORE_PASSWORD: ci-release-password
+          SNEZHOK_KEY_ALIAS: snezhok-ci
+          SNEZHOK_KEY_PASSWORD: ci-release-password
+        run: ./gradlew --no-daemon :app:assembleRelease
+        working-directory: platform/apps/mobile/android
+      - name: Reject development launchers and unexpected ABIs
+        run: >-
+          node scripts/android/verify-release-artifact.mjs
+          --apk apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          --package xyz.merchedits.snezhok
+          --architectures arm64-v8a

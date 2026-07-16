@@ -1,0 +1,30 @@
+# Top-level Nginx `stream` block. Include this from /etc/nginx/nginx.conf
+# outside `http { ... }`; do not place it in Ubuntu's /etc/nginx/conf.d.
+# Follow docs/CALL_CONNECTIVITY.md before activation.
+stream {
+    map $ssl_preread_server_name $snezhok_tls_backend {
+        turn.merchedits.xyz 127.0.0.1:5348;
+        default 127.0.0.1:8443;
+    }
+
+    # Public TLS SNI router. PROXY protocol retains the original address for
+    # the existing HTTPS virtual hosts and is consumed by the TURN adapter.
+    server {
+        listen 443;
+        listen [::]:443;
+        ssl_preread on;
+        proxy_protocol on;
+        proxy_connect_timeout 5s;
+        proxy_timeout 24h;
+        proxy_pass $snezhok_tls_backend;
+    }
+
+    # LiveKit's embedded TURN/TLS listener does not accept a PROXY header.
+    # Consume it locally, then forward the untouched client TLS handshake.
+    server {
+        listen 127.0.0.1:5348 proxy_protocol;
+        proxy_connect_timeout 5s;
+        proxy_timeout 24h;
+        proxy_pass 127.0.0.1:5349;
+    }
+}

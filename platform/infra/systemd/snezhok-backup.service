@@ -1,0 +1,31 @@
+[Unit]
+Description=Create an encrypted synchronized Snezhok backup
+Documentation=file:///home/merchedits/sites/snezhok-v3/platform/docs/OPERATIONS.md
+RequiresMountsFor=/home/merchedits/sites/snezhok-v3/platform /var/backups/snezhok
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=merchedits
+Group=merchedits
+UMask=0077
+WorkingDirectory=/home/merchedits/sites/snezhok-v3/platform
+EnvironmentFile=/etc/snezhok/maintenance.env
+Environment=MAINTENANCE_LOCK_ROOT=/var/lib/snezhok-maintenance
+StateDirectory=snezhok-maintenance
+StateDirectoryMode=0700
+ExecStart=/usr/bin/bash /home/merchedits/sites/snezhok-v3/platform/scripts/maintenance/create-backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/merchedits/sites/snezhok-v3/platform/data-v3 /var/backups/snezhok
+TimeoutStartSec=6h

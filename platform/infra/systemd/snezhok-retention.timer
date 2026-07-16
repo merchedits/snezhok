@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Snezhok storage retention
+
+[Timer]
+OnCalendar=Sat *-*-* 04:30:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=snezhok-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,8 @@
+# Activate only after following docs/CALL_CONNECTIVITY.md. LiveKit listens on
+# backend port 5349; the required public turn.merchedits.xyz:443 endpoint is a
+# separate layer-4 SNI route and is not created by this Compose override.
+services:
+  livekit:
+    volumes:
+      - ./infra/livekit-turn-tls.yaml:/etc/livekit.yaml:ro
+      - /etc/snezhok/livekit-tls:/etc/livekit/tls:ro

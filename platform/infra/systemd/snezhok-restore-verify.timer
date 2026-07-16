@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Snezhok disaster-recovery verification
+
+[Timer]
+OnCalendar=Sun *-*-* 05:30:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=snezhok-restore-verify.service
+
+[Install]
+WantedBy=timers.target

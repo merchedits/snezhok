@@ -15,6 +15,8 @@ The legacy app remains on `127.0.0.1:3002`. Snezhok v3 binds to `127.0.0.1:3003`
 
 The `snezhok_v3_postgres` volume and `platform/data-v3/storage` media directory are separate recovery units. Both must be backed up together before releases that change the schema or media layout.
 
+Daily age-encrypted synchronized backups, isolated weekly restore drills, and retention are defined in [OPERATIONS.md](./OPERATIONS.md). A local database dump without its matching media archive is not a valid recovery point.
+
 ## Release gate
 
 1. Install from the lockfiles.
@@ -23,6 +25,7 @@ The `snezhok_v3_postgres` volume and `platform/data-v3/storage` media directory 
 4. Run SQL migrations in a one-shot deployment task.
 5. Start PostgreSQL, the app and LiveKit without changing Nginx.
 6. Verify app, PostgreSQL and LiveKit health; inspect logs and resource limits.
+   For production call fallback, follow [CALL_CONNECTIVITY.md](./CALL_CONNECTIVITY.md) and pass its external STUN/TLS smoke test plus a real two-device relayed call.
 7. Exercise registration/login, bootstrap, send/retry, uploads/ranges, realtime resume, calls and screen share.
    Verify a message, incoming call, decline and missed call with the APK process terminated. A build without `EXPO_PUBLIC_EAS_PROJECT_ID`, `GOOGLE_SERVICES_JSON` and the EAS FCM V1 credential cannot pass this gate.
 8. Run the final data migration and count/hash report.

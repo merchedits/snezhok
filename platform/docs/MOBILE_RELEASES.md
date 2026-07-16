@@ -19,9 +19,10 @@ Before opening Android's installer, Snezhok verifies the byte count and SHA-256 
 
 1. Increase both `version` and `android.versionCode` in `apps/mobile/app.config.ts`; version codes must never decrease or be reused.
 2. Run the monorepo type checks and tests.
-3. Run Expo prebuild, then build `assembleRelease` with the protected Snezhok signing environment. The local config plugin injects release signing from `SNEZHOK_KEYSTORE_FILE`, `SNEZHOK_KEYSTORE_PASSWORD`, `SNEZHOK_KEY_ALIAS`, and `SNEZHOK_KEY_PASSWORD`.
+3. In a clean checkout, run `npm ci --omit=dev`, Expo prebuild with `--clean --no-install`, then build `assembleRelease` with the protected Snezhok signing environment. The local config plugin injects release signing from `SNEZHOK_KEYSTORE_FILE`, `SNEZHOK_KEYSTORE_PASSWORD`, `SNEZHOK_KEY_ALIAS`, and `SNEZHOK_KEY_PASSWORD`.
 4. Verify the APK with `apksigner`, inspect it with `aapt`, and calculate its byte count and SHA-256.
-5. Create the release manifest with the application ID, semantic version, version code, minimum version code, mandatory flag, byte count, APK SHA-256, signing-certificate SHA-256, publication timestamp, and short release notes.
+   Run the automated configuration and artifact gates described in [RELEASE_ENGINEERING.md](./RELEASE_ENGINEERING.md); release APKs containing Expo Dev Launcher or Dev Menu are rejected.
+5. Create the release manifest with the application ID, semantic version, version code, minimum version code, mandatory flag, byte count, APK SHA-256, signing-certificate SHA-256, publication timestamp, and short release notes. Verify it against both the APK and the currently published manifest with `--previous-manifest`; reused/decreased version codes and signing identity changes are rejected.
 6. Upload the APK and manifest under temporary names on the host. Verify both hashes there.
 7. Move the APK into `snezhok-current.apk`, then move the manifest into `android-current.json` last. Publishing the manifest last makes the channel atomic from the client's perspective.
 8. Request the public manifest, a small byte range, and the complete APK. Confirm version, content length, ETag, SHA-256, and HTTP 206 range behavior.
