@@ -15,7 +15,7 @@ import { assertUsersCanInteract } from "../users/privacy.js";
 import { mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
 import {
   channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayManageMember, requireServerPermission,
-  serverAuthorization, type ServerAuthorization,
+  serverAuthorization, visibleChannelUserIds, type ServerAuthorization,
 } from "./permissions.js";
 
 const serverParams = z.object({ serverId: z.string().uuid() });
@@ -602,16 +602,7 @@ async function serverRecipientIds(serverId: string, client: Pick<DbClient, "quer
 }
 
 async function channelRecipientIds(channelId: string, client: Pick<DbClient, "query">) {
-  const members = await client.query<{ user_id: string }>(
-    `SELECT member.user_id FROM channels channel JOIN server_members member ON member.server_id=channel.server_id
-     WHERE channel.id=$1 AND NOT EXISTS(SELECT 1 FROM server_bans ban WHERE ban.server_id=channel.server_id AND ban.user_id=member.user_id)`,
-    [channelId],
-  );
-  const recipients = await Promise.all(members.rows.map(async ({ user_id }) => {
-    try { return (await channelAuthorization(channelId, user_id, client)).permissions.has("view_channels") ? user_id : null; }
-    catch { return null; }
-  }));
-  return recipients.filter((id): id is string => id !== null);
+  return visibleChannelUserIds(channelId, client);
 }
 
 async function channelVisibilityEvents(channelId: string, serverId: string, before: string[], client: DbClient): Promise<StoredEvent[]> {

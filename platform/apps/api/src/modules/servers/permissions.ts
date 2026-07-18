@@ -128,20 +128,77 @@ export async function requireChannelPermission(
   return authorization;
 }
 
-/** Returns only channels whose final role/member override grants visibility. */
+/**
+ * Returns only channels whose final role/member override grants visibility.
+ * Visibility is resolved in one set-based query because this path is used by
+ * bootstrap and search; evaluating four permission queries per channel makes
+ * first paint grow linearly with server size.
+ */
 export async function visibleChannelIdsForUser(userId: string, client: Pick<DbClient, "query"> = pool) {
   const rows = await client.query<{ id: string }>(
-    `SELECT channel.id FROM channels channel JOIN server_members member ON member.server_id=channel.server_id
-     WHERE member.user_id=$1 AND NOT EXISTS(
-       SELECT 1 FROM server_bans ban WHERE ban.server_id=channel.server_id AND ban.user_id=$1
-     )`,
+    `SELECT channel.id
+     FROM channels channel
+     JOIN server_members member ON member.server_id=channel.server_id AND member.user_id=$1
+     LEFT JOIN server_member_roles assigned
+       ON assigned.server_id=member.server_id AND assigned.user_id=member.user_id
+     LEFT JOIN channel_role_permission_overrides role_override
+       ON role_override.channel_id=channel.id AND role_override.role_id=assigned.role_id
+     LEFT JOIN channel_member_permission_overrides member_override
+       ON member_override.channel_id=channel.id AND member_override.user_id=member.user_id
+     LEFT JOIN channel_everyone_permission_overrides everyone_override
+       ON everyone_override.channel_id=channel.id
+     WHERE NOT EXISTS(
+       SELECT 1 FROM server_bans ban WHERE ban.server_id=channel.server_id AND ban.user_id=member.user_id
+     )
+     GROUP BY channel.id,member.role,member_override.allow_permissions,member_override.deny_permissions,
+       everyone_override.allow_permissions,everyone_override.deny_permissions
+     HAVING member.role='owner' OR CASE
+       WHEN coalesce('view_channels'=ANY(member_override.allow_permissions),false) THEN true
+       WHEN coalesce('view_channels'=ANY(member_override.deny_permissions),false) THEN false
+       WHEN coalesce(bool_or('view_channels'=ANY(role_override.allow_permissions)),false) THEN true
+       WHEN coalesce(bool_or('view_channels'=ANY(role_override.deny_permissions)),false) THEN false
+       WHEN coalesce('view_channels'=ANY(everyone_override.allow_permissions),false) THEN true
+       WHEN coalesce('view_channels'=ANY(everyone_override.deny_permissions),false) THEN false
+       ELSE true
+     END
+     ORDER BY channel.id`,
     [userId],
   );
-  const visible = await Promise.all(rows.rows.map(async ({ id }) => {
-    try { return (await channelAuthorization(id, userId, client)).permissions.has("view_channels") ? id : null; }
-    catch { return null; }
-  }));
-  return visible.filter((id): id is string => id !== null);
+  return rows.rows.map((row) => row.id);
+}
+
+/** Resolves all visible recipients for one channel without per-member queries. */
+export async function visibleChannelUserIds(channelId: string, client: Pick<DbClient, "query"> = pool) {
+  const rows = await client.query<{ user_id: string }>(
+    `SELECT member.user_id
+     FROM channels channel
+     JOIN server_members member ON member.server_id=channel.server_id
+     LEFT JOIN server_member_roles assigned
+       ON assigned.server_id=member.server_id AND assigned.user_id=member.user_id
+     LEFT JOIN channel_role_permission_overrides role_override
+       ON role_override.channel_id=channel.id AND role_override.role_id=assigned.role_id
+     LEFT JOIN channel_member_permission_overrides member_override
+       ON member_override.channel_id=channel.id AND member_override.user_id=member.user_id
+     LEFT JOIN channel_everyone_permission_overrides everyone_override
+       ON everyone_override.channel_id=channel.id
+     WHERE channel.id=$1 AND NOT EXISTS(
+       SELECT 1 FROM server_bans ban WHERE ban.server_id=channel.server_id AND ban.user_id=member.user_id
+     )
+     GROUP BY member.user_id,member.role,member_override.allow_permissions,member_override.deny_permissions,
+       everyone_override.allow_permissions,everyone_override.deny_permissions
+     HAVING member.role='owner' OR CASE
+       WHEN coalesce('view_channels'=ANY(member_override.allow_permissions),false) THEN true
+       WHEN coalesce('view_channels'=ANY(member_override.deny_permissions),false) THEN false
+       WHEN coalesce(bool_or('view_channels'=ANY(role_override.allow_permissions)),false) THEN true
+       WHEN coalesce(bool_or('view_channels'=ANY(role_override.deny_permissions)),false) THEN false
+       WHEN coalesce('view_channels'=ANY(everyone_override.allow_permissions),false) THEN true
+       WHEN coalesce('view_channels'=ANY(everyone_override.deny_permissions),false) THEN false
+       ELSE true
+     END
+     ORDER BY member.user_id`,
+    [channelId],
+  );
+  return rows.rows.map((row) => row.user_id);
 }
 
 export function applyPermissionOverrides(

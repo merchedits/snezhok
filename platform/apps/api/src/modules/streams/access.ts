@@ -2,7 +2,7 @@ import type { ServerPermission } from "@snezhok/contracts";
 import type { DbClient } from "../../db/pool.js";
 import { pool } from "../../db/pool.js";
 import { forbidden, notFound } from "../../lib/errors.js";
-import { channelAuthorization } from "../servers/permissions.js";
+import { channelAuthorization, visibleChannelUserIds } from "../servers/permissions.js";
 
 export type StreamKind = "conversation" | "channel";
 
@@ -43,22 +43,7 @@ export async function streamRecipients(stream: Pick<StreamAccess, "streamKind" |
     const result = await client.query<{ user_id: string }>("SELECT user_id FROM conversation_members WHERE conversation_id=$1", [stream.streamId]);
     return result.rows.map((row) => row.user_id);
   }
-  const result = await client.query<{ user_id: string }>(
-    `SELECT member.user_id FROM server_members member
-     WHERE member.server_id=$1 AND NOT EXISTS(
-       SELECT 1 FROM server_bans ban WHERE ban.server_id=member.server_id AND ban.user_id=member.user_id
-     )`,
-    [stream.serverId],
-  );
-  const visible = await Promise.all(result.rows.map(async (row) => {
-    try {
-      const authorization = await channelAuthorization(stream.streamId, row.user_id, client);
-      return authorization.permissions.has("view_channels") ? row.user_id : null;
-    } catch {
-      return null;
-    }
-  }));
-  return visible.filter((userId): userId is string => userId !== null);
+  return visibleChannelUserIds(stream.streamId, client);
 }
 
 export async function allocateMessageSequence(stream: Pick<StreamAccess, "streamKind" | "streamId">, client: DbClient) {

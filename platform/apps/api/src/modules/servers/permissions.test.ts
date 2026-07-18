@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import type { DbClient } from "../../db/pool.js";
 import type { ServerAuthorization } from "./permissions.js";
-import { applyPermissionOverrides, channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayManageMember, permissionsForRole, serverAuthorization, visibleChannelIdsForUser } from "./permissions.js";
+import { applyPermissionOverrides, channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayManageMember, permissionsForRole, serverAuthorization, visibleChannelIdsForUser, visibleChannelUserIds } from "./permissions.js";
 
 const auth = (overrides: Partial<ServerAuthorization>): ServerAuthorization => ({
   serverId: "server", userId: "actor", ownerId: "owner", role: "member",
@@ -88,14 +88,18 @@ test("effective authorization combines legacy and assigned permissions and rejec
     assert.equal(authorization.permissions.has("manage_messages"), true);
     assert.equal(authorization.highestCustomRolePosition, 5);
     assert.deepEqual(await visibleChannelIdsForUser(member, client), [channel]);
+    assert.deepEqual(await visibleChannelUserIds(channel, client), [owner, member]);
     await db.query("INSERT INTO channel_everyone_permission_overrides(channel_id,deny_permissions) VALUES ($1,ARRAY['view_channels']::text[])", [channel]);
     assert.equal((await channelAuthorization(channel, member, client)).permissions.has("view_channels"), false);
     assert.deepEqual(await visibleChannelIdsForUser(member, client), []);
+    assert.deepEqual(await visibleChannelUserIds(channel, client), [owner]);
     await db.query("INSERT INTO channel_member_permission_overrides(channel_id,user_id,allow_permissions) VALUES ($1,$2,ARRAY['view_channels']::text[])", [channel, member]);
     assert.equal((await channelAuthorization(channel, member, client)).permissions.has("view_channels"), true);
     assert.deepEqual(await visibleChannelIdsForUser(member, client), [channel]);
+    assert.deepEqual(await visibleChannelUserIds(channel, client), [owner, member]);
     await db.query("INSERT INTO server_bans(server_id,user_id,banned_by) VALUES ($1,$2,$3)", [server, member, owner]);
     await assert.rejects(() => serverAuthorization(server, member, client));
     assert.deepEqual(await visibleChannelIdsForUser(member, client), []);
+    assert.deepEqual(await visibleChannelUserIds(channel, client), [owner]);
   } finally { await db.close(); }
 });
