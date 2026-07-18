@@ -76,6 +76,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "android.permission.RECORD_AUDIO",
       "android.permission.POST_NOTIFICATIONS",
       "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
       "android.permission.FOREGROUND_SERVICE_CAMERA",
       "android.permission.FOREGROUND_SERVICE_MICROPHONE",
       "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",

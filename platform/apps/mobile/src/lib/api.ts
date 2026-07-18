@@ -230,6 +230,17 @@ class ApiClient {
     return this.request<{ settings: AppSettings }>("/settings", { method: "PATCH", body: patch }).then((result) => result.settings);
   }
 
+  async initializeBackgroundUpload(input: UploadInput): Promise<{ initialized: UploadInitResponse; bytes: number }> {
+    const info = await FileSystem.getInfoAsync(input.uri);
+    if (!info.exists || typeof info.size !== "number") throw new Error("The selected file is no longer available");
+    validateUploadSource(input.filename, info.size);
+    return { initialized: await this.initializeUpload(input, info.size), bytes: info.size };
+  }
+
+  cancelInitializedUpload(uploadId: string): Promise<void> {
+    return this.request(`/uploads/${encodeURIComponent(uploadId)}`, { method: "DELETE" }).then(() => undefined);
+  }
+
   async upload(input: UploadInput, onProgress?: UploadProgressCallback): Promise<Attachment> {
     if (this.activeUpload) throw new Error("Another upload is already running");
     const active: ActiveUpload = { uploadId: null, cancelled: false, task: null };
@@ -261,18 +272,7 @@ class ApiClient {
         }
       }
       if (!pending) {
-        const initialized = await this.request<UploadInitResponse>("/uploads/init", {
-          method: "POST",
-          body: {
-            filename: input.filename,
-            mimeType: input.mimeType,
-            bytes: info.size,
-            quality: input.quality,
-            kind: input.kind,
-            stripLocation: input.stripLocation ?? true,
-            purpose: input.purpose ?? "standard",
-          },
-        });
+        const initialized = await this.initializeUpload(input, info.size);
         active.uploadId = initialized.uploadId;
         pending = await rememberPendingUpload(input, info.size, initialized);
         offset = initialized.upload.offset;
@@ -423,12 +423,31 @@ class ApiClient {
     throw lastError instanceof Error ? lastError : new Error("Upload could not be finalized");
   }
 
+  private initializeUpload(input: UploadInput, bytes: number): Promise<UploadInitResponse> {
+    return this.request<UploadInitResponse>("/uploads/init", {
+      method: "POST",
+      body: {
+        filename: input.filename,
+        mimeType: input.mimeType,
+        bytes,
+        quality: input.quality,
+        kind: input.kind,
+        stripLocation: input.stripLocation ?? true,
+        purpose: input.purpose ?? "standard",
+      },
+    });
+  }
+
   joinCall(streamId: string): Promise<CallJoinResponse> {
     return this.request<CallJoinResponse>("/calls/token", { method: "POST", body: { streamId } });
   }
 
   endCall(callId: string): Promise<void> {
     return this.request(`/calls/${encodeURIComponent(callId)}/end`, { method: "POST" }).then(() => undefined);
+  }
+
+  leaveCall(callId: string): Promise<void> {
+    return this.request(`/calls/${encodeURIComponent(callId)}/leave`, { method: "POST" }).then(() => undefined);
   }
 
   declineCall(callId: string): Promise<void> {

@@ -1,0 +1,7 @@
+<resources>
+  <string name="snezhok_upload_channel">File transfers</string>
+  <string name="snezhok_upload_title">Uploading attachment</string>
+  <string name="snezhok_upload_waiting">Waiting for network</string>
+  <string name="snezhok_upload_progress">Uploaded %1$d%%</string>
+  <string name="snezhok_upload_cancel">Cancel</string>
+</resources>

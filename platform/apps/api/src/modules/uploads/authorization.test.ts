@@ -17,7 +17,7 @@ const profileAttachmentId = "30000000-0000-4000-8000-000000000002";
 const messageId = "40000000-0000-4000-8000-000000000001";
 const forwardedMessageId = "40000000-0000-4000-8000-000000000002";
 
-test("file authorization excludes deleted and recipient-hidden links without breaking owners, profiles, or forwards", async () => {
+test("file authorization excludes deleted/hidden links and enforces profile-photo privacy", async () => {
   const db = new PGlite();
   try {
     await applyMigrations(db);
@@ -43,6 +43,14 @@ test("file authorization excludes deleted and recipient-hidden links without bre
     assert.equal(await allowed(db, viewerId, attachmentId), true, "an active forwarded copy remains a valid authorization link");
 
     assert.equal(await allowed(db, outsiderId, profileAttachmentId), true, "active profile photos are visible to authenticated users");
+
+    await db.query("UPDATE user_privacy_settings SET profile_photos='contacts' WHERE user_id=$1", [ownerId]);
+    assert.equal(await allowed(db, outsiderId, profileAttachmentId), false, "contacts-only photos reject non-contacts");
+    await db.query("INSERT INTO friendships(user_low_id,user_high_id) VALUES (LEAST($1::uuid,$2::uuid),GREATEST($1::uuid,$2::uuid))", [ownerId, outsiderId]);
+    assert.equal(await allowed(db, outsiderId, profileAttachmentId), true, "contacts-only photos permit contacts");
+    await db.query("INSERT INTO user_blocks(blocker_id,blocked_id) VALUES ($1,$2)", [ownerId, outsiderId]);
+    assert.equal(await allowed(db, outsiderId, profileAttachmentId), false, "a bilateral block takes precedence over friendship and privacy audience");
+    assert.equal(await allowed(db, ownerId, profileAttachmentId), true, "the attachment owner always retains access");
   } finally {
     await db.close();
   }
@@ -62,6 +70,7 @@ async function seed(db: PGlite): Promise<void> {
       ($1,'owner_user','Owner'),($2,'viewer_user','Viewer'),($3,'outsider_user','Outsider')`,
     [ownerId, viewerId, outsiderId],
   );
+  await db.query("INSERT INTO user_privacy_settings(user_id) VALUES ($1),($2),($3)", [ownerId, viewerId, outsiderId]);
   await db.query(
     `INSERT INTO blobs(id,checksum_sha256,storage_key,bytes,detected_mime_type) VALUES
       ('60000000-0000-4000-8000-000000000001',$1,'objects/aa/'||$1,4,'image/jpeg'),

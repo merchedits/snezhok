@@ -1,14 +1,16 @@
 import { createReadStream } from "node:fs";
+import { randomBytes } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Attachment } from "@snezhok/contracts";
 import { uploadMetadataSchema } from "@snezhok/contracts";
 import { z } from "zod";
 import { config } from "../../config.js";
 import { pool, transaction } from "../../db/pool.js";
-import { AppError, conflict, forbidden, notFound } from "../../lib/errors.js";
+import { AppError, conflict, forbidden, notFound, unauthorized } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
-import { requireAuth } from "../auth/middleware.js";
+import { getBearerOrCookie, requireAuth } from "../auth/middleware.js";
+import { authenticateAccessToken, hashOpaqueToken } from "../auth/service.js";
 import { appendChunk, detectTemporaryMimeType, ensureStorage, initializeTemporary, objectPath, removeObject, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
 import { stat } from "node:fs/promises";
 import type { Readable } from "node:stream";
@@ -21,10 +23,36 @@ const initSchema = uploadMetadataSchema.extend({
 const idParams = z.object({ id: z.string().uuid() });
 const fileQuery = z.object({ variant: z.string().uuid().optional() });
 const completeBody = z.object({ uploadId: z.string().uuid() });
+const CAPABILITY_HEADER = "upload-capability";
+
+interface UploadRow {
+  id: string;
+  owner_id: string;
+  filename: string;
+  declared_bytes: string;
+  received_bytes: string;
+  quality: Attachment["quality"];
+  kind: Attachment["kind"];
+  media_purpose: "standard" | "voice" | "video-note";
+  temp_key: string;
+  status: string;
+}
+
+type UploadPrincipal =
+  | { kind: "owner"; userId: string }
+  | { kind: "capability"; capabilityHash: string };
+
+export const capabilityUploadSelectSql = `SELECT upload.id,upload.owner_id,upload.filename,upload.declared_bytes::text,upload.received_bytes::text,
+        upload.quality,upload.kind,upload.media_purpose,upload.temp_key,upload.status
+ FROM upload_sessions upload
+ JOIN device_sessions session ON session.id=upload.device_session_id
+ WHERE upload.id=$1 AND upload.capability_hash=$2 AND upload.expires_at>now()
+   AND session.revoked_at IS NULL AND session.expires_at>now()`;
 
 /**
  * A file is visible when it belongs to the requester, is an active profile
- * photo (or its legacy thumbnail), or is attached to at least one non-deleted
+ * photo allowed by its owner's privacy policy (or its legacy thumbnail), an
+ * avatar/icon for a joined group/server, or is attached to a non-deleted
  * message that is both visible to and readable by the requester. Keeping this
  * as one snapshot query avoids a time-of-check/time-of-use gap and an N+1
  * stream-access loop for attachments reused by forwarding.
@@ -36,7 +64,32 @@ export const attachmentAuthorizationSql = `SELECT EXISTS(
     OR EXISTS (
       SELECT 1 FROM user_profile_photos profile
       JOIN attachments source ON source.id=profile.attachment_id
-      WHERE profile.attachment_id=$1 OR source.thumbnail_attachment_id=$1
+      JOIN user_privacy_settings privacy ON privacy.user_id=profile.user_id
+      WHERE (profile.attachment_id=$1 OR source.thumbnail_attachment_id=$1)
+        AND NOT EXISTS (
+          SELECT 1 FROM user_blocks block
+          WHERE (block.blocker_id=$2 AND block.blocked_id=profile.user_id)
+             OR (block.blocker_id=profile.user_id AND block.blocked_id=$2)
+        )
+        AND (
+          privacy.profile_photos='everyone'
+          OR (privacy.profile_photos='contacts' AND EXISTS (
+            SELECT 1 FROM friendships friendship
+            WHERE friendship.user_low_id=LEAST($2::uuid,profile.user_id)
+              AND friendship.user_high_id=GREATEST($2::uuid,profile.user_id)
+          ))
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM conversations conversation
+      JOIN conversation_members member ON member.conversation_id=conversation.id AND member.user_id=$2
+      WHERE conversation.avatar_attachment_id=$1
+    )
+    OR EXISTS (
+      SELECT 1 FROM servers server
+      JOIN server_members member ON member.server_id=server.id AND member.user_id=$2
+      WHERE server.icon_attachment_id=$1
+        AND NOT EXISTS(SELECT 1 FROM server_bans ban WHERE ban.server_id=server.id AND ban.user_id=$2)
     )
     OR EXISTS (
       SELECT 1 FROM message_attachments link
@@ -57,6 +110,52 @@ export const attachmentAuthorizationSql = `SELECT EXISTS(
             SELECT 1 FROM channels channel
             JOIN server_members member ON member.server_id=channel.server_id
             WHERE channel.id=message.stream_id AND member.user_id=$2
+              AND NOT EXISTS(SELECT 1 FROM server_bans ban WHERE ban.server_id=channel.server_id AND ban.user_id=$2)
+              AND (
+                member.role='owner'
+                OR coalesce((
+                  SELECT override.allow_permissions @> ARRAY['view_channels']::text[]
+                  FROM channel_member_permission_overrides override
+                  WHERE override.channel_id=channel.id AND override.user_id=$2
+                ),false)
+                OR (
+                  NOT coalesce((
+                    SELECT override.deny_permissions @> ARRAY['view_channels']::text[]
+                    FROM channel_member_permission_overrides override
+                    WHERE override.channel_id=channel.id AND override.user_id=$2
+                  ),false)
+                  AND (
+                    EXISTS (
+                      SELECT 1 FROM channel_role_permission_overrides override
+                      JOIN server_member_roles assigned ON assigned.role_id=override.role_id
+                        AND assigned.server_id=channel.server_id AND assigned.user_id=$2
+                      WHERE override.channel_id=channel.id
+                        AND override.allow_permissions @> ARRAY['view_channels']::text[]
+                    )
+                    OR (
+                      NOT EXISTS (
+                        SELECT 1 FROM channel_role_permission_overrides override
+                        JOIN server_member_roles assigned ON assigned.role_id=override.role_id
+                          AND assigned.server_id=channel.server_id AND assigned.user_id=$2
+                        WHERE override.channel_id=channel.id
+                          AND override.deny_permissions @> ARRAY['view_channels']::text[]
+                      )
+                      AND (
+                        coalesce((
+                          SELECT override.allow_permissions @> ARRAY['view_channels']::text[]
+                          FROM channel_everyone_permission_overrides override
+                          WHERE override.channel_id=channel.id
+                        ),false)
+                        OR NOT coalesce((
+                          SELECT override.deny_permissions @> ARRAY['view_channels']::text[]
+                          FROM channel_everyone_permission_overrides override
+                          WHERE override.channel_id=channel.id
+                        ),false)
+                      )
+                    )
+                  )
+                )
+              )
           ))
         )
     )
@@ -70,41 +169,70 @@ export async function uploadRoutes(app: FastifyInstance) {
     const body = initSchema.parse(request.body); const bytes = body.bytes ?? body.totalSize!;
     validateUploadDeclaration({ kind: body.kind, purpose: body.purpose, mimeType: body.mimeType, bytes, filename: body.filename ?? body.originalName! }, config.MAX_UPLOAD_BYTES);
     const id = newId(); const tempKey = `${id}.upload`;
+    const capability = randomBytes(32).toString("base64url");
     await initializeTemporary(tempKey);
-    const result = await pool.query<{ expires_at_ms: number }>(
-      `INSERT INTO upload_sessions(id,owner_id,filename,declared_mime_type,declared_bytes,quality,kind,strip_location,temp_key,media_purpose,expires_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()+interval '24 hours') RETURNING (extract(epoch from expires_at)*1000)::bigint::float8 expires_at_ms`,
-      [id, request.auth.id, body.filename ?? body.originalName, body.mimeType, bytes, body.quality, body.kind, body.stripLocation, tempKey, body.purpose]);
-    return reply.status(201).send({ uploadId: id, upload: { id, offset: 0, chunkBytes: config.UPLOAD_CHUNK_BYTES, expiresAt: result.rows[0]!.expires_at_ms } });
+    let result: { rows: Array<{ expires_at_ms: number }> };
+    try {
+      result = await pool.query<{ expires_at_ms: number }>(
+        `INSERT INTO upload_sessions(
+           id,owner_id,filename,declared_mime_type,declared_bytes,quality,kind,strip_location,temp_key,media_purpose,
+           expires_at,device_session_id,capability_hash
+         )
+         SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,LEAST(now()+interval '24 hours',session.expires_at),session.id,$12
+         FROM device_sessions session
+         WHERE session.id=$11 AND session.user_id=$2 AND session.revoked_at IS NULL AND session.expires_at>now()
+         RETURNING (extract(epoch from expires_at)*1000)::bigint::float8 expires_at_ms`,
+        [id, request.auth.id, body.filename ?? body.originalName, body.mimeType, bytes, body.quality, body.kind, body.stripLocation, tempKey, body.purpose, request.auth.sessionId, hashOpaqueToken(capability)]);
+    } catch (error) {
+      await removeTemporary(tempKey).catch(() => undefined);
+      throw error;
+    }
+    if (!result.rows[0]) {
+      await removeTemporary(tempKey).catch(() => undefined);
+      throw unauthorized("The device session is no longer active");
+    }
+    return reply.header("cache-control", "no-store").status(201).send({
+      uploadId: id,
+      upload: { id, offset: 0, chunkBytes: config.UPLOAD_CHUNK_BYTES, expiresAt: result.rows[0].expires_at_ms, capability },
+    });
   });
 
-  app.head("/uploads/:id", { preHandler: requireAuth }, async (request, reply) => {
-    const upload = await ownedUpload(request.auth.id, idParams.parse(request.params).id);
-    if (upload.status !== "uploading") throw conflict("Upload session is no longer active");
-    return reply.headers({ "upload-offset": upload.received_bytes, "upload-length": upload.declared_bytes, "cache-control": "no-store" }).status(204).send();
+  app.head("/uploads/:id", async (request, reply) => {
+    const id = idParams.parse(request.params).id;
+    const principal = await resolveUploadPrincipal(request);
+    const upload = await authorizedUpload(principal, id);
+    if (!["uploading", "finalizing", "complete"].includes(upload.status)) throw conflict("Upload session is no longer active");
+    return reply.headers({
+      "upload-offset": upload.received_bytes,
+      "upload-length": upload.declared_bytes,
+      "upload-status": upload.status,
+      "cache-control": "no-store",
+    }).status(204).send();
   });
 
-  app.patch("/uploads/:id/chunk", { preHandler: requireAuth, bodyLimit: config.UPLOAD_CHUNK_BYTES + 1024 }, async (request, reply) => {
+  app.patch("/uploads/:id/chunk", { bodyLimit: config.UPLOAD_CHUNK_BYTES + 1024 }, async (request, reply) => {
     const { id } = idParams.parse(request.params);
+    const principal = await resolveUploadPrincipal(request);
     const chunk = request.body;
     if (!Buffer.isBuffer(chunk) || chunk.length === 0) throw conflict("Chunk body must be non-empty application/offset+octet-stream");
     const nextOffset = await transaction(async (client) => {
-      const upload = await ownedUpload(request.auth.id, id, client, true);
+      const upload = await authorizedUpload(principal, id, client, true);
       if (upload.status !== "uploading") throw conflict("Upload no longer accepts chunks");
       const offset = Number(request.headers["upload-offset"]);
       if (!Number.isSafeInteger(offset) || offset !== Number(upload.received_bytes)) throw conflict(`Expected upload offset ${upload.received_bytes}`);
       if (offset + chunk.length > Number(upload.declared_bytes)) throw conflict("Chunk exceeds declared upload size");
       await appendChunk(upload.temp_key, offset, chunk);
       const next = offset + chunk.length;
-      await client.query("UPDATE upload_sessions SET received_bytes=$3,updated_at=now() WHERE id=$1 AND owner_id=$2", [id, request.auth.id, next]);
+      await client.query("UPDATE upload_sessions SET received_bytes=$2,updated_at=now() WHERE id=$1", [id, next]);
       return next;
     });
     return reply.header("upload-offset", nextOffset).status(204).send();
   });
 
-  app.put("/uploads/:id/content", { preHandler: requireAuth, bodyLimit: config.MAX_UPLOAD_BYTES + 1024 }, async (request, reply) => {
+  app.put("/uploads/:id/content", { bodyLimit: config.MAX_UPLOAD_BYTES + 1024 }, async (request, reply) => {
     const { id } = idParams.parse(request.params);
-    const upload = await ownedUpload(request.auth.id, id);
+    const principal = await resolveUploadPrincipal(request);
+    const upload = await authorizedUpload(principal, id);
     if (upload.status !== "uploading" || Number(upload.received_bytes) !== 0) throw conflict("Upload no longer accepts a complete file");
     const declaredBytes = Number(upload.declared_bytes);
     const contentLength = Number(request.headers["content-length"]);
@@ -118,18 +246,23 @@ export async function uploadRoutes(app: FastifyInstance) {
       throw conflict(error instanceof Error ? error.message : "Upload body could not be stored");
     }
     await transaction(async (client) => {
-      const locked = await ownedUpload(request.auth.id, id, client, true);
+      const locked = await authorizedUpload(principal, id, client, true);
       if (locked.status !== "uploading" || Number(locked.received_bytes) !== 0) throw conflict("Upload changed while receiving the file");
-      await client.query("UPDATE upload_sessions SET received_bytes=declared_bytes,updated_at=now() WHERE id=$1 AND owner_id=$2", [id, request.auth.id]);
+      await client.query("UPDATE upload_sessions SET received_bytes=declared_bytes,updated_at=now() WHERE id=$1", [id]);
     });
     return reply.header("upload-offset", declaredBytes).status(204).send();
   });
 
-  app.post("/uploads/:id/complete", { preHandler: requireAuth }, async (request) => completeUpload(request.auth.id, idParams.parse(request.params).id));
+  app.post("/uploads/:id/complete", async (request) => {
+    const id = idParams.parse(request.params).id;
+    return completeUpload(await resolveUploadPrincipal(request), id);
+  });
   app.post("/uploads/complete", { preHandler: requireAuth }, async (request) => completeUpload(request.auth.id, completeBody.parse(request.body).uploadId));
-  app.delete("/uploads/:id", { preHandler: requireAuth }, async (request) => {
+  app.delete("/uploads/:id", async (request) => {
+    const id = idParams.parse(request.params).id;
+    const principal = await resolveUploadPrincipal(request);
     const upload = await transaction(async (client) => {
-      const locked = await ownedUpload(request.auth.id, idParams.parse(request.params).id, client, true);
+      const locked = await authorizedUpload(principal, id, client, true);
       if (locked.status === "cancelled") return locked;
       if (locked.status !== "uploading") throw conflict("Only an active upload can be cancelled");
       await client.query("UPDATE upload_sessions SET status='cancelled',updated_at=now() WHERE id=$1", [locked.id]); return locked;
@@ -141,14 +274,17 @@ export async function uploadRoutes(app: FastifyInstance) {
   app.get("/files/:id", { preHandler: requireAuth }, async (request, reply) => {
     const { id } = idParams.parse(request.params);
     const { variant } = fileQuery.parse(request.query);
-    const result = await pool.query<{ owner_id: string; filename: string; mime_type: string; storage_key: string; bytes: string; checksum_sha256: string; variant_id: string | null }>(
+    const result = await pool.query<{ owner_id: string; filename: string; mime_type: string; storage_key: string; bytes: string; checksum_sha256: string; variant_id: string | null; allowed: boolean }>(
       `SELECT a.owner_id,a.filename,coalesce(v.mime_type,a.mime_type) mime_type,coalesce(vb.storage_key,b.storage_key) storage_key,
-         coalesce(v.bytes,a.bytes)::text bytes,coalesce(v.checksum_sha256,b.checksum_sha256) checksum_sha256,v.id variant_id FROM attachments a JOIN blobs b ON b.id=a.blob_id
-       LEFT JOIN media_variants v ON v.attachment_id=a.id AND v.id=$2 LEFT JOIN blobs vb ON vb.id=v.blob_id WHERE a.id=$1`, [id, variant ?? null]);
+         coalesce(v.bytes,a.bytes)::text bytes,coalesce(v.checksum_sha256,b.checksum_sha256) checksum_sha256,v.id variant_id,
+         authorization.allowed
+       FROM attachments a JOIN blobs b ON b.id=a.blob_id
+       CROSS JOIN LATERAL (${attachmentAuthorizationSql}) authorization
+       LEFT JOIN media_variants v ON v.attachment_id=a.id AND v.id=$3
+       LEFT JOIN blobs vb ON vb.id=v.blob_id WHERE a.id=$1`, [id, request.auth.id, variant ?? null]);
     const file = result.rows[0]; if (!file) throw notFound("File not found");
     if (variant && !file.variant_id) throw notFound("Media variant not found");
-    const authorization = await pool.query<{ allowed: boolean }>(attachmentAuthorizationSql, [id, request.auth.id]);
-    if (authorization.rows[0]?.allowed !== true) throw forbidden("You cannot access this file");
+    if (file.allowed !== true) throw forbidden("You cannot access this file");
     return sendFile(reply, file, request.headers);
   });
 
@@ -200,9 +336,12 @@ export async function uploadRoutes(app: FastifyInstance) {
   });
 }
 
-async function completeUpload(userId: string, uploadId: string) {
+async function completeUpload(principalOrUserId: UploadPrincipal | string, uploadId: string) {
+  const principal: UploadPrincipal = typeof principalOrUserId === "string"
+    ? { kind: "owner", userId: principalOrUserId }
+    : principalOrUserId;
   const upload = await transaction(async (client) => {
-    const locked = await ownedUpload(userId, uploadId, client, true);
+    const locked = await authorizedUpload(principal, uploadId, client, true);
     if (locked.status === "complete") return locked;
     if ((locked.status !== "uploading" && locked.status !== "finalizing") || Number(locked.received_bytes) !== Number(locked.declared_bytes)) throw conflict("Upload is incomplete");
     const info = await stat(tempPath(locked.temp_key)).catch(() => null);
@@ -222,27 +361,36 @@ async function completeUpload(userId: string, uploadId: string) {
     if (terminal) await removeTemporary(upload.temp_key).catch(() => undefined);
     throw error;
   }
-  if (object.bytes !== Number(upload.declared_bytes)) throw conflict("Final object size does not match the upload");
+  if (object.bytes !== Number(upload.declared_bytes)) {
+    await removeObject(object.storageKey).catch(() => undefined);
+    await pool.query("UPDATE upload_sessions SET status='uploading',updated_at=now() WHERE id=$1 AND status='finalizing'", [uploadId]);
+    throw conflict("Final object size does not match the upload");
+  }
   const attachmentId = upload.id;
   const processMedia = canProcessMedia(upload.kind, upload.media_purpose, object.detectedMimeType);
   let adoptedStorageKey = object.storageKey;
-  await transaction(async (client) => {
-    const locked = await ownedUpload(userId, uploadId, client, true);
-    if (locked.status === "complete") return;
-    if (locked.status !== "finalizing") throw conflict("Upload is not ready to finalize");
-    const blob = await client.query<{ id: string; storage_key: string }>(
-      `INSERT INTO blobs(id,checksum_sha256,storage_key,bytes,detected_mime_type) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (checksum_sha256) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256 RETURNING id,storage_key`,
-      [newId(), object.checksum, object.storageKey, object.bytes, object.detectedMimeType]);
-    adoptedStorageKey = blob.rows[0]!.storage_key;
-    await client.query(
-      `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,quality,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       ON CONFLICT (id) DO NOTHING`, [attachmentId, userId, blob.rows[0]!.id, upload.filename, upload.kind, object.detectedMimeType, object.bytes, upload.quality, processMedia ? "processing" : "ready"]);
-    if (processMedia) {
-      await client.query("INSERT INTO media_jobs(id,attachment_id,profile) SELECT $1,$2,$3 WHERE NOT EXISTS(SELECT 1 FROM media_jobs WHERE attachment_id=$2 AND profile=$3)", [newId(), attachmentId, upload.quality]);
-    }
-    await client.query("UPDATE upload_sessions SET status='complete',checksum_sha256=$2,updated_at=now() WHERE id=$1", [uploadId, object.checksum]);
-  });
+  try {
+    await transaction(async (client) => {
+      const locked = await authorizedUpload(principal, uploadId, client, true);
+      if (locked.status === "complete") return;
+      if (locked.status !== "finalizing") throw conflict("Upload is not ready to finalize");
+      const blob = await client.query<{ id: string; storage_key: string }>(
+        `INSERT INTO blobs(id,checksum_sha256,storage_key,bytes,detected_mime_type) VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (checksum_sha256) DO UPDATE SET checksum_sha256=EXCLUDED.checksum_sha256 RETURNING id,storage_key`,
+        [newId(), object.checksum, object.storageKey, object.bytes, object.detectedMimeType]);
+      adoptedStorageKey = blob.rows[0]!.storage_key;
+      await client.query(
+        `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,quality,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (id) DO NOTHING`, [attachmentId, locked.owner_id, blob.rows[0]!.id, upload.filename, upload.kind, object.detectedMimeType, object.bytes, upload.quality, processMedia ? "processing" : "ready"]);
+      if (processMedia) {
+        await client.query("INSERT INTO media_jobs(id,attachment_id,profile) SELECT $1,$2,$3 WHERE NOT EXISTS(SELECT 1 FROM media_jobs WHERE attachment_id=$2 AND profile=$3)", [newId(), attachmentId, upload.quality]);
+      }
+      await client.query("UPDATE upload_sessions SET status='complete',checksum_sha256=$2,updated_at=now() WHERE id=$1", [uploadId, object.checksum]);
+    });
+  } catch (error) {
+    await removeObject(object.storageKey).catch(() => undefined);
+    throw error;
+  }
   if (adoptedStorageKey !== object.storageKey) await removeObject(object.storageKey).catch(() => undefined);
   await removeTemporary(upload.temp_key);
   return { attachment: await attachment(attachmentId) };
@@ -280,8 +428,40 @@ function singleHeader(value: string | string[] | undefined): string | undefined 
   return Array.isArray(value) ? value[0] : value;
 }
 
+export function validUploadCapability(value: string | string[] | undefined): string | null {
+  const candidate = singleHeader(value)?.trim();
+  // 32 random bytes encoded as unpadded base64url. Rejecting all other shapes
+  // before hashing keeps malformed secrets out of database work and errors.
+  return candidate && /^[A-Za-z0-9_-]{43}$/.test(candidate) ? candidate : null;
+}
+
+async function resolveUploadPrincipal(request: FastifyRequest): Promise<UploadPrincipal> {
+  const capability = validUploadCapability(request.headers[CAPABILITY_HEADER]);
+  if (capability) return { kind: "capability", capabilityHash: hashOpaqueToken(capability) };
+  const token = getBearerOrCookie(request);
+  if (!token) throw unauthorized();
+  const authenticated = await authenticateAccessToken(token);
+  request.auth = authenticated;
+  return { kind: "owner", userId: authenticated.id };
+}
+
+async function authorizedUpload(
+  principal: UploadPrincipal,
+  id: string,
+  client: Pick<import("../../db/pool.js").DbClient, "query"> = pool,
+  forUpdate = false,
+): Promise<UploadRow> {
+  if (principal.kind === "owner") return ownedUpload(principal.userId, id, client, forUpdate);
+  const result = await client.query<UploadRow>(
+    `${capabilityUploadSelectSql} ${forUpdate ? "FOR UPDATE OF upload" : ""}`,
+    [id, principal.capabilityHash],
+  );
+  if (!result.rows[0]) throw notFound("Upload session not found");
+  return result.rows[0];
+}
+
 async function ownedUpload(userId: string, id: string, client: Pick<import("../../db/pool.js").DbClient, "query"> = pool, forUpdate = false) {
-  const result = await client.query<{ id: string; filename: string; declared_bytes: string; received_bytes: string; quality: Attachment["quality"]; kind: Attachment["kind"]; media_purpose: "standard" | "voice" | "video-note"; temp_key: string; status: string }>(`SELECT id,filename,declared_bytes::text,received_bytes::text,quality,kind,media_purpose,temp_key,status FROM upload_sessions WHERE id=$1 AND owner_id=$2 AND expires_at>now()${forUpdate ? " FOR UPDATE" : ""}`, [id, userId]);
+  const result = await client.query<UploadRow>(`SELECT id,owner_id,filename,declared_bytes::text,received_bytes::text,quality,kind,media_purpose,temp_key,status FROM upload_sessions WHERE id=$1 AND owner_id=$2 AND expires_at>now()${forUpdate ? " FOR UPDATE" : ""}`, [id, userId]);
   if (!result.rows[0]) throw notFound("Upload session not found"); return result.rows[0];
 }
 

@@ -21,7 +21,7 @@ export type RootStackParamList = {
     targetMessageId?: string;
     openedAt?: number;
   };
-  Call: { streamId: string; title: string };
+  Call: { streamId: string; title: string; startWithVideo?: boolean };
   Profile: { userId: string };
   Diagnostics: undefined;
 };
@@ -72,6 +72,7 @@ export interface UploadInitResponse {
     offset: number;
     chunkBytes: number;
     expiresAt: number;
+    capability: string;
   };
 }
 
@@ -83,6 +84,8 @@ export interface UploadInput {
   quality: UploadQuality;
   purpose?: "standard" | "voice" | "video-note";
   stripLocation?: boolean;
+  /** User-initiated uploads allow mobile data unless a future picker opts out. */
+  allowMetered?: boolean;
 }
 
 export type UploadProgressCallback = (progress: number) => void;

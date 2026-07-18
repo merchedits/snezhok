@@ -11,7 +11,7 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, wi
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { AppSettings, Attachment, Message, UploadQuality, UserSummary } from "@snezhok/contracts";
+import type { AppSettings, Message, UploadQuality, UserSummary } from "@snezhok/contracts";
 
 import { AttachmentSheet } from "../components/AttachmentSheet";
 import { useAppDialog } from "../components/AppDialogProvider";
@@ -30,7 +30,6 @@ import { useTranslation } from "../i18n";
 import { recordPerformance } from "../diagnostics/diagnostics";
 import { composerBottomPadding } from "../lib/keyboardLayout";
 import { activeMentionQuery, insertMention, mentionSuggestions } from "../lib/mentionAutocomplete";
-import { chunkMediaMessages } from "../lib/mediaAlbums";
 import { selectedMessageText } from "../lib/messageSelection";
 import { isUploadCancelled } from "../lib/uploadPolicy";
 import { userFacingError } from "../lib/userFacingError";
@@ -85,7 +84,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const toggleReaction = useAppStore((state) => state.toggleReaction);
   const deleteMessage = useAppStore((state) => state.deleteMessage);
   const setMessagePinned = useAppStore((state) => state.setMessagePinned);
-  const uploadAttachment = useAppStore((state) => state.uploadAttachment);
+  const sendAttachmentBatch = useAppStore((state) => state.sendAttachmentBatch);
   const cancelUpload = useAppStore((state) => state.cancelUpload);
   const uploadProgress = useAppStore((state) => state.uploadProgress);
   const uploadQuality = useAppStore((state) => state.settings.defaultUploadQuality);
@@ -108,7 +107,6 @@ export function ChatScreen({ navigation, route }: Props) {
   const [voiceCommand, setVoiceCommand] = useState<VoiceRecordCommand>("idle");
   const [attachmentSheet, setAttachmentSheet] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadBatch, setUploadBatch] = useState<{ completed: number; total: number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [forwardPicker, setForwardPicker] = useState(false);
   const [forwarding, setForwarding] = useState(false);
@@ -374,25 +372,10 @@ export function ChatScreen({ navigation, route }: Props) {
     if (!inputs.length) return;
     if (!online) return showDialog(t("offline"), t("attachmentOnline"));
     setUploading(true);
-    setUploadBatch({ completed: 0, total: inputs.length });
     try {
-      const attachments: Attachment[] = [];
-      for (let index = 0; index < inputs.length; index += 1) {
-        setUploadBatch({ completed: index, total: inputs.length });
-        attachments.push(await uploadAttachment(inputs[index]!));
-      }
       const replyToId = replyingTo?.id ?? null;
+      await sendAttachmentBatch(streamId, inputs, messageKind, replyToId);
       setReplyingTo(null);
-      const groups = messageKind === "media" ? chunkMediaMessages(attachments) : [attachments];
-      for (let index = 0; index < groups.length; index += 1) {
-        const group = groups[index]!;
-        await sendMessage(streamId, {
-          text: "",
-          kind: messageKind,
-          replyToId: index === 0 ? replyToId : null,
-          attachmentIds: group.map((attachment) => attachment.id),
-        }, group);
-      }
       setAttachmentSheet(false);
     } catch (error) {
       if (!isUploadCancelled(error)) {
@@ -403,9 +386,8 @@ export function ChatScreen({ navigation, route }: Props) {
       }
     } finally {
       setUploading(false);
-      setUploadBatch(null);
     }
-  }, [online, replyingTo?.id, sendMessage, streamId, t, uploadAttachment]);
+  }, [online, replyingTo?.id, sendAttachmentBatch, streamId, t]);
 
   const handleUpload = useCallback(async (input: UploadInput, messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
     await handleUploads([input], messageKind);
@@ -620,7 +602,7 @@ export function ChatScreen({ navigation, route }: Props) {
         </View>
         {recorderMounted ? <VoiceRecorderControl command={voiceCommand} quality={uploadQuality} microphoneMode={microphoneMode} onRecordingChange={setRecording} onMetering={(metering, durationMillis) => { setRecordingLevels((levels) => appendRecordingLevel(levels, metering)); setRecordingDuration(durationMillis); }} onTooShort={() => showDialog(t("voiceMessage"), t("voiceTooShort"))} onCancel={() => { updateVoiceCommand("idle"); setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); }} onComplete={async (input) => { updateVoiceCommand("idle"); setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); await handleUpload(input, "voice"); }} /> : null}
       </>}
-      <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadBatch && uploadProgress !== null ? Math.round(((uploadBatch.completed + uploadProgress / 100) / uploadBatch.total) * 100) : uploadProgress} onClose={closeAttachmentSheet} onCancel={() => void cancelUpload()} onSelect={handleUploads} />
+      <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadProgress} onClose={closeAttachmentSheet} onCancel={() => void cancelUpload()} onSelect={handleUploads} />
       <ReactionPicker visible={Boolean(reactionTarget)} anchorY={reactionTarget?.anchorY ?? 0} activeEmojis={activeReactionEmojis} onClose={() => setReactionTarget(null)} onSelect={selectReaction} />
       <ForwardPickerModal
         visible={forwardPicker}

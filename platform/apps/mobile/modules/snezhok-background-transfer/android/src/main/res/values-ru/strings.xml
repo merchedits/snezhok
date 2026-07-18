@@ -1,0 +1,7 @@
+<resources>
+  <string name="snezhok_upload_channel">Передача файлов</string>
+  <string name="snezhok_upload_title">Загрузка вложения</string>
+  <string name="snezhok_upload_waiting">Ожидание сети</string>
+  <string name="snezhok_upload_progress">Загружено %1$d%%</string>
+  <string name="snezhok_upload_cancel">Отмена</string>
+</resources>

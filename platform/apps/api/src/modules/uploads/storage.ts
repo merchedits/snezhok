@@ -27,7 +27,12 @@ export function objectPath(key: string) { return path.join(uploadRoot, ...key.sp
 export async function appendChunk(key: string, offset: number, data: Buffer) {
   const target = tempPath(key);
   const handle = await open(target, "r+").catch(() => open(target, "w+"));
-  try { await handle.write(data, 0, data.length, offset); } finally { await handle.close(); }
+  try {
+    await handle.write(data, 0, data.length, offset);
+    // The database offset is acknowledged only after the bytes reach stable
+    // storage; otherwise a host crash can leave PostgreSQL ahead of the file.
+    await handle.datasync();
+  } finally { await handle.close(); }
 }
 
 export async function writeWholeUpload(key: string, body: Readable, expectedBytes: number) {
@@ -41,6 +46,8 @@ export async function writeWholeUpload(key: string, body: Readable, expectedByte
   });
   await pipeline(body, meter, createWriteStream(tempPath(key), { flags: "w" }));
   if (receivedBytes !== expectedBytes) throw new Error(`Expected ${expectedBytes} bytes but received ${receivedBytes}`);
+  const handle = await open(tempPath(key), "r+");
+  try { await handle.datasync(); } finally { await handle.close(); }
   return receivedBytes;
 }
 

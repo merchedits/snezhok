@@ -17,6 +17,7 @@ import type {
 } from "@snezhok/contracts";
 
 import { api, ApiError } from "../lib/api";
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { boundedMessageWindow } from "../lib/cachePolicy";
 import { clearMediaCache } from "../lib/mediaCache";
 import { cachedHistoryCursor } from "../lib/offlineCachePolicy";
@@ -25,6 +26,16 @@ import { clearSession, readSession, writeSession } from "../lib/secureSession";
 import { mergeAcknowledgedPatch, rollbackRejectedPatch } from "../lib/settingsSync";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
 import type { ChatFolder, ScheduledMessage } from "../types";
+import {
+  cancelBackgroundBatch,
+  clearAllBackgroundTransfers,
+  enqueueBackgroundAttachmentBatch,
+  installBackgroundTransferWakeListener,
+  reconcileBackgroundTransfers as reconcileDurableTransfers,
+  waitForBackgroundBatch,
+  type BackgroundGroupDispatch,
+} from "../transfers/backgroundTransfers";
+import type { AttachmentMessageKind } from "../transfers/backgroundTransferModel";
 import { applyConversationPreview } from "./conversationPreview";
 import { upsertConversation } from "./conversationIdentity";
 import { markMessageDeleted, mergeMessages as mergeUnboundedMessages, reconcilePinnedMessages } from "./messageReconciliation";
@@ -67,6 +78,8 @@ interface AppState {
   markStreamUnread: (streamId: string, sequence?: number) => Promise<void>;
   loadPinnedMessages: (streamId: string) => Promise<void>;
   uploadAttachment: (input: UploadInput) => Promise<Attachment>;
+  sendAttachmentBatch: (streamId: string, inputs: UploadInput[], messageKind: AttachmentMessageKind, replyToId: string | null) => Promise<void>;
+  reconcileBackgroundTransfers: () => Promise<void>;
   cancelUpload: () => Promise<void>;
   sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId" | "silent"> & { silent?: boolean }, optimisticAttachments?: Attachment[]) => Promise<void>;
   forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
@@ -213,7 +226,7 @@ function flushPersistence(): Promise<void> {
     if (epoch === persistenceEpoch && !persistenceTimer) {
       persistenceTimer = setTimeout(() => {
         persistenceTimer = null;
-        void flushPersistence().catch((retryError) => console.warn("Could not retry offline cache persistence", retryError));
+        void flushPersistence().catch(() => recordDiagnostic("warn", "storage", "Offline cache persistence retry failed"));
       }, 2_000);
     }
     throw error;
@@ -241,13 +254,15 @@ const latestPinnedMessageLoads = new Map<string, number>();
 const reactionSyncQueues = new Map<string, Promise<void>>();
 const remoteDraftTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let outboxRetry: Promise<void> | null = null;
+let activeBackgroundBatchId: string | null = null;
+let backgroundWakeListenerInstalled = false;
 
 function schedulePersistence(request: PersistenceRequest): void {
   markPersistence(request);
   if (persistenceTimer) clearTimeout(persistenceTimer);
   persistenceTimer = setTimeout(() => {
     persistenceTimer = null;
-    void flushPersistence().catch((error) => console.warn("Could not persist offline cache", error));
+    void flushPersistence().catch(() => recordDiagnostic("warn", "storage", "Offline cache persistence failed"));
     // Cache I/O is deliberately kept outside navigation and interaction frames.
     // Realtime bursts coalesce into incremental dirty-stream transactions.
   }, 700);
@@ -300,6 +315,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ phase: "signed-out", outbox: [] });
       return;
     }
+    ensureBackgroundWakeListener();
     const cached = cache.bootstrap;
     set({
       phase: cached ? "ready" : "booting",
@@ -320,6 +336,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().refreshBootstrap({ force: true });
       await get().refreshProductivity().catch(() => undefined);
       await get().retryOutbox();
+      await get().reconcileBackgroundTransfers().catch(() => undefined);
     } catch (error) {
       if (!cached) set({ phase: "error", error: error instanceof Error ? error.message : "Unable to load Snezhok" });
     }
@@ -337,6 +354,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ me: result.user });
       await get().refreshBootstrap({ force: true });
       await get().refreshProductivity().catch(() => undefined);
+      ensureBackgroundWakeListener();
+      await get().reconcileBackgroundTransfers().catch(() => undefined);
     } catch (error) {
       await clearSession();
       set({ phase: "signed-out", error: error instanceof Error ? error.message : "Sign in failed" });
@@ -352,6 +371,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ me: result.user });
       await get().refreshBootstrap({ force: true });
       await get().refreshProductivity().catch(() => undefined);
+      ensureBackgroundWakeListener();
+      await get().reconcileBackgroundTransfers().catch(() => undefined);
     } catch (error) {
       await clearSession();
       set({ phase: "signed-out", error: error instanceof Error ? error.message : "Registration failed" });
@@ -375,7 +396,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     await Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined)]);
     const pushInstallationId = await AsyncStorage.getItem("@snezhok/push-installation/v1").catch(() => null);
     if (pushInstallationId) await api.unregisterPushDevice(pushInstallationId).catch(() => undefined);
-    await api.cancelUpload().catch(() => undefined);
+    await Promise.all([api.cancelUpload().catch(() => undefined), clearAllBackgroundTransfers().catch(() => undefined)]);
+    activeBackgroundBatchId = null;
     await Promise.all([clearSession(), clearLocalData(), clearMediaCache().catch(() => undefined)]);
     set({
       phase: "signed-out",
@@ -405,6 +427,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       void get().refreshBootstrap({ force: true, silent: true });
       void get().refreshProductivity().catch(() => undefined);
       void get().retryOutbox();
+      void get().reconcileBackgroundTransfers().catch(() => undefined);
     }
   },
 
@@ -631,8 +654,63 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  sendAttachmentBatch: async (streamId, inputs, messageKind, replyToId) => {
+    const me = get().me;
+    if (!me) throw new Error("No active session");
+    if (!get().online) throw new Error("Attachments require a network connection");
+    if (activeBackgroundBatchId) throw new Error("Another attachment batch is already being prepared");
+    const prepared = inputs.map((input) => ({
+      ...input,
+      stripLocation: input.stripLocation ?? get().settings.stripMediaLocation,
+    }));
+    set({ uploadProgress: 0 });
+    let batchId: string | null = null;
+    try {
+      batchId = await enqueueBackgroundAttachmentBatch({
+        ownerId: me.id,
+        streamId,
+        messageKind,
+        replyToId,
+        inputs: prepared,
+        onCreated: (createdBatchId) => {
+          batchId = createdBatchId;
+          activeBackgroundBatchId = createdBatchId;
+        },
+      });
+      activeBackgroundBatchId = batchId;
+      await waitForBackgroundBatch({
+        batchId,
+        ownerId: me.id,
+        isOnline: () => get().online,
+        dispatchGroup: dispatchBackgroundAttachmentGroup,
+        onProgress: (uploadProgress) => set({ uploadProgress }),
+      });
+    } finally {
+      if (batchId && activeBackgroundBatchId === batchId) activeBackgroundBatchId = null;
+      set({ uploadProgress: null });
+    }
+  },
+
+  reconcileBackgroundTransfers: async () => {
+    const state = get();
+    if (!state.me || state.phase === "signed-out") return;
+    await reconcileDurableTransfers({
+      ownerId: state.me.id,
+      online: state.online,
+      dispatchGroup: dispatchBackgroundAttachmentGroup,
+      onProgress: (batchId, uploadProgress) => {
+        if (batchId === activeBackgroundBatchId) set({ uploadProgress });
+      },
+    });
+  },
+
   cancelUpload: async () => {
-    await api.cancelUpload();
+    const batchId = activeBackgroundBatchId;
+    await Promise.all([
+      api.cancelUpload(),
+      batchId ? cancelBackgroundBatch(batchId) : Promise.resolve(),
+    ]);
+    if (activeBackgroundBatchId === batchId) activeBackgroundBatchId = null;
     set({ uploadProgress: null });
   },
 
@@ -1215,6 +1293,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     schedulePersistence({ bootstrap: true });
   },
 }));
+
+function ensureBackgroundWakeListener(): void {
+  if (backgroundWakeListenerInstalled) return;
+  backgroundWakeListenerInstalled = true;
+  installBackgroundTransferWakeListener(() => {
+    const state = useAppStore.getState();
+    if (state.phase !== "ready" || !state.me) return;
+    void state.reconcileBackgroundTransfers().catch(() => {
+      recordDiagnostic("warn", "media", "Background transfer reconciliation failed");
+    });
+  });
+}
+
+async function dispatchBackgroundAttachmentGroup({ batch, input }: BackgroundGroupDispatch): Promise<Message> {
+  // clientId was persisted before uploading. Retrying this request after a
+  // process death returns the server's same idempotent message instead of
+  // creating a duplicate attachment post.
+  const message = await api.createMessage(batch.streamId, input);
+  useAppStore.getState().applyMessage(message, "created");
+  return message;
+}
 
 function restoreRejectedOutbox(state: AppState, entry: OutboxEntry): Partial<AppState> {
   if (entry.kind === "message" || entry.kind === "forward") {
