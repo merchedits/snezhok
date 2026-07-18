@@ -1,12 +1,13 @@
 {
   "name": "snezhok-workspace",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "workspaces": [
     "apps/web",
     "apps/server"
   ],
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
+    "dev": "concurrently --kill-others-on-fail --names server,web --prefix-colors blue,magenta \"npm run dev --workspace=apps/server\" \"npm run dev --workspace=apps/web\"",
     "build": "npm run build --workspaces --if-present",
     "start": "npm run start --workspace=apps/server",
     "db:generate": "npm run db:generate --workspace=apps/server",

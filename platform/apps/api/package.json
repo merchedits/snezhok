@@ -1,6 +1,7 @@
 {
   "name": "@snezhok/api",
   "version": "3.0.0",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

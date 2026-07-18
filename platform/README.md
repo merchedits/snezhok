@@ -46,3 +46,10 @@ Internal APK builds use the `preview` profile in `apps/mobile/eas.json`, or the 
 - [Android release channel](docs/MOBILE_RELEASES.md)
 
 The design acceptance rule is simple: if a screen cannot be traced to an established Telegram or Discord interaction, it does not ship.
+
+## License and source
+
+Snezhok is free software under `GPL-3.0-or-later`. Every distributed APK must
+identify the exact public source revision used to build it. See the repository
+root `LICENSE` and `THIRD_PARTY_NOTICES.md`. Telegram and Discord are referenced
+only as interaction precedents; Snezhok is not affiliated with either product.
