@@ -240,7 +240,12 @@ export function isQuietHours(settings: Record<string, unknown>, now: Date) {
   const end = settings.quietHoursEnd;
   if (!Number.isInteger(start) || !Number.isInteger(end) || start === end) return false;
   const offset = Number.isInteger(settings.quietHoursTimezoneOffsetMinutes) ? Number(settings.quietHoursTimezoneOffsetMinutes) : 0;
-  const localMinutes = ((Math.floor(now.getTime() / 60_000) - offset) % 1440 + 1440) % 1440;
+  const localTimestamp = now.getTime() - offset * 60_000;
+  const localMinutes = ((Math.floor(localTimestamp / 60_000)) % 1440 + 1440) % 1440;
+  const configuredDays = Array.isArray(settings.quietHoursDays)
+    ? settings.quietHoursDays.filter((day): day is number => Number.isInteger(day) && Number(day) >= 0 && Number(day) <= 6)
+    : [0, 1, 2, 3, 4, 5, 6];
+  if (!configuredDays.includes(new Date(localTimestamp).getUTCDay())) return false;
   return Number(start) < Number(end)
     ? localMinutes >= Number(start) && localMinutes < Number(end)
     : localMinutes >= Number(start) || localMinutes < Number(end);

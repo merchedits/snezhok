@@ -32,4 +32,5 @@ export const defaultSettings: AppSettings = {
   quietHoursStart: null,
   quietHoursEnd: null,
   quietHoursTimezoneOffsetMinutes: 0,
+  quietHoursDays: [0, 1, 2, 3, 4, 5, 6],
 };

@@ -264,6 +264,8 @@ export interface AppSettings {
   quietHoursStart?: number | null;
   quietHoursEnd?: number | null;
   quietHoursTimezoneOffsetMinutes?: number;
+  /** Local weekdays using JavaScript's 0=Sunday through 6=Saturday convention. */
+  quietHoursDays?: number[];
 }
 
 export interface BootstrapPayload {

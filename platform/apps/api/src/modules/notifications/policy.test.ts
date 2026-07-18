@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 
 import type { DbClient } from "../../db/pool.js";
-import { notificationPolicyForEvent } from "./push.js";
+import { isQuietHours, notificationPolicyForEvent } from "./push.js";
 
 const userId = "10000000-0000-4000-8000-000000000001";
 const conversationId = "20000000-0000-4000-8000-000000000001";
@@ -44,6 +44,17 @@ test("push policy combines global, per-stream, conversation, and server mute sta
   } finally {
     await db.close();
   }
+});
+
+test("quiet hours apply only on configured local weekdays", () => {
+  const settings = {
+    quietHoursStart: 22 * 60,
+    quietHoursEnd: 8 * 60,
+    quietHoursTimezoneOffsetMinutes: -120,
+    quietHoursDays: [1],
+  };
+  assert.equal(isQuietHours(settings, new Date("2026-07-20T21:30:00.000Z")), true, "Monday 23:30 at UTC+2");
+  assert.equal(isQuietHours(settings, new Date("2026-07-21T21:30:00.000Z")), false, "Tuesday is not selected");
 });
 
 function stream(streamKind: "conversation" | "channel", streamId: string) {

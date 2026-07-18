@@ -18,6 +18,7 @@ const settingsSchema = z.object({
   notificationSound: z.boolean(), notificationMobile: z.boolean(), notificationMentionsOnly: z.boolean(),
   quietHoursStart: z.number().int().min(0).max(1439).nullable(), quietHoursEnd: z.number().int().min(0).max(1439).nullable(),
   quietHoursTimezoneOffsetMinutes: z.number().int().min(-840).max(840),
+  quietHoursDays: z.array(z.number().int().min(0).max(6)).min(1).max(7).transform((days) => [...new Set(days)].sort()),
 }).partial();
 
 export async function settingsRoutes(app: FastifyInstance) {
