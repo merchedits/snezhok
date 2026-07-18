@@ -43,13 +43,30 @@ export async function buildApp() {
   app.addHook("onRequest", async (request, reply) => {
     requestStarts.set(request, performance.now());
     reply.header("x-request-id", request.id);
+    if (request.url.startsWith(config.PUBLIC_API_PREFIX)) reply.header("cache-control", "no-store");
   });
   app.addHook("onResponse", async (request, reply) => {
     const durationMs = Math.max(0, performance.now() - (requestStarts.get(request) ?? performance.now()));
     observeHttpRequest(request.method, request.routeOptions.url ?? request.url, reply.statusCode, durationMs);
     if (durationMs >= 500) request.log.warn({ durationMs: Math.round(durationMs), statusCode: reply.statusCode }, "slow request");
   });
-  await app.register(helmet, { contentSecurityPolicy: false });
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        connectSrc: ["'self'", "https:", "wss:"],
+        fontSrc: ["'self'", "data:"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        mediaSrc: ["'self'", "blob:"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        workerSrc: ["'self'", "blob:"],
+      },
+    },
+  });
   await app.register(cors, { origin: (origin, callback) => callback(null, !origin || config.APP_ORIGINS.includes(origin)), credentials: true });
   await app.register(cookie);
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
