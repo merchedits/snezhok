@@ -27,6 +27,7 @@ test("validates updater publication manifests", () => {
     sha256: "a".repeat(64),
     signingCertificateSha256: "b".repeat(64),
     publishedAt: "2026-07-16T12:00:00.000Z",
+    sourceRevision: "c0ffee42",
     releaseNotes: ["Production release"],
     architectures: ["arm64-v8a"],
     minSdk: 24,
@@ -35,4 +36,5 @@ test("validates updater publication manifests", () => {
   assert.deepEqual(validatePublicationManifest(manifest), []);
   assert.match(validatePublicationManifest({ ...manifest, minimumVersionCode: 41 }).join("\n"), /minimumVersionCode/);
   assert.match(validatePublicationManifest({ ...manifest, sha256: "A".repeat(64) }).join("\n"), /lowercase/);
+  assert.match(validatePublicationManifest({ ...manifest, sourceRevision: "not-a-commit" }).join("\n"), /sourceRevision/);
 });

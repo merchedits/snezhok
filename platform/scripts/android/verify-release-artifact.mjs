@@ -43,6 +43,7 @@ export function validatePublicationManifest(manifest) {
   if (typeof manifest.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(manifest.sha256)) failures.push("manifest sha256 must be lowercase hexadecimal");
   if (typeof manifest.signingCertificateSha256 !== "string" || !/^[0-9a-f]{64}$/.test(manifest.signingCertificateSha256)) failures.push("manifest signingCertificateSha256 must be lowercase hexadecimal");
   if (typeof manifest.publishedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(manifest.publishedAt) || !Number.isFinite(Date.parse(manifest.publishedAt))) failures.push("manifest publishedAt must be a UTC ISO timestamp");
+  if (typeof manifest.sourceRevision !== "string" || !/^[0-9a-f]{7,40}$/.test(manifest.sourceRevision)) failures.push("manifest sourceRevision must identify a public Git commit");
   if (!Array.isArray(manifest.releaseNotes) || manifest.releaseNotes.length > 20 || manifest.releaseNotes.some((note) => typeof note !== "string" || note.trim().length < 1 || note.trim().length > 240)) failures.push("manifest releaseNotes are invalid");
   if (manifest.architectures !== undefined && (!Array.isArray(manifest.architectures) || manifest.architectures.length < 1 || manifest.architectures.some((abi) => typeof abi !== "string" || !/^[A-Za-z0-9_-]+$/.test(abi)))) failures.push("manifest architectures are invalid");
   if (manifest.minSdk !== undefined && (!Number.isSafeInteger(manifest.minSdk) || manifest.minSdk < 21)) failures.push("manifest minSdk is invalid");
@@ -112,6 +113,7 @@ async function main() {
     if (manifest.version === previousManifest.version) throw new Error(`version ${manifest.version} is already published`);
     if (manifest.applicationId !== previousManifest.applicationId) throw new Error("applicationId cannot change across an update");
     if (manifest.signingCertificateSha256 !== previousManifest.signingCertificateSha256) throw new Error("signing certificate cannot change across a sideloaded update");
+    if (manifest.sourceRevision === previousManifest.sourceRevision) throw new Error("sourceRevision must change across a new release");
   }
   const expectedPackage = args.package ?? manifest?.applicationId ?? "xyz.merchedits.snezhok";
   const expectedVersion = args.version ?? manifest?.version;

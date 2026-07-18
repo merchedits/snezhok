@@ -30,6 +30,7 @@ The artifact gate verifies:
 - a non-debuggable manifest and a valid v2/v3 APK signature;
 - the expected signing-certificate SHA-256;
 - byte count and APK SHA-256 from the publication manifest;
+- a public Git source revision for GPL corresponding-source traceability;
 - monotonic version code and unchanged application/signing identity compared
   with the currently published manifest;
 - absence of `expo.modules.devlauncher` and `expo.modules.devmenu` in defined DEX packages.
