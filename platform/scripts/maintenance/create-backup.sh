@@ -37,7 +37,7 @@ if [[ "$BACKUP_REQUIRE_MOUNT" == "1" ]]; then
 elif [[ "$BACKUP_REQUIRE_MOUNT" != "0" ]]; then
   die "BACKUP_REQUIRE_MOUNT must be 0 or 1"
 fi
-maintenance_lock_root=${MAINTENANCE_LOCK_ROOT:-$PLATFORM_ROOT/.maintenance-locks}
+maintenance_lock_root=${MAINTENANCE_LOCK_ROOT:-$PLATFORM_ROOT/runtime/maintenance-locks}
 mkdir -p "$maintenance_lock_root"
 exec 9>"$maintenance_lock_root/maintenance.lock"
 flock -n 9 || die "another Snezhok maintenance operation is already running"

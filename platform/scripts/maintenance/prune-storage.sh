@@ -25,7 +25,7 @@ for command in docker find realpath sort grep awk flock mktemp; do require_comma
 mkdir -p "$MEDIA_ROOT/objects" "$MEDIA_ROOT/tmp"
 media_root_real=$(realpath "$MEDIA_ROOT")
 
-lock_root=${MAINTENANCE_LOCK_ROOT:-$PLATFORM_ROOT/.maintenance-locks}
+lock_root=${MAINTENANCE_LOCK_ROOT:-$PLATFORM_ROOT/runtime/maintenance-locks}
 mkdir -p "$lock_root"
 exec 9>"$lock_root/maintenance.lock"
 flock -n 9 || die "another storage maintenance operation is already running"

@@ -45,7 +45,7 @@ fi
 
 mkdir -p "$BACKUP_ROOT"
 platform_root=${PLATFORM_ROOT:-$(resolved_platform_root)}
-maintenance_lock_root=${MAINTENANCE_LOCK_ROOT:-$platform_root/.maintenance-locks}
+maintenance_lock_root=${MAINTENANCE_LOCK_ROOT:-$platform_root/runtime/maintenance-locks}
 mkdir -p "$maintenance_lock_root"
 exec 9>"$maintenance_lock_root/maintenance.lock"
 flock -n 9 || die "another Snezhok maintenance operation is already running"
