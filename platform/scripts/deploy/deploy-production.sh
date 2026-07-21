@@ -48,7 +48,7 @@ set_image_tag() {
   local revision=$1
   sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$revision/" "$PLATFORM_ROOT/.env"
   chmod 0600 "$PLATFORM_ROOT/.env"
-  [[ "$(awk -F= '$1==\"IMAGE_TAG\" {print $2}' "$PLATFORM_ROOT/.env" | tail -1 | tr -d '\r')" == "$revision" ]]
+  [[ "$(awk -F= '$1=="IMAGE_TAG" {print $2}' "$PLATFORM_ROOT/.env" | tail -1 | tr -d '\r')" == "$revision" ]]
 }
 deployment_succeeded=false
 rollback_tag() {
