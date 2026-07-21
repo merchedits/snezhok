@@ -18,7 +18,6 @@ BUILD_NETWORK=${SNEZHOK_DOCKER_BUILD_NETWORK:-host}
 env_mode=$(stat -c '%a' "$PLATFORM_ROOT/.env")
 (( (8#$env_mode & 077) == 0 )) || { echo "production .env must not be group/world accessible" >&2; exit 1; }
 configured_revision=$(awk -F= '$1=="IMAGE_TAG" {print $2}' "$PLATFORM_ROOT/.env" | tail -1 | tr -d '\r')
-[[ "$configured_revision" == "$REVISION" ]] || { echo "IMAGE_TAG in .env does not match requested revision" >&2; exit 1; }
 
 for command in docker curl git node systemctl; do command -v "$command" >/dev/null || { echo "required command missing: $command" >&2; exit 1; }; done
 docker compose version >/dev/null
@@ -31,10 +30,12 @@ node "$PLATFORM_ROOT/scripts/compliance/verify-public-source.mjs" \
   --revision "$REVISION" --repository https://github.com/merchedits/snezhok
 
 # The recovery point is made from the still-running release. Require its
-# provenance in the maintenance environment so the backup manifest cannot be
-# mislabeled with the revision that is about to be deployed.
+# image tag and maintenance provenance to remain current until the synchronized
+# backup has restored the old services. Switching IMAGE_TAG earlier would make
+# Compose try to restore an image that has not been built yet.
 current_health=$(curl --fail --silent --show-error --max-time 10 http://127.0.0.1:3003/api/v1/health)
 current_revision=$(node -e 'const body=JSON.parse(process.argv[1]); if(!/^[0-9a-f]{40}$/.test(body.revision)) process.exit(1); process.stdout.write(body.revision)' "$current_health")
+[[ "$configured_revision" == "$current_revision" ]] || { echo "IMAGE_TAG in .env does not match the running release" >&2; exit 1; }
 maintenance_revision=$(awk -F= '$1=="SNEZHOK_SOURCE_REVISION" {print $2}' /etc/snezhok/maintenance.env | tail -1 | tr -d '\r')
 [[ "$maintenance_revision" == "$current_revision" ]] \
   || { echo "maintenance provenance does not match the currently running release" >&2; exit 1; }
@@ -42,6 +43,23 @@ maintenance_revision=$(awk -F= '$1=="SNEZHOK_SOURCE_REVISION" {print $2}' /etc/s
 echo "creating a synchronized encrypted pre-deployment recovery point"
 systemctl start snezhok-backup.service
 systemctl is-failed --quiet snezhok-backup.service && { echo "pre-deployment backup failed" >&2; exit 1; }
+
+set_image_tag() {
+  local revision=$1
+  sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$revision/" "$PLATFORM_ROOT/.env"
+  chmod 0600 "$PLATFORM_ROOT/.env"
+  [[ "$(awk -F= '$1==\"IMAGE_TAG\" {print $2}' "$PLATFORM_ROOT/.env" | tail -1 | tr -d '\r')" == "$revision" ]]
+}
+deployment_succeeded=false
+rollback_tag() {
+  if ! $deployment_succeeded; then
+    set +e
+    set_image_tag "$current_revision"
+    docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" up -d --no-build app media-worker >/dev/null 2>&1
+  fi
+}
+trap rollback_tag EXIT
+set_image_tag "$REVISION"
 
 cd "$PLATFORM_ROOT"
 echo "building immutable revision-tagged production images"
@@ -59,4 +77,6 @@ docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" up -d
 docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" rm -f migrate db-provision >/dev/null
 SNEZHOK_SOURCE_REVISION="$REVISION" "$SCRIPT_DIR/install-maintenance.sh" "$REVISION" --enable
 
+deployment_succeeded=true
+trap - EXIT
 echo "production deployment completed and verified for $REVISION"

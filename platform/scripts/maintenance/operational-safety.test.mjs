@@ -80,6 +80,9 @@ test("production deployment binds backup and image provenance to real commits", 
   assert.match(script, /status --porcelain --untracked-files=normal/);
   assert.match(script, /verify-public-source\.mjs/);
   assert.match(script, /maintenance provenance does not match the currently running release/);
+  assert.match(script, /configured_revision" == "\$current_revision/);
+  assert.ok(script.indexOf("systemctl start snezhok-backup.service") < script.indexOf('set_image_tag "$REVISION"'));
+  assert.match(script, /trap rollback_tag EXIT/);
   assert.match(script, /install-maintenance\.sh" "\$REVISION" --enable/);
   const verifier = await read("../deploy/verify-production-release.sh");
   assert.match(verifier, /android_source_revision/);
