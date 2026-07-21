@@ -20,7 +20,7 @@ tls_health=$(curl --fail --silent --show-error --max-time 10 \
 node -e 'const body=JSON.parse(process.argv[1]); if(body.status!=="ready"||body.revision!==process.argv[2]) process.exit(1)' "$tls_health" "$REVISION"
 
 manifest=$(curl --fail --silent --show-error --max-time 10 "$API_ORIGIN/client/android/manifest")
-mapfile -t android_release < <(node -e 'const body=JSON.parse(process.argv[1]); if(!Number.isSafeInteger(body.bytes)||body.bytes<1024||!/^\/[A-Za-z0-9_./-]+$/.test(body.downloadUrl)||!^[0-9a-f]{40}$/.test(body.sourceRevision)) process.exit(1); console.log(body.downloadUrl); console.log(body.sourceRevision)' "$manifest")
+mapfile -t android_release < <(node -e 'const body=JSON.parse(process.argv[1]); if(!Number.isSafeInteger(body.bytes)||body.bytes<1024||!/^\/[A-Za-z0-9_./-]+$/.test(body.downloadUrl)||!/^[0-9a-f]{40}$/.test(body.sourceRevision)) process.exit(1); console.log(body.downloadUrl); console.log(body.sourceRevision)' "$manifest")
 [[ ${#android_release[@]} -eq 2 ]] || { echo "Android channel manifest is incomplete" >&2; exit 1; }
 download_path=${android_release[0]}
 android_source_revision=${android_release[1]}
