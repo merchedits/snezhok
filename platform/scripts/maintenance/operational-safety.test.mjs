@@ -22,6 +22,12 @@ test("backup cleanup stays bounded without deleting the newest complete points",
   assert.match(script, /name '\.incomplete-\*'/);
 });
 
+test("PITR base backup uses the stdout-compatible WAL mode", async () => {
+  const script = await read("./create-pitr-base-backup.sh");
+  assert.match(script, /--pgdata=- --format=tar --gzip --wal-method=fetch/);
+  assert.doesNotMatch(script, /--wal-method=stream/);
+});
+
 test("off-site replication copies encrypted recovery artifacts only and verifies them", async () => {
   const script = await read("./replicate-encrypted-backups.sh");
   assert.match(script, /SNEZHOK_OFFSITE_REMOTE must name a configured rclone remote/);

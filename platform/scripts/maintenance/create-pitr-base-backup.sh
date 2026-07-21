@@ -43,7 +43,7 @@ trap 'rm -f "$incomplete"' EXIT
 
 cd "$STACK_DIR"
 docker compose --file docker-compose.production.yml exec -T -u postgres postgres \
-  pg_basebackup --username snezhok --pgdata=- --format=tar --gzip --wal-method=stream --checkpoint=fast \
+  pg_basebackup --username snezhok --pgdata=- --format=tar --gzip --wal-method=fetch --checkpoint=fast \
   | age --recipient "$recipient" --output "$incomplete"
 test -s "$incomplete"
 age --decrypt --identity "$IDENTITY_FILE" "$incomplete" | tar -tzf - | awk '$0 ~ /(^|\/)PG_VERSION$/ { found=1 } END { exit !found }'
