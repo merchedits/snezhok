@@ -28,6 +28,19 @@ test("PITR base backup uses the stdout-compatible WAL mode", async () => {
   assert.doesNotMatch(script, /--wal-method=stream/);
 });
 
+test("PITR replay exposes authenticated WAL read-only to the verifier", async () => {
+  const script = await read("./verify-pitr-restore.sh");
+  assert.match(script, /chmod 0555 "\$temporary\/wal"/);
+  assert.match(script, /chmod 0444 -- \{\} \+/);
+  assert.match(script, /restore_command = 'cp \/restore\/%f %p && chmod 0600 %p'/);
+  assert.match(script, /pg_current_wal_flush_lsn\(\)/);
+  assert.match(script, /pg_switch_wal\(\)/);
+  assert.match(script, /chown -R postgres:postgres \/target/);
+  assert.match(script, /docker run --detach --network none --name "\$container"/);
+  assert.doesNotMatch(script, /docker run --detach --rm --network none --name "\$container"/);
+  assert.match(script, /docker logs "\$container"/);
+});
+
 test("off-site replication copies encrypted recovery artifacts only and verifies them", async () => {
   const script = await read("./replicate-encrypted-backups.sh");
   assert.match(script, /SNEZHOK_OFFSITE_REMOTE must name a configured rclone remote/);

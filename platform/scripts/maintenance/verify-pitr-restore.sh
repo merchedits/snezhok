@@ -37,6 +37,9 @@ container="snezhok-pitr-verify-$$"
 cleanup() {
   result=$?
   set +e
+  if (( result != 0 )); then
+    docker logs "$container" >&2 || true
+  fi
   docker rm --force "$container" >/dev/null 2>&1
   # The official entrypoint changes PGDATA ownership to its internal postgres
   # UID. Remove plaintext through an isolated root helper, then prove that the
@@ -61,7 +64,7 @@ rm -f "$temporary/data/postmaster.pid" "$temporary/data/standby.signal"
 # recovery target. A successful promotion at this point proves every required
 # segment from the selected base is present, authenticated and replayable.
 switch_result=$(docker exec snezhok-v3-postgres-1 psql -At -U snezhok -d snezhok -v ON_ERROR_STOP=1 \
-  -c "WITH switched AS (SELECT pg_switch_wal() lsn) SELECT lsn::text||'|'||pg_walfile_name(lsn) FROM switched")
+  -c "WITH target AS MATERIALIZED (SELECT pg_current_wal_flush_lsn() lsn), switched AS MATERIALIZED (SELECT pg_switch_wal() FROM target) SELECT target.lsn::text||'|'||pg_walfile_name(target.lsn) FROM target CROSS JOIN switched")
 target_lsn=${switch_result%%|*}
 target_wal=${switch_result#*|}
 [[ "$target_lsn" =~ ^[0-9A-F]+/[0-9A-F]+$ && "$target_wal" =~ ^[0-9A-F]{24}$ ]] || die "could not establish a PITR target"
@@ -89,13 +92,25 @@ for wal_name in "${wal_names[@]}"; do
   [[ "$(sha256sum "$plain" | awk '{print $1}')" == "$expected_source" ]] || die "WAL plaintext checksum mismatch: $wal_name"
 done
 
+# The verification container runs PostgreSQL as its unprivileged internal UID.
+# Keep recovered WAL immutable while allowing that UID to traverse and read the
+# bind-mounted archive. The surrounding temporary directory remains root-only.
+chmod 0555 "$temporary/wal"
+find "$temporary/wal" -maxdepth 1 -type f -exec chmod 0444 -- {} +
+
 touch "$temporary/data/recovery.signal"
 cat >>"$temporary/data/postgresql.auto.conf" <<EOF
-restore_command = 'cp /restore/%f %p'
+restore_command = 'cp /restore/%f %p && chmod 0600 %p'
 recovery_target_lsn = '$target_lsn'
 recovery_target_action = 'promote'
 EOF
-docker run --detach --rm --network none --name "$container" \
+# pg_basebackup preserves the source database UID, which is not guaranteed to
+# match the UID in the pinned verification image. After writing the recovery
+# controls, normalize ownership inside a root-only, network-isolated helper.
+# This avoids making the writable PGDATA tree world-accessible.
+docker run --rm --network none --entrypoint sh --volume "$temporary/data:/target" "$POSTGRES_VERIFY_IMAGE" \
+  -eu -c 'chown -R postgres:postgres /target'
+docker run --detach --network none --name "$container" \
   --volume "$temporary/data:/var/lib/postgresql/data" --volume "$temporary/wal:/restore:ro" "$POSTGRES_VERIFY_IMAGE" \
   postgres -c listen_addresses='' >/dev/null
 for _ in $(seq 1 90); do
