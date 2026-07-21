@@ -22,6 +22,8 @@ platform/**/android/local.properties
 platform/**/*.jks
 platform/**/*.keystore
 platform/releases/*.apk
+platform/data-v3/
+platform/runtime/
 
 # Local data (persist sqlite and uploads here)
 data/

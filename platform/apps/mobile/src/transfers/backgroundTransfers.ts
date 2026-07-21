@@ -1,5 +1,6 @@
 import { AppState } from "react-native";
 import * as Crypto from "expo-crypto";
+import * as FileSystem from "expo-file-system/legacy";
 import type { Attachment, Message } from "@snezhok/contracts";
 
 import {
@@ -15,6 +16,7 @@ import { API_URL, api } from "../lib/api";
 import type { MessageCreateInput, UploadInput } from "../types";
 import {
   applyNativeSnapshot,
+  applyInitializedAttachment,
   attachmentGroupSize,
   batchComplete,
   batchCancelled,
@@ -161,7 +163,10 @@ export async function waitForBackgroundBatch(input: {
 export async function cancelBackgroundBatch(batchId: string): Promise<void> {
   const batch = (await readBackgroundTransferBatches()).find((item) => item.id === batchId);
   if (!batch) return;
-  await Promise.all(batch.transfers.map((transfer) => cancelNativeTransfer(transfer.transferId).catch(() => null)));
+  await Promise.all(batch.transfers.flatMap((transfer) => [
+    cancelNativeTransfer(transfer.transferId).catch(() => null),
+    api.cancelInitializedUpload(transfer.transferId).catch(() => undefined),
+  ]));
   await mutateBackgroundTransferBatches((current) => current.map((item) => item.id !== batchId ? item : {
     ...item,
     updatedAt: Date.now(),
@@ -172,12 +177,15 @@ export async function cancelBackgroundBatch(batchId: string): Promise<void> {
 
 export async function clearAllBackgroundTransfers(): Promise<void> {
   const batches = await readBackgroundTransferBatches();
-  await Promise.all(batches.flatMap((batch) => batch.transfers.map((transfer) => cancelNativeTransfer(transfer.transferId).catch(() => null))));
+  await Promise.all(batches.flatMap((batch) => batch.transfers.flatMap((transfer) => [
+    cancelNativeTransfer(transfer.transferId).catch(() => null),
+    api.cancelInitializedUpload(transfer.transferId).catch(() => undefined),
+  ])));
   await clearBackgroundTransferBatches();
 }
 
 async function schedulePendingTransfers(batchId: string): Promise<void> {
-  const nativeById = new Map((await listNativeTransfers()).map((snapshot) => [snapshot.transferId, snapshot]));
+  let nativeById = new Map((await listNativeTransfers()).map((snapshot) => [snapshot.transferId, snapshot]));
   const batch = (await readBackgroundTransferBatches()).find((item) => item.id === batchId);
   if (!batch) return;
   for (const transfer of batch.transfers.sort((left, right) => left.position - right.position)) {
@@ -197,28 +205,89 @@ async function schedulePendingTransfers(batchId: string): Promise<void> {
       }
       continue;
     }
-    if (transfer.status !== "pending" || !transfer.input.uri) continue;
-    const { initialized, bytes } = await api.initializeBackgroundUpload(transfer.input);
-    const afterInitialization = (await readBackgroundTransferBatches()).find((item) => item.id === batchId)
-      ?.transfers.find((item) => item.transferId === transfer.transferId);
-    if (!afterInitialization || afterInitialization.status === "cancelled") {
-      await api.cancelInitializedUpload(initialized.uploadId).catch(() => undefined);
-      continue;
-    }
-    const snapshot = await enqueueNativeTransfer({
-      transferId: transfer.transferId,
-      uploadId: initialized.uploadId,
-      apiBaseUrl: API_URL,
-      capability: initialized.upload.capability,
-      sourceUri: transfer.input.uri,
-      declaredBytes: bytes,
-      chunkBytes: initialized.upload.chunkBytes,
-      expiresAt: initialized.upload.expiresAt,
-      allowMetered: transfer.input.allowMetered ?? true,
-      createdAt: batch.createdAt,
-    });
-    await storeNativeSnapshot(batchId, snapshot);
   }
+
+  nativeById = new Map((await listNativeTransfers()).map((snapshot) => [snapshot.transferId, snapshot]));
+  let current = (await readBackgroundTransferBatches()).find((item) => item.id === batchId);
+  if (!current) return;
+  for (const group of current.groups) {
+    const byId = new Map(current.transfers.map((transfer) => [transfer.transferId, transfer]));
+    const grouped = group.transferIds.map((id) => byId.get(id)).filter((transfer): transfer is NonNullable<typeof transfer> => Boolean(transfer));
+    if (grouped.length !== group.transferIds.length) throw new Error("Background attachment group is incomplete");
+    const pending = grouped.filter((transfer) => transfer.status === "pending" && transfer.input.uri && !nativeById.has(transfer.transferId));
+    if (!pending.length) continue;
+
+    const bytesById = new Map<string, number>();
+    for (const transfer of grouped) {
+      const nativeBytes = nativeById.get(transfer.transferId)?.totalBytes;
+      const storedBytes = transfer.declaredBytes;
+      const bytes = Number.isSafeInteger(storedBytes) && Number(storedBytes) > 0
+        ? Number(storedBytes)
+        : Number.isSafeInteger(nativeBytes) && Number(nativeBytes) > 0
+          ? Number(nativeBytes)
+          : await localUploadBytes(transfer.input.uri);
+      bytesById.set(transfer.transferId, bytes);
+    }
+    await mutateBackgroundTransferBatches((batches) => batches.map((item) => item.id !== batchId ? item : {
+      ...item,
+      updatedAt: Date.now(),
+      transfers: item.transfers.map((transfer) => bytesById.has(transfer.transferId)
+        ? { ...transfer, declaredBytes: bytesById.get(transfer.transferId)! }
+        : transfer),
+    }));
+
+    const initialized = await api.initializeBackgroundMessageGroup({
+      streamId: current.streamId,
+      clientId: group.clientId,
+      kind: current.messageKind,
+      replyToId: group.replyToId,
+      silent: current.silent,
+      capabilityUploadIds: pending.map((transfer) => transfer.transferId),
+      uploads: grouped.map((transfer) => ({ uploadId: transfer.transferId, input: transfer.input, bytes: bytesById.get(transfer.transferId)! })),
+    });
+    for (const session of initialized.sessions) {
+      if (session.status === "complete" && session.attachment) {
+        await mutateBackgroundTransferBatches((batches) => batches.map((item) => item.id === batchId
+          ? applyInitializedAttachment(item, session.uploadId, session.attachment!)
+          : item));
+      }
+    }
+
+    current = (await readBackgroundTransferBatches()).find((item) => item.id === batchId);
+    if (!current) return;
+    for (const transfer of pending) {
+      const live = current.transfers.find((item) => item.transferId === transfer.transferId);
+      if (!live || live.status !== "pending" || !live.input.uri) continue;
+      const session = initialized.sessions.find((item) => item.uploadId === transfer.transferId);
+      if (session?.status === "complete") continue;
+      if (!session?.upload) throw new Error("Upload server did not issue the requested transfer capability");
+      const snapshot = await enqueueNativeTransfer({
+        transferId: transfer.transferId,
+        uploadId: transfer.transferId,
+        apiBaseUrl: API_URL,
+        capability: session.upload.capability,
+        sourceUri: live.input.uri,
+        declaredBytes: bytesById.get(transfer.transferId)!,
+        chunkBytes: session.upload.chunkBytes,
+        expiresAt: session.upload.expiresAt,
+        allowMetered: live.input.allowMetered ?? true,
+        createdAt: current.createdAt,
+      });
+      nativeById.set(transfer.transferId, snapshot);
+      await storeNativeSnapshot(batchId, snapshot);
+    }
+    current = (await readBackgroundTransferBatches()).find((item) => item.id === batchId);
+    if (!current) return;
+  }
+}
+
+async function localUploadBytes(uri: string): Promise<number> {
+  if (!uri) throw new Error("The selected file is no longer available");
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists || typeof info.size !== "number" || !Number.isSafeInteger(info.size) || info.size <= 0) {
+    throw new Error("The selected file is no longer available");
+  }
+  return info.size;
 }
 
 async function reconcileOnce(input: {

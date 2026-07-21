@@ -23,7 +23,7 @@ export function githubCommitApiUrl(repository, revision) {
   const parsed = new URL(repository);
   const match = /^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(parsed.pathname);
   if (parsed.protocol !== "https:" || parsed.hostname !== "github.com" || !match) throw new Error("source repository must be a public https://github.com/OWNER/REPOSITORY URL");
-  if (!/^[0-9a-f]{7,40}$/i.test(revision)) throw new Error("source revision must be a 7-40 character Git commit ID");
+  if (!/^[0-9a-f]{40}$/i.test(revision)) throw new Error("source revision must be a complete 40-character Git commit ID");
   return `https://api.github.com/repos/${encodeURIComponent(match[1])}/${encodeURIComponent(match[2])}/commits/${revision}`;
 }
 
@@ -39,7 +39,7 @@ export async function verifyPublicRevision({ repository, revision, fetchImplemen
   });
   if (!response.ok) throw new Error(`source revision is not publicly reachable (GitHub returned ${response.status})`);
   const body = await response.json();
-  if (typeof body?.sha !== "string" || !body.sha.toLowerCase().startsWith(revision.toLowerCase())) {
+  if (typeof body?.sha !== "string" || body.sha.toLowerCase() !== revision.toLowerCase()) {
     throw new Error("public source response does not match the requested revision");
   }
   if (body.sha.length !== 40) throw new Error("public source response did not contain a complete Git commit ID");

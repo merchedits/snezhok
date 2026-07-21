@@ -1,7 +1,7 @@
 import { AppIcon } from "../components/AppIcon";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { ChannelSummary } from "@snezhok/contracts";
@@ -22,14 +22,25 @@ export function ServersScreen() {
   const servers = useAppStore((state) => state.servers);
   const channels = useAppStore((state) => state.channels);
   const refresh = useAppStore((state) => state.refreshBootstrap);
+  const preloadCachedMessages = useAppStore((state) => state.preloadCachedMessages);
   const [selectedId, setSelectedId] = useState<string | null>(servers[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
   const selected = servers.find((server) => server.id === selectedId) ?? servers[0];
   const selectedChannels = useMemo(() => channels.filter((channel) => channel.serverId === selected?.id).sort((a, b) => a.position - b.position), [channels, selected?.id]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void preloadCachedMessages(selectedChannels.filter((channel) => channel.kind === "text").slice(0, 8).map((channel) => channel.id)).catch(() => undefined);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [preloadCachedMessages, selectedChannels]);
+
   const open = (channel: ChannelSummary) => {
     if (channel.kind === "voice") navigation.navigate("Call", { streamId: channel.id, title: channel.name });
-    else navigation.navigate("Chat", { streamId: channel.id, streamKind: "channel", title: channel.name, subtitle: channel.topic });
+    else {
+      void preloadCachedMessages([channel.id]).catch(() => undefined);
+      navigation.navigate("Chat", { streamId: channel.id, streamKind: "channel", title: channel.name, subtitle: channel.topic });
+    }
   };
 
   return (

@@ -52,7 +52,6 @@ export async function callRoutes(app: FastifyInstance) {
       if (!call) {
         await requireGlobalPermission(request.auth.id, "startCalls", client);
         const id = newId(); const livekitRoom = `snezhok-${id}`;
-        await getCallMediaPlane().ensureRoom(livekitRoom);
         await client.query("INSERT INTO call_sessions(id,stream_kind,stream_id,livekit_room,started_by) VALUES ($1,$2,$3,$4,$5)", [id, access.streamKind, streamId, livekitRoom, request.auth.id]);
         const title = await callTitle(access, request.auth.displayName, client);
         const payload = {

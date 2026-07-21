@@ -44,7 +44,7 @@ async function main() {
   const args = new Set(process.argv.slice(2));
   const apply = args.has("--apply");
   const platformRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-  const releasesDirectory = path.resolve(process.env.RELEASES_ROOT ?? path.join(platformRoot, "releases"));
+  const releasesDirectory = path.resolve(process.env.RELEASES_ROOT ?? path.join(platformRoot, "runtime", "releases"));
   if (releasesDirectory === path.parse(releasesDirectory).root) throw new Error("refusing to use a filesystem root as RELEASES_ROOT");
   const keep = Number(process.env.RELEASE_KEEP_COUNT ?? 5);
   const minimumAgeDays = Number(process.env.RELEASE_RETENTION_DAYS ?? 30);

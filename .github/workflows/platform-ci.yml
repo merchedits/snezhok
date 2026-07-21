@@ -8,7 +8,7 @@ on:
       - "THIRD_PARTY_NOTICES.md"
       - ".github/workflows/platform-ci.yml"
   push:
-    branches: [main]
+    branches: [main, "codex/**"]
     paths:
       - "platform/**"
       - "LICENSE"
@@ -100,6 +100,9 @@ jobs:
     name: Production-like Android APK
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      EXPO_PUBLIC_EAS_PROJECT_ID: 00000000-0000-4000-8000-000000000001
+      GOOGLE_SERVICES_JSON: /tmp/snezhok-ci-google-services.json
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -130,6 +133,39 @@ jobs:
             -alias snezhok-ci \
             -keyalg RSA -keysize 3072 -validity 2 \
             -dname "CN=Snezhok CI,OU=CI,O=Snezhok,C=RU"
+      - name: Generate package-matching CI Firebase fixture
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const document = {
+            project_info: {
+              project_number: "123456789012",
+              project_id: "snezhok-ci",
+              storage_bucket: "snezhok-ci.invalid",
+            },
+            client: [{
+              client_info: {
+                mobilesdk_app_id: "1:123456789012:android:0000000000000000000000",
+                android_client_info: { package_name: "xyz.merchedits.snezhok" },
+              },
+              oauth_client: [],
+              api_key: [{ current_key: "ci-not-a-real-api-key" }],
+              services: { appinvite_service: { other_platform_oauth_client: [] } },
+            }],
+            configuration_version: "1",
+          };
+          fs.writeFileSync(process.env.GOOGLE_SERVICES_JSON, JSON.stringify(document));
+          NODE
+      - name: Enforce signing, push and source release inputs
+        env:
+          SNEZHOK_RELEASE_BUILD: "1"
+          SNEZHOK_KEYSTORE_FILE: ${{ runner.temp }}/snezhok-ci-release.jks
+          SNEZHOK_KEYSTORE_PASSWORD: ci-release-password
+          SNEZHOK_KEY_ALIAS: snezhok-ci
+          SNEZHOK_KEY_PASSWORD: ci-release-password
+          SNEZHOK_SOURCE_REVISION: ${{ github.sha }}
+        run: npm run release:verify-production-env
       - name: Generate native project
         env:
           SNEZHOK_RELEASE_BUILD: "1"
@@ -140,6 +176,12 @@ jobs:
           SNEZHOK_SOURCE_REVISION: ${{ github.sha }}
         run: npx expo prebuild --platform android --clean --no-install
         working-directory: platform/apps/mobile
+      - name: Run native transfer tests and compile performance harness
+        run: >-
+          ./gradlew --no-daemon
+          :snezhok-background-transfer:testDebugUnitTest
+          :macrobenchmark:assembleBenchmark
+        working-directory: platform/apps/mobile/android
       - name: Assemble minimized release APK
         env:
           SNEZHOK_RELEASE_BUILD: "1"

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import type { DbClient } from "../../db/pool.js";
 import type { ServerAuthorization } from "./permissions.js";
-import { applyPermissionOverrides, channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayManageMember, permissionsForRole, serverAuthorization, visibleChannelIdsForUser, visibleChannelUserIds } from "./permissions.js";
+import { applyPermissionOverrides, channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayGrantPermissions, mayManageMember, permissionsForRole, serverAuthorization, visibleChannelIdsForUser, visibleChannelUserIds } from "./permissions.js";
 
 const auth = (overrides: Partial<ServerAuthorization>): ServerAuthorization => ({
   serverId: "server", userId: "actor", ownerId: "owner", role: "member",
@@ -35,6 +35,13 @@ test("custom roles can only assign roles below their own highest role", () => {
   assert.equal(mayAssignRole(manager, 50), false);
   assert.equal(mayAssignRole(manager, 51), false);
   assert.equal(mayAssignRole(auth({ role: "owner" }), 10_000), true);
+});
+
+test("delegated role managers cannot grant permissions they do not hold", () => {
+  const manager = auth({ permissions: permissionsForRole("member", ["manage_roles", "manage_messages"]) });
+  assert.equal(mayGrantPermissions(manager, ["manage_roles", "manage_messages"]), true);
+  assert.equal(mayGrantPermissions(manager, ["manage_server"]), false);
+  assert.equal(mayGrantPermissions(auth({ role: "owner", permissions: permissionsForRole("owner") }), ["manage_server", "ban_members"]), true);
 });
 
 test("legacy role assignment follows the same strict hierarchy", () => {

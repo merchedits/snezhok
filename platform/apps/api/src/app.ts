@@ -27,6 +27,7 @@ import { settingsRoutes } from "./modules/settings/routes.js";
 import { uploadRoutes } from "./modules/uploads/routes.js";
 import { userRoutes } from "./modules/users/routes.js";
 import { adminRoutes } from "./modules/admin/routes.js";
+import { realtimeListenerHealthy } from "./modules/realtime/socket.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -85,6 +86,7 @@ export async function buildApp() {
     api.get("/health", async (_request, reply) => {
       try {
         await pool.query("SELECT 1");
+        if (!realtimeListenerHealthy()) return reply.status(503).send({ status: "degraded", component: "realtime-listener", time: Date.now(), revision: config.SOURCE_REVISION });
         return { status: "ready", time: Date.now(), revision: config.SOURCE_REVISION };
       } catch {
         return reply.status(503).send({ status: "unavailable", time: Date.now() });

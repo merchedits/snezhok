@@ -1,3 +1,4 @@
+import type { CallEndReason } from "@snezhok/contracts";
 import { config } from "../../config.js";
 import { pool, transaction, type DbClient } from "../../db/pool.js";
 import { incrementMetric } from "../../lib/metrics.js";
@@ -84,7 +85,7 @@ export async function enqueueParticipantRevocation(
 export async function endActiveCallsForConversation(
   client: DbClient,
   conversationId: string,
-  reason: string,
+  reason: CallEndReason,
 ): Promise<StoredEvent[]> {
   const calls = await client.query<ActiveCallRow>(
     `UPDATE call_sessions SET ended_at=now()
@@ -104,7 +105,7 @@ export async function revokeConversationParticipantMedia(
   client: DbClient,
   conversationId: string,
   userId: string,
-  reason: string,
+  reason: CallEndReason,
 ): Promise<StoredEvent[]> {
   // A disconnected or not-yet-joined identity cannot be reliably revoked by
   // LiveKit's participant API. Ending the shared room is the only fail-closed
@@ -117,7 +118,7 @@ export async function terminateDirectCallsBetween(
   client: DbClient,
   firstUserId: string,
   secondUserId: string,
-  reason: string,
+  reason: CallEndReason,
 ): Promise<StoredEvent[]> {
   const conversations = await client.query<{ id: string }>(
     `SELECT c.id FROM conversations c
@@ -131,7 +132,7 @@ export async function terminateDirectCallsBetween(
   return events;
 }
 
-export async function terminateCallsForUser(client: DbClient, userId: string, reason: string): Promise<StoredEvent[]> {
+export async function terminateCallsForUser(client: DbClient, userId: string, reason: CallEndReason): Promise<StoredEvent[]> {
   const calls = await client.query<ActiveCallRow>(
     `UPDATE call_sessions call SET ended_at=now()
      WHERE call.ended_at IS NULL AND (
@@ -156,7 +157,7 @@ export async function terminateCallsForUser(client: DbClient, userId: string, re
   return events;
 }
 
-export async function terminateServerCalls(client: DbClient, serverId: string, reason: string): Promise<StoredEvent[]> {
+export async function terminateServerCalls(client: DbClient, serverId: string, reason: CallEndReason): Promise<StoredEvent[]> {
   const channels = await client.query<{ id: string }>(
     `SELECT DISTINCT channel.id FROM channels channel JOIN call_sessions call ON call.stream_kind='channel' AND call.stream_id=channel.id
      WHERE channel.server_id=$1 AND call.ended_at IS NULL`,
@@ -165,7 +166,7 @@ export async function terminateServerCalls(client: DbClient, serverId: string, r
   return terminateChannelCalls(client, channels.rows.map((channel) => channel.id), reason);
 }
 
-export async function terminateChannelCalls(client: DbClient, channelIds: string[], reason: string): Promise<StoredEvent[]> {
+export async function terminateChannelCalls(client: DbClient, channelIds: string[], reason: CallEndReason): Promise<StoredEvent[]> {
   if (!channelIds.length) return [];
   const calls = await client.query<ActiveCallRow>(
     `UPDATE call_sessions SET ended_at=now()
@@ -211,7 +212,7 @@ export async function recordParticipantLeft(roomName: string, identity: string):
   await pool.query("UPDATE call_sessions SET last_participant_left_at=now() WHERE livekit_room=$1", [roomName]);
 }
 
-export async function endCallFromRoom(roomName: string, reason = "room-finished"): Promise<void> {
+export async function endCallFromRoom(roomName: string, reason: CallEndReason = "room-finished"): Promise<void> {
   const event = await transaction(async (client) => {
     const call = (await client.query<ActiveCallRow & { ended_at: Date }>(
       `UPDATE call_sessions SET ended_at=now() WHERE livekit_room=$1 AND ended_at IS NULL
@@ -334,7 +335,7 @@ async function participantStillAuthorized(client: DbClient, call: ActiveCallRow,
   }
 }
 
-async function endedEvent(client: DbClient, call: ActiveCallRow, reason: string, endedAt = new Date()): Promise<StoredEvent> {
+async function endedEvent(client: DbClient, call: ActiveCallRow, reason: CallEndReason, endedAt = new Date()): Promise<StoredEvent> {
   const access: StreamAccess = {
     streamId: call.stream_id,
     streamKind: call.stream_kind,

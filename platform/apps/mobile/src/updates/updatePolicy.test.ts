@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { arrayBufferToHex, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy.js";
+import { arrayBufferToHex, blocksApplicationForUpdate, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy.js";
 
 test("release version codes determine update availability", () => {
   assert.equal(isNewerRelease(3, 2), true);
@@ -12,6 +12,14 @@ test("mandatory and minimum version policies are enforced", () => {
   assert.equal(isRequired({ mandatory: false, minimumVersionCode: 2 }, 2), false);
   assert.equal(isRequired({ mandatory: false, minimumVersionCode: 3 }, 2), true);
   assert.equal(isRequired({ mandatory: true, minimumVersionCode: 1 }, 2), true);
+});
+
+test("a required release blocks application interaction until installation", () => {
+  for (const phase of ["available", "downloading", "ready", "error"]) {
+    assert.equal(blocksApplicationForUpdate(true, phase), true);
+  }
+  assert.equal(blocksApplicationForUpdate(false, "available"), false);
+  assert.equal(blocksApplicationForUpdate(true, "checking"), false);
 });
 
 test("binary digests are rendered as lower-case hexadecimal", () => {

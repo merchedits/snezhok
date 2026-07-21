@@ -84,8 +84,9 @@ async function processVoice(job: MediaJob, input: string, directory: string, con
   const primary = path.join(directory, "voice.ogg");
   await ffmpeg(["-y", "-i", input, "-map_metadata", "-1", "-vn", "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "48k", "-application", "voip", primary], context);
   const metadata = await probe(primary, context);
-  const pcm = await ffmpeg(["-v", "error", "-i", primary, "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1"], { ...context, captureStdout: true, maxStdoutBytes: 96 * 1024 * 1024 });
-  return [{ ...variant("primary", "voice-opus", primary, "audio/ogg", null, null, metadata.durationMs), waveform: waveform(pcm, 100) }];
+  const envelope = createWaveformAccumulator(Math.max(1, Math.ceil((metadata.durationMs ?? 1) * 8)), 100);
+  await ffmpeg(["-v", "error", "-i", primary, "-f", "s16le", "-ac", "1", "-ar", "8000", "pipe:1"], { ...context, onStdoutChunk: envelope.push });
+  return [{ ...variant("primary", "voice-opus", primary, "audio/ogg", null, null, metadata.durationMs), waveform: envelope.finish() }];
 }
 
 async function processAudio(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
@@ -122,16 +123,36 @@ function waveform(pcm: Buffer, bins: number) {
   return result;
 }
 
+function createWaveformAccumulator(expectedSamples: number, bins: number) {
+  const peaks = Array<number>(bins).fill(0);
+  let sampleIndex = 0;
+  let remainder: Buffer | null = null;
+  return {
+    push(chunk: Buffer) {
+      const input = remainder ? Buffer.concat([remainder, chunk]) : chunk;
+      const usableBytes = input.length - (input.length % 2);
+      for (let offset = 0; offset < usableBytes; offset += 2) {
+        const bin = Math.min(bins - 1, Math.floor(sampleIndex * bins / expectedSamples));
+        peaks[bin] = Math.max(peaks[bin]!, Math.abs(input.readInt16LE(offset)));
+        sampleIndex += 1;
+      }
+      remainder = usableBytes === input.length ? null : input.subarray(usableBytes);
+    },
+    finish() { return peaks.map((peak) => Math.round(peak / 32767 * 100)); },
+  };
+}
+
 function variant(role: "primary" | "thumbnail", profile: string, file: string, mimeType: string, width: number | null = null, height: number | null = null, durationMs: number | null = null): OutputVariant {
   return { role, profile, path: file, mimeType, width: width ?? null, height: height ?? null, durationMs, waveform: null };
 }
 
-function ffmpeg(args: readonly string[], context: ProcessContext & { captureStdout?: boolean; maxStdoutBytes?: number }) {
+function ffmpeg(args: readonly string[], context: ProcessContext & { captureStdout?: boolean; maxStdoutBytes?: number; onStdoutChunk?: (chunk: Buffer) => void }) {
   return runMediaCommand(config.FFMPEG_PATH, ["-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,pipe", ...args], {
     signal: context.signal, onHeartbeat: context.heartbeat,
     ...(context.captureStdout === undefined ? {} : { captureStdout: context.captureStdout }),
     ...(context.maxStdoutBytes === undefined ? {} : { maxStdoutBytes: context.maxStdoutBytes }),
+    ...(context.onStdoutChunk === undefined ? {} : { onStdoutChunk: context.onStdoutChunk }),
   });
 }
 
-export const internals = { waveform, imageProfiles, videoProfiles };
+export const internals = { waveform, createWaveformAccumulator, imageProfiles, videoProfiles };

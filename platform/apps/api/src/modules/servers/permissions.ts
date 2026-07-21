@@ -236,6 +236,11 @@ export function mayAssignRole(actor: ServerAuthorization, rolePosition: number) 
     || (actor.permissions.has("manage_roles") && rolePosition < actor.highestCustomRolePosition);
 }
 
+/** Prevents delegated role managers from granting privileges they do not hold. */
+export function mayGrantPermissions(actor: ServerAuthorization, permissions: readonly ServerPermission[]) {
+  return permissions.every((permission) => actor.permissions.has(permission));
+}
+
 export function mayAssignLegacyRole(actor: ServerAuthorization, role: Exclude<MemberRole, "owner">) {
   if (actor.role === "owner") return true;
   if (!actor.permissions.has("manage_members")) return false;

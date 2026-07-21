@@ -1,11 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
-import type { BootstrapPayload, Message } from "@snezhok/contracts";
+import type { AppSettings, BootstrapPayload, Message } from "@snezhok/contracts";
 
 import { recordDiagnostic } from "../diagnostics/diagnostics";
 
 import type { CachedState, OutboxEntry } from "../types";
+import { PENDING_UPLOAD_KEY } from "./pendingUpload";
 import {
   cachedStreamDelta,
   clampCachePageSize,
@@ -22,6 +23,7 @@ const LEGACY_CACHE_KEY = "@snezhok/cache/v1";
 const OUTBOX_KEY = "@snezhok/outbox/v1";
 const DRAFTS_KEY = "@snezhok/drafts/v1";
 const DRAFT_DIRTY_KEY = "@snezhok/drafts-dirty/v1";
+const SETTINGS_DIRTY_KEY = "@snezhok/settings-dirty/v1";
 const OWNER_KEY = "@snezhok/offline-owner/v1";
 const MIGRATION_KEY = "async_storage_v2_migrated";
 
@@ -280,6 +282,25 @@ export async function readCachedMessagePage(streamId: string, before?: number, l
   return decodeUniqueMessageRows([...importantRows, ...rows])[streamId] ?? [];
 }
 
+/** Restores several first pages in one SQLite query for idle inbox warmup. */
+export async function readCachedMessagePages(streamIds: readonly string[], limit = 40): Promise<Record<string, Message[]>> {
+  const uniqueIds = [...new Set(streamIds.filter(Boolean))];
+  if (!uniqueIds.length) return {};
+  const db = await database();
+  const placeholders = uniqueIds.map(() => "?").join(", ");
+  const [recentRows, importantRows] = await Promise.all([
+    cachedStartupRows(db, uniqueIds, limit),
+    db.getAllAsync<CachedMessageRow>(
+      `SELECT stream_id, payload FROM cached_messages
+       WHERE important = 1 AND stream_id IN (${placeholders})
+       ORDER BY created_at DESC LIMIT ?`,
+      ...uniqueIds,
+      clampCachePageSize(limit) * uniqueIds.length,
+    ),
+  ]);
+  return decodeUniqueMessageRows([...importantRows, ...recentRows]);
+}
+
 /** Incrementally sync only dirty streams and changed metadata. */
 export async function writeCacheDelta(delta: OfflineCacheDelta): Promise<void> {
   const db = await database();
@@ -330,11 +351,30 @@ export async function writeDirtyDraftIds(ids: Iterable<string>): Promise<void> {
   await AsyncStorage.setItem(DRAFT_DIRTY_KEY, JSON.stringify([...new Set(ids)]));
 }
 
+export async function readPendingSettingsPatch(): Promise<Partial<AppSettings>> {
+  const raw = await AsyncStorage.getItem(SETTINGS_DIRTY_KEY);
+  if (!raw) return {};
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Partial<AppSettings> : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function writePendingSettingsPatch(patch: Partial<AppSettings>): Promise<void> {
+  if (Object.keys(patch).length === 0) {
+    await AsyncStorage.removeItem(SETTINGS_DIRTY_KEY);
+    return;
+  }
+  await AsyncStorage.setItem(SETTINGS_DIRTY_KEY, JSON.stringify(patch));
+}
+
 export async function clearLocalData(): Promise<void> {
   const clearDatabase = database().then((db) => db.withExclusiveTransactionAsync(async (transaction) => {
     await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
   })).catch((error) => recordDiagnostic("warn", "storage", "SQLite cache clear failed", { error }));
-  await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY, OWNER_KEY])]);
+  await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY, SETTINGS_DIRTY_KEY, PENDING_UPLOAD_KEY, OWNER_KEY])]);
 }
 
 /** Serializes account changes so durable data cannot bleed between logins. */
@@ -364,7 +404,7 @@ export function ensureOfflineOwner(ownerId: string): Promise<void> {
       await writeMetadata(transaction, "owner_id", ownerId);
     });
     if (changed || (storageOwner && storageOwner !== ownerId)) {
-      await AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY]);
+      await AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY, SETTINGS_DIRTY_KEY, PENDING_UPLOAD_KEY]);
     }
     await AsyncStorage.setItem(OWNER_KEY, ownerId);
   });

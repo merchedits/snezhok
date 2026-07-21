@@ -316,7 +316,7 @@ export async function markUnread(userId: string, streamId: string, requestedSequ
 async function mutateMessage(
   userId: string,
   messageId: string,
-  mutation: (client: DbClient, row: { sender_id: string; stream_id: string; stream_kind: "conversation" | "channel"; deleted_at: Date | null }, access: Awaited<ReturnType<typeof resolveStreamAccess>>) => Promise<string | null>,
+  mutation: (client: DbClient, row: { sender_id: string; stream_id: string; stream_kind: "conversation" | "channel"; deleted_at: Date | null }, access: Awaited<ReturnType<typeof resolveStreamAccess>>) => Promise<"message:updated" | "message:deleted" | null>,
 ) {
   const result = await transaction(async (client) => {
     const row = (await client.query<{ sender_id: string; stream_id: string; stream_kind: "conversation" | "channel"; deleted_at: Date | null }>("SELECT sender_id,stream_id,stream_kind,deleted_at FROM messages WHERE id=$1 FOR UPDATE", [messageId])).rows[0];
@@ -333,10 +333,10 @@ async function mutateMessage(
     );
     const hiddenIds = new Set(hidden.rows.map((item) => item.user_id));
     const recipients = streamRecipientIds.filter((recipientId) => !hiddenIds.has(recipientId));
-    const payload = eventName === "message:deleted"
-      ? { id: message.id, streamId: message.streamId, deletedAt: message.deletedAt }
-      : (recipientId: string) => personalizeMessage(message, recipientId);
-    return { message, event: await storeEvent(client, recipients, eventName, payload) };
+    if (eventName === "message:deleted") {
+      return { message, event: await storeEvent(client, recipients, eventName, { id: message.id, streamId: message.streamId, deletedAt: message.deletedAt! }) };
+    }
+    return { message, event: await storeEvent(client, recipients, eventName, (recipientId: string) => personalizeMessage(message, recipientId)) };
   });
   if (result.event) publishStoredEvent(result.event);
   return result.message;

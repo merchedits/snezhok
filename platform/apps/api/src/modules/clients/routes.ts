@@ -16,7 +16,19 @@ const releaseManifestSchema = z.object({
   sha256: z.string().regex(/^[a-f0-9]{64}$/i).transform((value) => value.toLowerCase()),
   signingCertificateSha256: z.string().regex(/^[a-f0-9]{64}$/i).transform((value) => value.toLowerCase()),
   publishedAt: z.string().datetime(),
+  sourceRevision: z.string().regex(/^[a-f0-9]{40}$/).transform((value) => value.toLowerCase()),
+  architectures: z.array(z.enum(["arm64-v8a", "armeabi-v7a"])).min(1).max(2)
+    .refine((values) => new Set(values).size === values.length, "Architectures must be unique"),
+  minSdk: z.number().int().min(21),
+  targetSdk: z.number().int().min(21),
   releaseNotes: z.array(z.string().trim().min(1).max(240)).max(20).default([]),
+}).superRefine((value, context) => {
+  if (value.minimumVersionCode > value.versionCode) {
+    context.addIssue({ code: "custom", path: ["minimumVersionCode"], message: "Minimum version cannot exceed the release version" });
+  }
+  if (value.targetSdk < value.minSdk) {
+    context.addIssue({ code: "custom", path: ["targetSdk"], message: "Target SDK cannot be lower than min SDK" });
+  }
 });
 
 type AndroidReleaseManifest = z.infer<typeof releaseManifestSchema>;
@@ -42,6 +54,10 @@ async function androidRelease() {
   if (parsed.data.bytes !== apkInfo.size) throw new AppError(503, "INVALID_RELEASE", "Android release size does not match its manifest");
   cachedRelease = { apkModified: apkInfo.mtimeMs, manifestModified: manifestInfo.mtimeMs, manifest: parsed.data, absolutePath };
   return { ...cachedRelease, info: apkInfo };
+}
+
+export function parseAndroidReleaseManifest(value: unknown): AndroidReleaseManifest {
+  return releaseManifestSchema.parse(value);
 }
 
 export async function clientRoutes(app: FastifyInstance) {

@@ -22,8 +22,15 @@ interface CallContextValue {
   leave: (options?: { endForEveryone?: boolean }) => Promise<void>;
   toggleMute: () => Promise<void>;
   toggleCamera: () => Promise<void>;
-  toggleScreenShare: () => Promise<void>;
+  toggleScreenShare: (options?: ScreenShareQuality) => Promise<void>;
   setSurfaceOpen: (open: boolean) => void;
+}
+
+export interface ScreenShareQuality {
+  width: number;
+  height: number;
+  frameRate: number;
+  contentHint: "motion" | "text";
 }
 
 interface BeforeLogoutDetail {
@@ -230,11 +237,14 @@ export function CallProvider({ children }: PropsWithChildren) {
     updateParticipants(activeRoom);
   }, [cameraEnabled, updateParticipants]);
 
-  const toggleScreenShare = useCallback(async () => {
+  const toggleScreenShare = useCallback(async (options?: ScreenShareQuality) => {
     const activeRoom = roomRef.current;
     if (!activeRoom) return;
     const next = !screenSharing;
-    await activeRoom.localParticipant.setScreenShareEnabled(next, { audio: true });
+    await activeRoom.localParticipant.setScreenShareEnabled(next, next ? {
+      audio: true,
+      ...(options ? { resolution: { width: options.width, height: options.height, frameRate: options.frameRate }, contentHint: options.contentHint } : {}),
+    } : undefined);
     setScreenSharing(next);
     updateParticipants(activeRoom);
   }, [screenSharing, updateParticipants]);

@@ -11,6 +11,9 @@ import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
 
 type InterServerEvents = Record<string, never>;
 interface SocketData { userId: string; }
+let listenerHealthy = false;
+
+export function realtimeListenerHealthy() { return listenerHealthy; }
 
 export async function setupRealtime(server: HttpServer) {
   const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
@@ -77,10 +80,11 @@ export async function setupRealtime(server: HttpServer) {
     }
   });
 
-  const listener = await pool.connect();
-  await listener.query("LISTEN snezhok_events");
-  await listener.query("LISTEN snezhok_admin");
-  listener.on("notification", (notification) => {
+  let stopped = false;
+  let retryAttempt = 0;
+  let reconnectTimer: NodeJS.Timeout | null = null;
+  let activeListener: { close: (graceful: boolean) => void } | null = null;
+  const notification = (notification: { payload?: string | undefined; channel: string }) => {
     if (!notification.payload) return;
     if (notification.channel === "snezhok_admin") {
       io.in(`user:${notification.payload}`).disconnectSockets(true);
@@ -91,9 +95,76 @@ export async function setupRealtime(server: HttpServer) {
         io.to(`user:${delivery.userId}`).emit(delivery.name as keyof ServerToClientEvents, delivery.payload as never);
         io.to(`user:${delivery.userId}`).emit("sync:ready", { cursor: delivery.cursor, serverTime: Date.now() });
       }
-    });
+    }).catch((error) => console.error("Realtime event delivery failed", error));
+  };
+  const scheduleReconnect = () => {
+    if (stopped || reconnectTimer) return;
+    const delay = Math.min(30_000, 250 * (2 ** Math.min(retryAttempt, 7)));
+    retryAttempt += 1;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void connectListener();
+    }, delay);
+    reconnectTimer.unref();
+  };
+  const connectListener = async () => {
+    if (stopped || activeListener) return;
+    let listener;
+    try {
+      listener = await pool.connect();
+    } catch (error) {
+      listenerHealthy = false;
+      console.error("Realtime PostgreSQL listener connection failed", error);
+      scheduleReconnect();
+      return;
+    }
+    let closed = false;
+    const close = (graceful: boolean) => {
+      if (closed) return;
+      closed = true;
+      listenerHealthy = false;
+      listener.removeListener("notification", notification);
+      if (activeListener?.close === close) activeListener = null;
+      if (graceful) {
+        void listener.query("UNLISTEN *").then(() => {
+          listener.removeListener("error", onError);
+          listener.release();
+        }).catch(() => {
+          listener.removeListener("error", onError);
+          listener.release(true);
+        });
+      } else {
+        listener.removeListener("error", onError);
+        listener.release(true);
+      }
+      if (!stopped) scheduleReconnect();
+    };
+    const onError = (error: Error) => {
+      console.error("Realtime PostgreSQL listener lost", error);
+      close(false);
+    };
+    activeListener = { close };
+    listener.once("error", onError);
+    listener.on("notification", notification);
+    try {
+      await listener.query("LISTEN snezhok_events");
+      await listener.query("LISTEN snezhok_admin");
+      listenerHealthy = true;
+      retryAttempt = 0;
+    } catch (error) {
+      console.error("Realtime PostgreSQL LISTEN failed", error);
+      close(false);
+    }
+  };
+  await connectListener();
+  server.once("close", () => {
+    stopped = true;
+    listenerHealthy = false;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    activeListener?.close(true);
+    activeListener = null;
   });
-  server.once("close", () => { void listener.query("UNLISTEN *").finally(() => listener.release()); });
   return io;
 }
 

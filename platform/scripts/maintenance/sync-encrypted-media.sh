@@ -15,11 +15,17 @@ RECIPIENT_FILE="${SNEZHOK_AGE_RECIPIENT_FILE:-${AGE_RECIPIENT_FILE:-/etc/snezhok
 IDENTITY_FILE="${SNEZHOK_AGE_IDENTITY_FILE:-${AGE_IDENTITY_FILE:-/etc/snezhok/backup-age-identity.txt}}"
 LOCK_FILE="${SNEZHOK_MAINTENANCE_LOCK:-${MAINTENANCE_LOCK_ROOT:-/var/lib/snezhok-maintenance}/maintenance.lock}"
 MIRROR_ROOT="$BACKUP_ROOT/media-objects"
+MEDIA_MIRROR_DELETE_GRACE_DAYS="${MEDIA_MIRROR_DELETE_GRACE_DAYS:-52}"
 
 require_absolute_safe_directory "$STACK_DIR" STACK_DIR
 require_absolute_safe_directory "$BACKUP_ROOT" BACKUP_ROOT
 require_absolute_safe_directory "$SOURCE_ROOT" SOURCE_ROOT
-for command in age age-keygen awk df find flock mountpoint realpath sha256sum stat sync tr; do require_command "$command"; done
+[[ "$MEDIA_MIRROR_DELETE_GRACE_DAYS" =~ ^[0-9]+$ ]] || die "MEDIA_MIRROR_DELETE_GRACE_DAYS must be an integer"
+# PostgreSQL bases and WAL are retained for 45 days. Keep removed media for at
+# least one additional weekly base interval so the oldest usable recovery point
+# can never outlive one of its immutable objects.
+(( MEDIA_MIRROR_DELETE_GRACE_DAYS >= 52 )) || die "MEDIA_MIRROR_DELETE_GRACE_DAYS must be at least 52"
+for command in age age-keygen awk date df find flock mountpoint realpath sha256sum stat sync tr; do require_command "$command"; done
 require_matching_age_identity "$RECIPIENT_FILE" "$IDENTITY_FILE"
 mountpoint -q "$BACKUP_ROOT" || { echo "backup root is not a mountpoint" >&2; exit 1; }
 test -d "$SOURCE_ROOT/objects"
@@ -52,6 +58,9 @@ while IFS= read -r -d '' source; do
   relative="${source#"$SOURCE_ROOT/"}"
   destination="$MIRROR_ROOT/$relative.age"
   checksum="$destination.sha256"
+  missing_since="$destination.missing-since"
+  [[ ! -L "$missing_since" ]] || die "media mirror tombstone must not be a symbolic link: $relative"
+  rm -f -- "$missing_since"
   source_hash=$(sha256sum "$source" | awk '{print $1}')
   if [[ -s "$destination" && -s "$checksum" ]]; then
     stored_source=$(awk 'NR==1 {print $1}' "$checksum")
@@ -85,13 +94,33 @@ while IFS= read -r -d '' source; do
   sync -f "$destination" "$checksum" "$(dirname "$destination")"
 done < <(find "$SOURCE_ROOT/objects" -type f -print0)
 
-# Object keys are immutable. Keep removed source objects encrypted for a grace
-# period long enough to cover every retained PITR base and operator mistake.
-touch -d '45 days ago' "$MIRROR_ROOT/.retention-cutoff"
+# The encrypted object's mtime records its first mirror, not when the source was
+# removed. Retention therefore starts from an explicit disappearance tombstone.
+# Using the ciphertext mtime would delete a years-old object immediately after
+# a user removed it even when a fresh PITR base still referenced it.
 while IFS= read -r -d '' archived; do
   relative="${archived#"$MIRROR_ROOT/"}"
   source="$SOURCE_ROOT/${relative%.age}"
-  if [[ ! -e "$source" && "$archived" -ot "$MIRROR_ROOT/.retention-cutoff" ]]; then rm -f "$archived" "$archived.sha256"; fi
+  missing_since="$archived.missing-since"
+  if [[ -e "$source" ]]; then
+    rm -f -- "$missing_since"
+    continue
+  fi
+  [[ ! -L "$missing_since" ]] || die "media mirror tombstone must not be a symbolic link: $relative"
+  if [[ ! -f "$missing_since" ]]; then
+    tombstone_temporary="$missing_since.incomplete"
+    rm -f -- "$tombstone_temporary"
+    printf 'MISSING_SINCE=%s\n' "$(date -u +'%Y%m%dT%H%M%SZ')" >"$tombstone_temporary"
+    chmod 0600 "$tombstone_temporary"
+    sync -f "$tombstone_temporary"
+    mv -f -- "$tombstone_temporary" "$missing_since"
+    sync -f "$missing_since" "$(dirname "$missing_since")"
+    continue
+  fi
+  if find "$missing_since" -maxdepth 0 -mtime "+$MEDIA_MIRROR_DELETE_GRACE_DAYS" -print -quit | grep -q .; then
+    rm -f -- "$archived" "$archived.sha256" "$missing_since"
+    sync -f "$(dirname "$archived")"
+  fi
 done < <(find "$MIRROR_ROOT/objects" -type f -name '*.age' -print0 2>/dev/null)
 touch "$MIRROR_ROOT/.last-success"
 sync -f "$MIRROR_ROOT/.last-success" "$MIRROR_ROOT"

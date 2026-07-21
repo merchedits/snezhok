@@ -8,11 +8,12 @@ For the sideloaded updater, build the production-like `preview` APK with the pro
 
 ```bash
 npm run release:verify-config
+npm run release:verify-production-env
 npm run build:apk --workspace=@snezhok/mobile
 npm run release:verify-apk -- \
   --apk /absolute/path/to/snezhok.apk \
   --manifest /absolute/path/to/android-next.json \
-  --previous-manifest releases/android-current.json
+  --previous-manifest runtime/releases/android-current.json
 ```
 
 Never create a local release from a development `node_modules`. Use a clean
@@ -22,6 +23,10 @@ The EAS `preview` environment must contain the file variables
 password/alias variables, and `EXPO_PUBLIC_EAS_PROJECT_ID`. The production
 environment needs the same values before an AAB build. Missing push or signing
 configuration is a release blocker, not a reason to build a reduced binary.
+`release:verify-production-env` fails closed on all of these protected values,
+requires an exact 40-character source revision, and confirms that the Firebase
+configuration contains the production Android application ID. Run it in the
+same environment that performs the signed build; it never prints secret values.
 
 The artifact gate verifies:
 

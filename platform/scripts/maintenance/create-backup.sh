@@ -47,7 +47,10 @@ final_dir="$BACKUP_ROOT/snezhok-$timestamp"
 [[ ! -e "$final_dir" ]] || die "backup destination already exists: $final_dir"
 incomplete_dir=$(mktemp -d "$BACKUP_ROOT/.incomplete-$timestamp-XXXXXX")
 chmod 0700 "$incomplete_dir"
-snapshot_parent=$(mktemp -d "$PLATFORM_ROOT/data-v3/.backup-snapshot-$timestamp-XXXXXX")
+# Keep the hard-link snapshot on the same filesystem as immutable objects and
+# in a directory owned by the deployment account. The parent data-v3 directory
+# may intentionally be root-owned on production hosts.
+snapshot_parent=$(mktemp -d "$MEDIA_ROOT/.backup-snapshot-$timestamp-XXXXXX")
 chmod 0700 "$snapshot_parent"
 
 services_stopped=false

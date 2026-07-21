@@ -25,18 +25,31 @@ sudo chmod 0644 /etc/snezhok/backup-age-recipient.txt
 
 Copy the private identity to offline encrypted custody and verify that it can decrypt a test artifact. The automated verifier needs a local identity; if a threat model forbids that, disable its timer and perform the weekly verification from a separate recovery host.
 
-Mount the backup target at `/var/backups/snezhok`, owned by `merchedits`, then install the environment and unit templates:
+Mount the backup target at `/var/backups/snezhok`, owned by `merchedits`, then
+install the protected environment and unit templates. The installer requires
+the exact public source revision, installs recovery dependencies, writes the
+environment as root-owned mode `0600`, verifies every unit, and leaves timers
+disabled for inspection unless `--enable` is explicit:
 
 ```bash
-sudo install -m 0644 infra/systemd/snezhok-{backup,restore-verify,retention,monitor,pitr-base,pitr-restore-verify,media-mirror}.{service,timer} /etc/systemd/system/
-sudo install -m 0644 infra/systemd/maintenance.env.example /etc/snezhok/maintenance.env
-sudo chmod 0755 scripts/maintenance/*.sh scripts/livekit/*.sh
-sudo systemctl daemon-reload
-sudo systemd-analyze verify /etc/systemd/system/snezhok-{backup,restore-verify,retention,monitor,pitr-base,pitr-restore-verify,media-mirror}.{service,timer}
-sudo systemctl enable --now snezhok-backup.timer snezhok-restore-verify.timer snezhok-retention.timer snezhok-monitor.timer snezhok-pitr-base.timer snezhok-pitr-restore-verify.timer snezhok-media-mirror.timer
+sudo SNEZHOK_SOURCE_REVISION="$SOURCE_REVISION" \
+  bash scripts/deploy/install-maintenance.sh "$SOURCE_REVISION"
+sudoedit /etc/snezhok/maintenance.env
+sudo SNEZHOK_SOURCE_REVISION="$SOURCE_REVISION" \
+  bash scripts/deploy/install-maintenance.sh "$SOURCE_REVISION" --enable
 ```
 
-Adjust paths in copied unit files if the checkout or backup mount differs. `RequiresMountsFor` plus the script's explicit mountpoint check prevents silently writing backups to the underlying system disk when a backup mount is absent. Systemd creates `/var/lib/snezhok-maintenance` as the shared persistent lock directory, so concurrent backup, restore-verification, and retention jobs cannot race on a first install.
+Set `SNEZHOK_ALERT_WEBHOOK_URL` to an operator-controlled receiver before
+enabling timers. A webhook URL can contain a credential and must never be put in
+a world-readable environment file. Re-run the installer with the new exact
+revision on every deployment. Adjust the unit templates first if the checkout
+path differs from `/home/merchedits/sites/snezhok-v3/platform`.
+
+`RequiresMountsFor` plus the scripts' explicit mountpoint check prevents
+silently writing backups to the underlying system disk when a backup mount is
+absent. Systemd creates `/var/lib/snezhok-maintenance` as the shared persistent
+lock directory, so concurrent backup, restore-verification, mirror, and
+retention jobs cannot race on a first install.
 
 ## Backup safety model
 
@@ -73,8 +86,11 @@ boundary, authenticates every archived file required after the selected base,
 performs an isolated networkless recovery through that target LSN, promotes the
 database, checks tables/indexes, and erases plaintext before publishing its
 marker. `snezhok-media-mirror.timer` independently encrypts every immutable
-media object to the recovery disk within ten minutes. Encrypted bases, WAL, and
-removed media objects are retained for 45 days. This reduces the practical RPO
+media object to the recovery disk within ten minutes. Encrypted bases and WAL
+are retained for 45 days. Removed media is retained for at least 52 days
+starting when disappearance is first observed, not from the object's original
+mirror timestamp. The extra weekly interval prevents the oldest retained
+database recovery point from outliving one of its immutable objects. This reduces the practical RPO
 to approximately ten minutes when the recovery disk is healthy.
 
 For PITR, copy the selected encrypted base and WAL range to an isolated recovery
@@ -107,14 +123,21 @@ The repository intentionally does not include a one-command destructive producti
 - immutable objects older than seven days whose exact storage key has no `blobs` row;
 - temporary uploads older than two days that are not a live, unexpired upload session.
 
-Unexpected paths and symbolic layouts are skipped. `prune-releases.mjs` preserves `snezhok-current.apk`, its manifest's version, the five newest versioned APK/manifest pairs, and every artifact newer than 30 days. Incomplete pairs are retained for manual inspection.
+Unexpected paths and symbolic layouts are skipped. Backup retention always
+protects the newest 14 complete daily points and every protected restore-proven
+point. Once two restore drills exist, older unverified complete points are
+bounded after 35 days and interrupted `.incomplete-*` directories after seven
+days. The monitor alerts before either backlog exceeds its cleanup window.
+`prune-releases.mjs` preserves `snezhok-current.apk`, its manifest's version,
+the five newest versioned APK/manifest pairs, and every artifact newer than 30
+days. Incomplete release pairs are retained for manual inspection.
 
 Run both without `--apply` after every schema or storage-layout change. Alert on timer failure with the host's existing monitoring; systemd logs alone are not an alerting system.
 
 ## External health alerting
 
 `snezhok-monitor.timer` checks API/database readiness, all writer containers,
-LiveKit signaling, public ICE/TURN listeners, application-disk pressure, the
+LiveKit signaling through the local TLS ingress, application-disk pressure, the
 off-host backup mount, and the age of the newest restore-verified recovery
 point. Production acceptance also requires an off-host encrypted recovery copy,
 an offline age identity, and a test alert delivered independently of this host.
@@ -123,6 +146,49 @@ to deliver failures to an operator-controlled alert receiver. The check writes
 only a compact non-secret status to `/var/lib/snezhok-maintenance`; it never
 includes credentials, message content, account identifiers, or request logs.
 
+The production host deliberately does not run the public ICE/TURN probe by
+default: a home router without NAT hairpin would turn a healthy deployment into
+a permanent false alarm. Run this from an independent network and schedule it
+there with the same private alert receiver:
+
+```bash
+SNEZHOK_ALERT_WEBHOOK_URL="$ALERT_WEBHOOK" \
+  bash scripts/monitoring/external-connectivity.sh --timeout 8
+```
+
 The public listener smoke test cannot prove authenticated TURN allocation or
 media flow. Keep the documented two-device, different-network and UDP-blocked
 call acceptance run as a release gate.
+
+## Optional off-host encrypted replication
+
+The dedicated recovery disk protects against application-disk failure but not
+theft, fire, administrator error, or complete host compromise. Configure an
+independent rclone destination outside the repository, keep its credentials in
+`/etc/snezhok/rclone.conf` as `merchedits`-owned mode `0600`, and test it manually:
+
+```bash
+# install-maintenance.sh installs rclone; configure its private credential file.
+sudo -u merchedits env \
+  SNEZHOK_OFFSITE_REMOTE='private-remote:snezhok-production' \
+  SNEZHOK_RCLONE_CONFIG=/etc/snezhok/rclone.conf \
+  bash scripts/maintenance/replicate-encrypted-backups.sh
+```
+
+The replicator includes encrypted payloads, fixed checksums/manifests, atomic
+completion markers, and the small restore-verification markers. Immutable data
+is copied with overwrite protection and checked before each daily completion
+marker is published; mutable verification evidence is updated in a separate
+bounded pass. Disappearance tombstones remain host-side. It runs `rclone check`
+before publishing a local freshness marker. It never deletes remote recovery
+data. After the real remote has passed a recovery-host download
+and decrypt test, put `SNEZHOK_OFFSITE_REMOTE` in the protected maintenance
+environment, set `SNEZHOK_REQUIRE_OFFSITE_BACKUP=1`, and enable the optional
+timer:
+
+```bash
+sudo systemctl enable --now snezhok-offsite-backup.timer
+```
+
+The installer deliberately never enables this timer: an empty or untested
+remote is a release blocker, not a placeholder that can be treated as backup.

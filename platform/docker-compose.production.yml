@@ -150,7 +150,7 @@ services:
       ANDROID_RELEASE_MANIFEST_PATH: /app/releases/android-current.json
     volumes:
       - ./data-v3/storage:/app/data
-      - ./releases:/app/releases:ro
+      - ./runtime/releases:/app/releases:ro
     ports:
       - 127.0.0.1:3003:3000
     extra_hosts:
@@ -233,6 +233,7 @@ services:
   livekit:
     image: livekit/livekit-server:v1.13.3@sha256:483b8b7b5b0654f91f1e8bdc7b46fcd37fd9911612ecf627f97e3185a89825bd
     restart: unless-stopped
+    user: "65532:65532"
     network_mode: host
     command: ["--config", "/etc/livekit.yaml"]
     environment:
@@ -240,11 +241,22 @@ services:
       LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}
     volumes:
       - ./infra/livekit.yaml:/etc/livekit.yaml:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
     mem_limit: 512m
     cpus: 2.0
     stop_grace_period: 60s
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7880/"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     logging: *default-logging
 
 volumes:

@@ -25,6 +25,16 @@ test("waveform produces stable normalized bins", () => {
   assert.deepEqual(result, [100, 100, 0, 0]);
 });
 
+test("streaming waveform is chunk-boundary safe and uses constant memory", () => {
+  const pcm = Buffer.alloc(400);
+  for (let index = 0; index < 200; index += 1) pcm.writeInt16LE(index < 100 ? 32767 : 0, index * 2);
+  const accumulator = internals.createWaveformAccumulator(200, 4);
+  accumulator.push(pcm.subarray(0, 37));
+  accumulator.push(pcm.subarray(37, 211));
+  accumulator.push(pcm.subarray(211));
+  assert.deepEqual(accumulator.finish(), [100, 100, 0, 0]);
+});
+
 test("image processing auto-orients and emits metadata-free primary and thumbnail variants", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "snezhok-media-test-"));
   try {

@@ -14,6 +14,9 @@ export const pool = new Pool({
   max: config.DATABASE_POOL_MAX,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
+  statement_timeout: config.DATABASE_STATEMENT_TIMEOUT_MS,
+  query_timeout: config.DATABASE_QUERY_TIMEOUT_MS,
+  idle_in_transaction_session_timeout: config.DATABASE_IDLE_TRANSACTION_TIMEOUT_MS,
   application_name: "snezhok-api",
 });
 

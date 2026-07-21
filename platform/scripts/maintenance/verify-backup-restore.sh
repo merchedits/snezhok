@@ -117,6 +117,8 @@ if [[ -s "$temporary_dir/missing-media" ]]; then
 fi
 
 if docker exec "$container" sh -c 'command -v pg_amcheck >/dev/null'; then
+  docker exec "$container" psql --username=postgres --dbname=snezhok_verify \
+    --command="CREATE EXTENSION IF NOT EXISTS amcheck;" >/dev/null
   docker exec "$container" pg_amcheck --username=postgres --database=snezhok_verify >/dev/null
 fi
 

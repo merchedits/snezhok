@@ -67,6 +67,7 @@ function validTransfer(value: unknown): boolean {
   return typeof transfer.transferId === "string" && Number.isInteger(transfer.position)
     && transferStatuses.includes(transfer.status) && Number.isFinite(transfer.progress)
     && transfer.progress >= 0 && transfer.progress <= 100
+    && (transfer.declaredBytes === undefined || transfer.declaredBytes === null || (Number.isSafeInteger(transfer.declaredBytes) && transfer.declaredBytes > 0))
     && transfer.input && typeof transfer.input === "object" && typeof transfer.input.uri === "string"
     && typeof transfer.input.filename === "string" && typeof transfer.input.mimeType === "string";
 }

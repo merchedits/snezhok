@@ -45,7 +45,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       for (const userId of participantIds) await client.query("INSERT INTO conversation_members(conversation_id,user_id,role) VALUES ($1,$2,$3)", [id, userId, userId === request.auth.id ? "owner" : "member"]);
       const summaries = new Map<string, Awaited<ReturnType<typeof conversationSummary>>>();
       for (const participantId of participantIds) summaries.set(participantId, await conversationSummary(participantId, id, client));
-      const event = await storeEvent(client, participantIds, "conversation:updated", (recipientId: string) => summaries.get(recipientId));
+      const event = await storeEvent(client, participantIds, "conversation:updated", (recipientId: string) => summaries.get(recipientId)!);
       return { id, created: true, event };
     });
     if (creation.event) publishStoredEvent(creation.event);
@@ -71,7 +71,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       const participants = (await client.query<{ user_id: string }>("SELECT user_id FROM conversation_members WHERE conversation_id=$1", [id])).rows.map((row) => row.user_id);
       const summaries = new Map<string, Awaited<ReturnType<typeof conversationSummary>>>();
       for (const participantId of participants) summaries.set(participantId, await conversationSummary(participantId, id, client));
-      const event = await storeEvent(client, participants, "conversation:updated", (recipient: string) => summaries.get(recipient));
+      const event = await storeEvent(client, participants, "conversation:updated", (recipient: string) => summaries.get(recipient)!);
       return { summary: summaries.get(request.auth.id)!, event };
     });
     publishStoredEvent(result.event); return { conversation: result.summary };
@@ -107,7 +107,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       if (!inserted.rowCount) throw conflict("User is already a group member");
       const recipients = await groupRecipientIds(id, client);
       const summaries = await groupSummaryEvents(id, recipients, client);
-      return { summary: summaries.get(request.auth.id)!, event: await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)) };
+      return { summary: summaries.get(request.auth.id)!, event: await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)!) };
     });
     publishStoredEvent(result.event);
     return reply.status(201).send({ conversation: result.summary });
@@ -122,7 +122,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       if (actorRole !== "owner" && (targetRole === "admin" || role === "admin")) throw forbidden("Only the group owner can manage administrators");
       await client.query("UPDATE conversation_members SET role=$3 WHERE conversation_id=$1 AND user_id=$2 AND role<>'owner'", [id, userId, role]);
       const recipients = await groupRecipientIds(id, client); const summaries = await groupSummaryEvents(id, recipients, client);
-      return { event: await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)) };
+      return { event: await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)!) };
     });
     publishStoredEvent(result.event); return { success: true };
   });
@@ -141,7 +141,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       return { events: [
         ...callEvents,
         await storeEvent(client, [userId], "conversation:removed", { id }),
-        ...(recipients.length ? [await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient))] : []),
+        ...(recipients.length ? [await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)!)] : []),
       ] };
     });
     result.events.forEach(publishStoredEvent); requestCallMediaDrain(app.log); return { success: true };
@@ -157,7 +157,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       await client.query("UPDATE conversations SET owner_id=$2,updated_at=now() WHERE id=$1", [id, userId]);
       await client.query("UPDATE conversation_members SET role=CASE WHEN user_id=$2 THEN 'owner' ELSE 'admin' END WHERE conversation_id=$1 AND user_id=ANY($3::uuid[])", [id, userId, [request.auth.id, userId]]);
       const recipients = await groupRecipientIds(id, client); const summaries = await groupSummaryEvents(id, recipients, client);
-      return { event: await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)) };
+      return { event: await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)!) };
     });
     publishStoredEvent(result.event); return { success: true };
   });
@@ -208,7 +208,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         const recipients = await groupRecipientIds(id, client);
         if (recipients.length) {
           const summaries = await groupSummaryEvents(id, recipients, client);
-          events.push(await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)));
+          events.push(await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient)!));
         }
       }
       return events;

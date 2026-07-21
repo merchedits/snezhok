@@ -9,6 +9,7 @@ import type {
   AuthResponse,
   AndroidReleaseManifest,
   AuthTokens,
+  BackgroundMessageGroupInitResponse,
   CallJoinResponse,
   ChatFolder,
   MessageCreateInput,
@@ -23,6 +24,7 @@ import type {
 import { recordDiagnostic, recordPerformance } from "../diagnostics/diagnostics";
 import type { DiagnosticReport } from "../diagnostics/diagnostics";
 import { ApiError } from "./apiError";
+import { closeRemoteDeviceSession } from "./sessionClosure";
 import { clearPendingUpload, rememberPendingUpload, reusablePendingUpload } from "./pendingUpload";
 import { clearSessionIfCurrent, getRuntimeSession, getSessionGeneration, readSession, sessionOwnerId, writeSessionIfCurrent } from "./secureSession";
 import {
@@ -296,6 +298,38 @@ class ApiClient {
     return { initialized: await this.initializeUpload(input, info.size), bytes: info.size };
   }
 
+  initializeBackgroundMessageGroup(input: {
+    streamId: string;
+    clientId: string;
+    kind: "media" | "file" | "voice" | "video-note";
+    replyToId: string | null;
+    silent: boolean;
+    capabilityUploadIds: string[];
+    uploads: Array<{ uploadId: string; input: UploadInput; bytes: number }>;
+  }): Promise<BackgroundMessageGroupInitResponse> {
+    return this.request<BackgroundMessageGroupInitResponse>("/uploads/message-group", {
+      method: "POST",
+      body: {
+        streamId: input.streamId,
+        clientId: input.clientId,
+        kind: input.kind,
+        replyToId: input.replyToId,
+        silent: input.silent,
+        capabilityUploadIds: input.capabilityUploadIds,
+        uploads: input.uploads.map(({ uploadId, input: upload, bytes }) => ({
+          uploadId,
+          filename: upload.filename,
+          mimeType: upload.mimeType,
+          bytes,
+          quality: upload.quality,
+          kind: upload.kind,
+          stripLocation: upload.stripLocation ?? true,
+          purpose: upload.purpose ?? "standard",
+        })),
+      },
+    });
+  }
+
   cancelInitializedUpload(uploadId: string): Promise<void> {
     return this.request(`/uploads/${encodeURIComponent(uploadId)}`, { method: "DELETE" }).then(() => undefined);
   }
@@ -317,8 +351,10 @@ class ApiClient {
       const info = await FileSystem.getInfoAsync(input.uri);
       if (!info.exists || typeof info.size !== "number") throw new Error("The selected file is no longer available");
       validateUploadSource(input.filename, info.size);
+      const ownerId = sessionOwnerId(await readSession());
+      if (!ownerId) throw new Error("Your session has expired");
 
-      let pending = await reusablePendingUpload(input, info.size);
+      let pending = await reusablePendingUpload(input, info.size, ownerId);
       let offset = 0;
       if (pending) {
         active.uploadId = pending.uploadId;
@@ -333,7 +369,7 @@ class ApiClient {
       if (!pending) {
         const initialized = await this.initializeUpload(input, info.size);
         active.uploadId = initialized.uploadId;
-        pending = await rememberPendingUpload(input, info.size, initialized);
+        pending = await rememberPendingUpload(input, info.size, initialized, ownerId);
         offset = initialized.upload.offset;
       }
 
@@ -519,6 +555,15 @@ class ApiClient {
 
   unregisterPushDevice(installationId: string): Promise<void> {
     return this.request(`/notifications/devices/${encodeURIComponent(installationId)}`, { method: "DELETE" });
+  }
+
+  /**
+   * Closes the current device remotely with a captured access token. It does
+   * not read or mutate local session state, so callers can clear the device
+   * immediately while this best-effort cleanup continues in the background.
+   */
+  async closeDeviceSession(accessToken: string, installationId?: string | null): Promise<void> {
+    await closeRemoteDeviceSession(API_URL, accessToken, installationId, (url, init) => fetchBounded(url, init));
   }
 
   diagnosticHealth(): Promise<DiagnosticHealth> {

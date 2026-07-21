@@ -18,7 +18,7 @@ import { usePalette } from "../hooks/usePalette";
 import { useUiPreferences } from "../hooks/useUiPreferences";
 import { prefetchAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
-import { recentMediaPreviewUris } from "../lib/chatWarmup";
+import { recentMediaPreviewUris, uncachedWarmStreamIds } from "../lib/chatWarmup";
 import { visibleConversationSummaries } from "../lib/conversationList";
 import { directPeer, startsRegularConversationSection } from "../store/conversationIdentity";
 import { useAppStore } from "../store/useAppStore";
@@ -49,6 +49,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const setFolderMembership = useAppStore((state) => state.setFolderMembership);
   const setConversationPreference = useAppStore((state) => state.setConversationPreference);
   const markStreamUnread = useAppStore((state) => state.markStreamUnread);
+  const preloadCachedMessages = useAppStore((state) => state.preloadCachedMessages);
   const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
@@ -58,20 +59,20 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const [globalSearch, setGlobalSearch] = useState(false);
   const foregroundActive = active && screenFocused;
   const rowHeight = ui.dense(72, 62);
-  const warmConversationKey = useMemo(() => conversations.slice(0, 6).map((conversation) => conversation.id).join(","), [conversations]);
+  const warmConversationKey = useMemo(() => conversations.slice(0, 12).map((conversation) => conversation.id).join(","), [conversations]);
 
   useEffect(() => {
     if (!foregroundActive || !warmConversationKey) return;
     const timer = setTimeout(() => {
       const streamIds = warmConversationKey.split(",").filter(Boolean);
-      // Message rows are restored from SQLite during application startup.
-      // Warm only already-cached thumbnails here: fetching and reconciling six
-      // chats behind a tap can steal the JS thread from the native transition.
-      const previews = recentMediaPreviewUris(useAppStore.getState().messages, streamIds, 6);
-      void prefetchAuthorizedMedia(previews).catch(() => false);
-    }, 1_200);
+      const missing = uncachedWarmStreamIds(streamIds, useAppStore.getState().messages, 12);
+      void preloadCachedMessages(missing).catch(() => undefined).then(() => {
+        const previews = recentMediaPreviewUris(useAppStore.getState().messages, streamIds, 6);
+        return prefetchAuthorizedMedia(previews).catch(() => false);
+      });
+    }, 350);
     return () => clearTimeout(timer);
-  }, [foregroundActive, warmConversationKey]);
+  }, [foregroundActive, preloadCachedMessages, warmConversationKey]);
 
   const filtered = useMemo(() => {
     const folder = folders.find((item) => item.id === filter);
@@ -94,8 +95,9 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   }), [language]);
 
   const openConversation = useCallback((conversation: ConversationSummary) => {
+    void preloadCachedMessages([conversation.id]).catch(() => undefined);
     navigation.navigate("Chat", chatParams(conversation, performance.now()));
-  }, [chatParams, navigation]);
+  }, [chatParams, navigation, preloadCachedMessages]);
   const selectConversation = useCallback((conversation: ConversationSummary) => {
     if (conversation.saved) return;
     setSelectedConversation(conversation);

@@ -4,7 +4,7 @@ import * as Application from "expo-application";
 import { File, Paths } from "expo-file-system";
 import * as IntentLauncher from "expo-intent-launcher";
 import type { ReactNode } from "react";
-import { AppState, Platform, View } from "react-native";
+import { AppState, BackHandler, Platform, View } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AndroidReleaseManifest } from "../types";
@@ -12,7 +12,7 @@ import { api, resolveApiResource } from "../lib/api";
 import { userFacingError } from "../lib/userFacingError";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
-import { isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
+import { blocksApplicationForUpdate, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
 import { sha256UpdateFile } from "./nativeUpdateIntegrity";
 
 const AUTO_UPDATE_KEY = "snezhok.android.auto-update.v1";
@@ -213,11 +213,25 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     downloadAndInstall,
     openInstaller,
   }), [autoUpdate, checkForUpdate, currentVersion, currentVersionCode, downloadAndInstall, openInstaller, setAutoUpdate, state]);
+  const applicationBlocked = blocksApplicationForUpdate(state.required, state.phase);
+
+  useEffect(() => {
+    if (!applicationBlocked || Platform.OS !== "android") return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => subscription.remove();
+  }, [applicationBlocked]);
 
   return (
     <UpdateContext.Provider value={value}>
       <View style={{ flex: 1 }}>
-        {children}
+        <View
+          style={{ flex: 1 }}
+          pointerEvents={applicationBlocked ? "none" : "auto"}
+          accessibilityElementsHidden={applicationBlocked}
+          importantForAccessibility={applicationBlocked ? "no-hide-descendants" : "auto"}
+        >
+          {children}
+        </View>
         <UpdateBanner />
       </View>
     </UpdateContext.Provider>

@@ -51,7 +51,7 @@ export function startPushDeliveryWorker(log: WorkerLog): () => void {
   let stopped = false;
   let active = false;
   let ticks = 0;
-  void recoverAbandonedClaims();
+  void recoverAbandonedClaims().catch((error) => log.error({ error }, "push claim recovery failed; worker poll will retry"));
 
   const poll = async () => {
     if (stopped || active) return;

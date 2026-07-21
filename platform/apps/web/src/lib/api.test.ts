@@ -48,6 +48,31 @@ describe("API boundary", () => {
     expect(fetchMock.mock.calls.at(-1)?.[0]).toMatch(/\/complete$/);
   });
 
+  it("declares recording purpose before the media worker can claim an upload", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ uploadId: id, upload: { id, offset: 0, chunkBytes: 1024, expiresAt: Date.now() + 60_000 } }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse({ attachment: { id, filename: "voice.webm" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.upload({ file: new File(["voice"], "voice.webm", { type: "audio/webm" }), kind: "audio", purpose: "voice", quality: "original", stripLocation: true });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ purpose: "voice", kind: "audio" });
+  });
+
+  it("maps server creation and sends supported search scopes", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ server: { id, name: "Snow" }, channel: { id } }))
+      .mockResolvedValueOnce(jsonResponse({ users: [], messages: [], files: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.createServer("Snow")).resolves.toMatchObject({ channelId: id });
+    await api.search("report", { scope: "files" });
+
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("scope=files");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("kind=");
+  });
+
   it("uses live account, unblock, and server-member management routes", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ success: true }))

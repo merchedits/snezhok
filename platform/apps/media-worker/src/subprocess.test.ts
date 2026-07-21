@@ -48,3 +48,14 @@ test("heartbeats never overlap for a slow database response", async () => {
   assert.ok(calls >= 2);
   assert.equal(maximumConcurrent, 1);
 });
+
+test("stdout can be consumed incrementally without the capture buffer limit", async () => {
+  let bytes = 0;
+  const result = await runMediaCommand(process.execPath, ["-e", "process.stdout.write(Buffer.alloc(256 * 1024))"], {
+    signal: new AbortController().signal,
+    maxStdoutBytes: 1,
+    onStdoutChunk: (chunk) => { bytes += chunk.length; },
+  });
+  assert.equal(result.length, 0);
+  assert.equal(bytes, 256 * 1024);
+});

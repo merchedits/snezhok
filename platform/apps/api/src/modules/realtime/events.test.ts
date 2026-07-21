@@ -16,17 +16,36 @@ test("push-eligible events enter the durable outbox in the same event transactio
   const fakeClient = {
     query: (async (sql: string, params: unknown[] = []) => {
       statements.push({ sql, params });
-      if (sql.includes("INSERT INTO user_events")) return { rows: [{ cursor: "7" }] };
+      if (sql.includes("INSERT INTO user_events")) return { rows: [{ user_id: userId, cursor: "7" }] };
       return { rows: [] };
     }) as DbClient["query"],
   } as Pick<DbClient, "query"> as DbClient;
-  const event = await storeEvent(fakeClient, [userId], "message:created", (recipientId: string) => ({ recipientId, text: "hello" }));
+  const event = await storeEvent(fakeClient, [userId], "message:created", ((recipientId: string) => ({ recipientId, text: "hello" })) as never);
   assert.equal(event.cursors[userId], 7);
   const outbox = statements.find((statement) => statement.sql.includes("INSERT INTO push_delivery_outbox"));
   assert.ok(outbox, "provider delivery must be committed alongside its user event");
-  assert.deepEqual(outbox.params.slice(0, 3), [userId, event.id, "message:created"]);
-  assert.deepEqual(outbox.params[3], { recipientId: userId, text: "hello" });
+  assert.equal(outbox.params[0], event.id);
+  assert.deepEqual(JSON.parse(String(outbox.params[1])), [{ user_id: userId, payload: { recipientId: userId, text: "hello" } }]);
+  assert.deepEqual(outbox.params.slice(2), ["message:created", true]);
   assert.ok(statements.at(-1)?.sql.includes("pg_notify"), "NOTIFY remains a post-storage realtime hint");
+});
+
+test("event fanout stores recipient-specific payloads in one set-based statement", async () => {
+  const db = new PGlite();
+  try {
+    await applyMigrations(db);
+    await db.query("INSERT INTO users(id,username,display_name) VALUES ($1,'fanout_one','One'),($2,'fanout_two','Two')", [userId, staleUserId]);
+    let fanoutStatements = 0;
+    const client = countingClient(db, (sql) => { if (sql.includes("INSERT INTO user_events")) fanoutStatements += 1; }) as DbClient;
+    const stored = await storeEvent(client, [userId, staleUserId, userId], "message:created", ((recipientId: string) => ({ visibleTo: recipientId })) as never);
+    const delivered = await db.query<{ user_id: string; payload: { visibleTo: string } }>("SELECT user_id,payload FROM user_events WHERE event_id=$1 ORDER BY user_id", [stored.id]);
+    const queued = await db.query<{ count: number }>("SELECT count(*)::integer count FROM push_delivery_outbox WHERE event_id=$1", [stored.id]);
+    assert.equal(fanoutStatements, 1);
+    assert.deepEqual(delivered.rows.map((row) => [row.user_id, row.payload.visibleTo]), [[userId, userId], [staleUserId, staleUserId]]);
+    assert.equal(queued.rows[0]?.count, 2);
+  } finally {
+    await db.close();
+  }
 });
 
 test("realtime replay drains more than 500 events in ordered bounded pages without gaps", async () => {

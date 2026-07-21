@@ -1,3 +1,4 @@
+import type { ServerToClientEvents } from "@snezhok/contracts";
 import type { DbClient } from "../../db/pool.js";
 import { pool } from "../../db/pool.js";
 import { newId } from "../../lib/ids.js";
@@ -9,7 +10,9 @@ export interface StoredEvent {
   recipients: string[];
   cursors: Record<string, number>;
 }
-export type RecipientPayload = unknown | ((recipientId: string) => unknown);
+export type EventName = keyof ServerToClientEvents;
+export type EventPayload<Name extends EventName> = Parameters<ServerToClientEvents[Name]>[0];
+export type RecipientPayload<Name extends EventName> = EventPayload<Name> | ((recipientId: string) => EventPayload<Name>);
 export interface ReplayEvent { cursor: number; name: string; payload: unknown; }
 export interface ReplayResult { accepted: boolean; cursor: number; eventCount: number; reason?: "retention-gap" | "cursor-ahead" | "backlog-too-large"; }
 
@@ -20,28 +23,32 @@ const DEFAULT_MAX_REPLAY_EVENTS = 10_000;
 // is triggered by PostgreSQL NOTIFY when the surrounding transaction commits.
 export function publishStoredEvent(_event: StoredEvent) {}
 
-export async function storeEvent(client: DbClient, recipients: string[], name: string, payload: RecipientPayload): Promise<StoredEvent> {
+export async function storeEvent<Name extends EventName>(client: DbClient, recipients: string[], name: Name, payload: RecipientPayload<Name>): Promise<StoredEvent> {
   const uniqueRecipients = [...new Set(recipients)];
   const event: StoredEvent = { id: newId(), name, payload: typeof payload === "function" ? null : payload, recipients: uniqueRecipients, cursors: {} };
   await client.query("INSERT INTO events(id,name,payload) VALUES ($1,$2,$3)", [event.id, event.name, event.payload ?? {}]);
   if (uniqueRecipients.length) {
-    for (const recipientId of uniqueRecipients) {
-      const recipientPayload = typeof payload === "function" ? payload(recipientId) : payload;
-      const inserted = await client.query<{ cursor: string }>(
-        "INSERT INTO user_events(user_id,event_id,payload) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING cursor::text",
-        [recipientId, event.id, recipientPayload],
-      );
-      if (inserted.rows[0]) {
-        event.cursors[recipientId] = Number(inserted.rows[0].cursor);
-        if (event.name === "message:created" || event.name === "call:updated") {
-          await client.query(
-            `INSERT INTO push_delivery_outbox(user_id,event_id,event_name,payload)
-             VALUES ($1,$2,$3,$4) ON CONFLICT(user_id,event_id) DO NOTHING`,
-            [recipientId, event.id, event.name, recipientPayload],
-          );
-        }
-      }
-    }
+    const deliveries = uniqueRecipients.map((userId) => {
+      const recipientPayload = typeof payload === "function" ? payload(userId) : payload;
+      if (recipientPayload === undefined) throw new Error(`Event ${name} has no payload for recipient ${userId}`);
+      return { user_id: userId, payload: recipientPayload };
+    });
+    const inserted = await client.query<{ user_id: string; cursor: string }>(
+      `WITH inserted AS (
+         INSERT INTO user_events(user_id,event_id,payload)
+         SELECT delivery.user_id,$1,delivery.payload
+         FROM jsonb_to_recordset($2::jsonb) AS delivery(user_id uuid,payload jsonb)
+         ON CONFLICT DO NOTHING
+         RETURNING user_id,event_id,payload,cursor
+       ), queued AS (
+         INSERT INTO push_delivery_outbox(user_id,event_id,event_name,payload)
+         SELECT user_id,event_id,$3,payload FROM inserted WHERE $4::boolean
+         ON CONFLICT(user_id,event_id) DO NOTHING
+       )
+       SELECT user_id::text,cursor::text FROM inserted`,
+      [event.id, JSON.stringify(deliveries), event.name, event.name === "message:created" || event.name === "call:updated"],
+    );
+    for (const row of inserted.rows) event.cursors[row.user_id] = Number(row.cursor);
   }
   await client.query("SELECT pg_notify('snezhok_events',$1)", [event.id]);
   return event;

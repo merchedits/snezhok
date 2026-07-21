@@ -8,6 +8,7 @@ import { receiveCallUpdate } from "../calls/callSessionBridge";
 import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { API_URL } from "../lib/api";
 import { readSession } from "../lib/secureSession";
+import { bindBootstrapInvalidations } from "../lib/realtimeInvalidation";
 import { bindRealtimeSocket, receiveRealtimeTyping, rejoinRequestedStreams } from "../lib/realtimeBridge";
 import {
   handleCallUpdate,
@@ -75,8 +76,9 @@ export function useRealtime(enabled: boolean): void {
       socket.on("read:updated", applyReadReceipt);
       socket.on("conversation:updated", applyConversation);
       socket.on("conversation:removed", ({ id }) => removeConversation(id));
-      socket.on("channel:updated", () => void refreshBootstrap({ force: true, silent: true }));
-      socket.on("friend:updated", () => void refreshBootstrap({ force: true, silent: true }));
+      bindBootstrapInvalidations(socket as unknown as Parameters<typeof bindBootstrapInvalidations>[0], () => {
+        void refreshBootstrap({ force: true, silent: true }).catch(() => undefined);
+      });
       socket.on("presence:updated", ({ userId, presence, lastSeenAt }) => applyPresence(userId, presence, lastSeenAt));
       socket.on("typing:updated", ({ streamId, userId, typing }) => receiveRealtimeTyping(streamId, userId, typing));
       socket.io.on("reconnect_attempt", () => {

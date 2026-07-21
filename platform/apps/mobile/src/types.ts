@@ -78,6 +78,17 @@ export interface UploadInitResponse {
   };
 }
 
+export interface BackgroundMessageGroupInitResponse {
+  dispatchStatus: "waiting" | "pending" | "delivered";
+  sessions: Array<{
+    uploadId: string;
+    status: "uploading" | "complete";
+    attachment: Attachment | null;
+    expiresAt: number | null;
+    upload: UploadInitResponse["upload"] | null;
+  }>;
+}
+
 export interface UploadInput {
   uri: string;
   filename: string;

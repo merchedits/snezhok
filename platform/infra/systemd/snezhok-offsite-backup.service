@@ -1,0 +1,29 @@
+[Unit]
+Description=Replicate encrypted Snezhok recovery artifacts off host
+Documentation=file:///home/merchedits/sites/snezhok-v3/platform/docs/OPERATIONS.md
+RequiresMountsFor=/var/backups/snezhok
+After=network-online.target snezhok-backup.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=merchedits
+Group=merchedits
+UMask=0077
+WorkingDirectory=/home/merchedits/sites/snezhok-v3/platform
+EnvironmentFile=/etc/snezhok/maintenance.env
+ExecStart=/usr/bin/bash /home/merchedits/sites/snezhok-v3/platform/scripts/maintenance/replicate-encrypted-backups.sh
+StateDirectory=snezhok-maintenance
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/snezhok-maintenance
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=12h

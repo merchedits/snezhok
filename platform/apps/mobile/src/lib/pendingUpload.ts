@@ -2,9 +2,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import type { UploadInput, UploadInitResponse } from "../types";
 
-const PENDING_UPLOAD_KEY = "@snezhok/upload/pending/v1";
+export const PENDING_UPLOAD_KEY = "@snezhok/upload/pending/v1";
 
 export interface PendingUpload {
+  ownerId: string;
   uploadId: string;
   uri: string;
   filename: string;
@@ -13,18 +14,19 @@ export interface PendingUpload {
   expiresAt: number;
 }
 
-export async function reusablePendingUpload(input: UploadInput, bytes: number): Promise<PendingUpload | null> {
+export async function reusablePendingUpload(input: UploadInput, bytes: number, ownerId: string): Promise<PendingUpload | null> {
   const pending = await readPendingUpload();
   if (!pending) return null;
-  if (pending.expiresAt <= Date.now() + 30_000 || pending.uri !== input.uri || pending.filename !== input.filename || pending.bytes !== bytes) {
+  if (!pendingUploadMatches(pending, input, bytes, ownerId, Date.now())) {
     await clearPendingUpload();
     return null;
   }
   return pending;
 }
 
-export async function rememberPendingUpload(input: UploadInput, bytes: number, initialized: UploadInitResponse): Promise<PendingUpload> {
+export async function rememberPendingUpload(input: UploadInput, bytes: number, initialized: UploadInitResponse, ownerId: string): Promise<PendingUpload> {
   const pending: PendingUpload = {
+    ownerId,
     uploadId: initialized.uploadId,
     uri: input.uri,
     filename: input.filename,
@@ -47,10 +49,24 @@ export async function clearPendingUpload(uploadId?: string): Promise<void> {
 async function readPendingUpload(): Promise<PendingUpload | null> {
   try {
     const value = JSON.parse(await AsyncStorage.getItem(PENDING_UPLOAD_KEY) ?? "null") as Partial<PendingUpload> | null;
-    if (!value || typeof value.uploadId !== "string" || typeof value.uri !== "string" || typeof value.filename !== "string"
+    if (!value || typeof value.ownerId !== "string" || !value.ownerId || typeof value.uploadId !== "string" || typeof value.uri !== "string" || typeof value.filename !== "string"
       || !Number.isSafeInteger(value.bytes) || !Number.isSafeInteger(value.chunkBytes) || typeof value.expiresAt !== "number") return null;
     return value as PendingUpload;
   } catch {
     return null;
   }
+}
+
+export function pendingUploadMatches(
+  pending: PendingUpload,
+  input: UploadInput,
+  bytes: number,
+  ownerId: string,
+  now: number,
+): boolean {
+  return pending.ownerId === ownerId
+    && pending.expiresAt > now + 30_000
+    && pending.uri === input.uri
+    && pending.filename === input.filename
+    && pending.bytes === bytes;
 }

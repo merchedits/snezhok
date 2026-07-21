@@ -131,6 +131,12 @@ export async function cleanupReliabilityData(
     [options.eventRetentionDays, options.batchSize],
   );
 
+  await client.query(
+    `UPDATE scheduled_messages scheduled SET status='cancelled',last_error='Attachment upload expired',updated_at=now()
+     WHERE scheduled.status='waiting' AND (scheduled.expires_at<=now() OR EXISTS(
+       SELECT 1 FROM upload_sessions upload WHERE upload.id=ANY(scheduled.attachment_ids) AND upload.expires_at<=now()
+     ))`,
+  );
   const expiredUploads = await client.query<{ id: string; temp_key: string }>(
     `WITH doomed AS (
        SELECT id FROM upload_sessions
@@ -176,7 +182,7 @@ export async function cleanupReliabilityData(
          AND NOT EXISTS(SELECT 1 FROM servers server WHERE server.icon_attachment_id=attachment.id)
          AND NOT EXISTS(SELECT 1 FROM conversations conversation WHERE conversation.avatar_attachment_id=attachment.id)
          AND NOT EXISTS(SELECT 1 FROM attachments parent WHERE parent.thumbnail_attachment_id=attachment.id)
-         AND NOT EXISTS(SELECT 1 FROM scheduled_messages scheduled WHERE attachment.id=ANY(scheduled.attachment_ids) AND scheduled.status IN ('pending','delivering'))
+         AND NOT EXISTS(SELECT 1 FROM scheduled_messages scheduled WHERE attachment.id=ANY(scheduled.attachment_ids) AND scheduled.status IN ('waiting','pending','delivering'))
          AND NOT EXISTS(SELECT 1 FROM media_jobs job WHERE job.attachment_id=attachment.id AND job.status IN ('pending','running'))
        ORDER BY attachment.created_at,attachment.id LIMIT $2
      ) DELETE FROM attachments attachment USING doomed WHERE attachment.id=doomed.id

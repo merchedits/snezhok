@@ -29,7 +29,10 @@ export function CallSurface() {
       <div className="call-controls" aria-label="Call controls">
         <CallControl label={call.muted ? "Unmute" : "Mute"} active={call.muted} onClick={() => void call.toggleMute()} icon={call.muted ? <MicOff /> : <Mic />} />
         <CallControl label={call.cameraEnabled ? "Stop camera" : "Camera"} active={!call.cameraEnabled} onClick={() => void call.toggleCamera()} icon={call.cameraEnabled ? <Camera /> : <CameraOff />} />
-        <CallControl label={call.screenSharing ? "Stop sharing" : "Share"} active={call.screenSharing} onClick={() => void call.toggleScreenShare()} icon={<MonitorUp />} />
+        <CallControl label={call.screenSharing ? "Stop sharing" : "Share"} active={call.screenSharing} onClick={() => {
+          const height = Number(resolution);
+          void call.toggleScreenShare({ width: Math.round(height * 16 / 9), height, frameRate: Number(frameRate), contentHint: optimize === "text" ? "text" : "motion" });
+        }} icon={<MonitorUp />} />
         <CallControl label="Audio route" onClick={() => app.setSettingsOpen(true)} icon={<Volume2 />} />
         <div className="call-more-anchor"><CallControl label="More" active={moreOpen} onClick={() => setMoreOpen(!moreOpen)} icon={<MoreHorizontal />} />{moreOpen && <div className="call-quality-menu"><strong>Screen share</strong><label>Resolution<select value={resolution} onChange={(event) => setResolution(event.target.value)}><option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option></select></label><label>Frame rate<select value={frameRate} onChange={(event) => setFrameRate(event.target.value)}><option value="15">15 fps</option><option value="30">30 fps</option><option value="60">60 fps</option></select></label><label>Optimize for<select value={optimize} onChange={(event) => setOptimize(event.target.value)}><option value="motion">Motion</option><option value="text">Text</option></select></label><button onClick={() => app.setSettingsOpen(true)}><Settings2 /> Voice settings</button></div>}</div>
         <CallControl label="Leave" danger onClick={() => { void call.leave(); }} icon={<PhoneOff />} />

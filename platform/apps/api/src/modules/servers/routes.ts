@@ -18,7 +18,7 @@ import {
   requestCallMediaDrain, terminateChannelCalls, terminateServerCalls,
 } from "../calls/mediaControl.js";
 import {
-  channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayManageMember, requireServerPermission,
+  channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayGrantPermissions, mayManageMember, requireServerPermission,
   serverAuthorization, visibleChannelUserIds, type ServerAuthorization,
 } from "./permissions.js";
 
@@ -79,7 +79,7 @@ export async function serverRoutes(app: FastifyInstance) {
       const recipients = await serverRecipientIds(serverId, client);
       const summaries = new Map<string, Awaited<ReturnType<typeof loadServerSummary>>>();
       for (const recipient of recipients) summaries.set(recipient, await loadServerSummary(serverId, recipient, client));
-      return { server: summaries.get(request.auth.id)!, event: await storeEvent(client, recipients, "server:updated", (recipient: string) => summaries.get(recipient)) };
+      return { server: summaries.get(request.auth.id)!, event: await storeEvent(client, recipients, "server:updated", (recipient: string) => summaries.get(recipient)!) };
     });
     publishStoredEvent(result.event); return { server: result.server };
   });
@@ -225,7 +225,8 @@ export async function serverRoutes(app: FastifyInstance) {
     const body = channelPermissionOverrideSchema.parse(request.body);
     const result = await transaction(async (client) => {
       await lockServer(serverId, client);
-      await requireServerPermission(serverId, request.auth.id, "manage_roles", client);
+      const actor = await requireServerPermission(serverId, request.auth.id, "manage_roles", client);
+      if (!mayGrantPermissions(actor, body.allow)) throw forbidden("You cannot grant permissions you do not have");
       await requireChannel(serverId, channelId, client);
       const before = await channelRecipientIds(channelId, client);
       await client.query(
@@ -260,6 +261,7 @@ export async function serverRoutes(app: FastifyInstance) {
     const result = await transaction(async (client) => {
       await lockServer(serverId, client);
       const actor = await requireServerPermission(serverId, request.auth.id, "manage_roles", client);
+      if (!mayGrantPermissions(actor, body.allow)) throw forbidden("You cannot grant permissions you do not have");
       await requireChannel(serverId, channelId, client);
       const before = await channelRecipientIds(channelId, client);
       const role = await loadRoleForUpdate(serverId, roleId, client);
@@ -298,6 +300,7 @@ export async function serverRoutes(app: FastifyInstance) {
     const result = await transaction(async (client) => {
       await lockServer(serverId, client);
       const actor = await requireServerPermission(serverId, request.auth.id, "manage_roles", client);
+      if (!mayGrantPermissions(actor, body.allow)) throw forbidden("You cannot grant permissions you do not have");
       await requireChannel(serverId, channelId, client);
       const before = await channelRecipientIds(channelId, client);
       const target = await serverAuthorization(serverId, userId, client);
@@ -465,6 +468,7 @@ export async function serverRoutes(app: FastifyInstance) {
       const maxPosition = Number((await client.query<{ value: number }>("SELECT coalesce(max(position),-1)+1 value FROM server_roles WHERE server_id=$1", [serverId])).rows[0]?.value ?? 0);
       const position = actor.role === "owner" ? Math.min(10_000, maxPosition) : Math.max(0, actor.highestCustomRolePosition - 1);
       if (!mayAssignRole(actor, position)) throw forbidden("You cannot create a role at this hierarchy level");
+      if (!mayGrantPermissions(actor, body.permissions)) throw forbidden("You cannot grant permissions you do not have");
       await ensureRoleNameAvailable(serverId, body.name, null, client);
       const id = newId();
       await client.query("INSERT INTO server_roles(id,server_id,name,color,position,permissions,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id, serverId, body.name, body.color, position, body.permissions, request.auth.id]);
@@ -483,6 +487,7 @@ export async function serverRoutes(app: FastifyInstance) {
       const current = await loadRoleForUpdate(serverId, roleId, client);
       if (!mayAssignRole(actor, current.position)) throw forbidden("You cannot edit this role");
       if (body.position !== undefined && !mayAssignRole(actor, body.position)) throw forbidden("You cannot move this role above your own");
+      if (body.permissions !== undefined && !mayGrantPermissions(actor, body.permissions)) throw forbidden("You cannot grant permissions you do not have");
       if (body.name !== undefined) await ensureRoleNameAvailable(serverId, body.name, roleId, client);
       const updated = await client.query<RoleRow>(
         `UPDATE server_roles SET name=coalesce($3,name),color=CASE WHEN $4::boolean THEN $5::text ELSE color END,

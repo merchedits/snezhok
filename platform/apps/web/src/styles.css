@@ -189,6 +189,8 @@ img, video { display: block; max-width: 100%; }
 .system-message { padding: 6px 12px; color: var(--text-muted); font-size: 0.8rem; text-align: center; }
 
 .bubble-row { position: relative; display: flex; align-items: flex-end; gap: 8px; max-width: 68%; margin: 3px auto 3px 0; }
+.message-list > .bubble-row,
+.message-list > .channel-message { content-visibility: auto; contain-intrinsic-size: auto 72px; }
 .bubble-row.is-mine { margin-right: 0; margin-left: auto; }
 .bubble-wrap { min-width: 0; }
 .bubble-author { display: block; margin: 0 0 3px 8px; color: var(--text-secondary); font-size: 0.72rem; }
@@ -236,8 +238,8 @@ img, video { display: block; max-width: 100%; }
 .file-attachment small { color: var(--text-muted); }
 .voice-note { display: flex; min-width: 260px; align-items: center; gap: 8px; padding: 4px 0; }
 .voice-note > button { width: 34px; height: 34px; border-radius: 999px; background: var(--accent); color: #fff; }
-.waveform { display: flex; flex: 1; height: 30px; align-items: center; gap: 2px; }
-.waveform i { width: 2px; border-radius: 2px; background: var(--text-secondary); }
+.waveform { display: flex; flex: 1; min-width: 0; height: 30px; align-items: center; gap: 1px; }
+.waveform i { flex: 1 1 1px; min-width: 1px; max-width: 2px; border-radius: 2px; background: var(--text-secondary); }
 .voice-note .speed-button { width: auto; height: 26px; padding: 0 7px; background: var(--hover); color: var(--text-primary); font-size: 0.72rem; }
 .video-note { width: 240px; height: 240px; border-radius: 999px; object-fit: cover; }
 

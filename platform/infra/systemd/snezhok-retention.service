@@ -26,5 +26,5 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/merchedits/sites/snezhok-v3/platform/data-v3 /home/merchedits/sites/snezhok-v3/platform/releases
+ReadWritePaths=/home/merchedits/sites/snezhok-v3/platform/data-v3 /home/merchedits/sites/snezhok-v3/platform/runtime/releases
 TimeoutStartSec=2h

@@ -51,7 +51,7 @@ export function validatePublicationManifest(manifest) {
   if (typeof manifest.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(manifest.sha256)) failures.push("manifest sha256 must be lowercase hexadecimal");
   if (typeof manifest.signingCertificateSha256 !== "string" || !/^[0-9a-f]{64}$/.test(manifest.signingCertificateSha256)) failures.push("manifest signingCertificateSha256 must be lowercase hexadecimal");
   if (typeof manifest.publishedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(manifest.publishedAt) || !Number.isFinite(Date.parse(manifest.publishedAt))) failures.push("manifest publishedAt must be a UTC ISO timestamp");
-  if (typeof manifest.sourceRevision !== "string" || !/^[0-9a-f]{7,40}$/.test(manifest.sourceRevision)) failures.push("manifest sourceRevision must identify a public Git commit");
+  if (typeof manifest.sourceRevision !== "string" || !/^[0-9a-f]{40}$/.test(manifest.sourceRevision)) failures.push("manifest sourceRevision must be a complete public Git commit ID");
   if (!Array.isArray(manifest.releaseNotes) || manifest.releaseNotes.length > 20 || manifest.releaseNotes.some((note) => typeof note !== "string" || note.trim().length < 1 || note.trim().length > 240)) failures.push("manifest releaseNotes are invalid");
   if (manifest.architectures !== undefined && (!Array.isArray(manifest.architectures) || manifest.architectures.length < 1 || manifest.architectures.some((abi) => typeof abi !== "string" || !/^[A-Za-z0-9_-]+$/.test(abi)))) failures.push("manifest architectures are invalid");
   if (manifest.minSdk !== undefined && (!Number.isSafeInteger(manifest.minSdk) || manifest.minSdk < 21)) failures.push("manifest minSdk is invalid");
@@ -165,7 +165,10 @@ async function main() {
       const packagedTextPaths = files.split(/\r?\n/)
         .filter((file) => file.startsWith("/assets/legal/android/"))
         .map((file) => file.slice("/assets/legal/android/".length))
-        .filter((file) => file.startsWith("texts/"));
+        // `apkanalyzer files list` includes directory entries as well as
+        // regular files. Passing the `texts` directory to `files cat` fails
+        // even when every generated legal text is correctly packaged.
+        .filter((file) => /^texts\/[0-9a-f]{64}\.txt$/i.test(file));
       const packagedFiles = new Map(packagedTextPaths.map((file) => [
         file,
         run(apkanalyzer, ["files", "cat", "--file", `/assets/legal/android/${file}`, apk]),

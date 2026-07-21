@@ -198,6 +198,7 @@ export function Composer() {
       const attachment = await api.upload({
         file,
         kind: kind === "voice" ? "audio" : "video",
+        purpose: kind,
         quality: "original",
         stripLocation: true,
       });

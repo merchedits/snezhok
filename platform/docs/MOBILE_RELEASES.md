@@ -7,7 +7,7 @@ Android is the primary Snezhok client and the authority for interaction design. 
 - Manifest: `https://merchedits.xyz/chat/api/v1/client/android/manifest`
 - Current APK: `https://merchedits.xyz/chat/api/v1/client/android`
 
-The server reads `releases/android-current.json` and streams `releases/snezhok-current.apk`. These stable paths mean a mobile release does not require changing or rebuilding the API after the update channel has been deployed.
+The server reads `runtime/releases/android-current.json` and streams `runtime/releases/snezhok-current.apk`. The ignored `runtime/` tree is mutable deployment state, while `releases/*.json` remains immutable historical evidence in Git. These stable runtime paths mean a mobile release does not require changing or rebuilding the API after the update channel has been deployed.
 
 ## Client behavior
 

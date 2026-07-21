@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -15,6 +15,7 @@ import {
   Phone,
   Pin,
   Play,
+  Pause,
   Search,
   SmilePlus,
   Trash2,
@@ -90,21 +91,42 @@ function TypingLine() {
 
 function MessageList({ serverMode }: { serverMode: boolean }) {
   const app = useApp();
+  const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const previousCount = useRef(0);
+  const previous = useRef<{ streamId: string; first: string | null; last: string | null; height: number; distanceFromBottom: number } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const grew = app.messages.length > previousCount.current;
-    previousCount.current = app.messages.length;
-    if (grew) bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [app.messages.length]);
+  useLayoutEffect(() => {
+    const element = listRef.current;
+    if (!element || app.messages.length === 0) return;
+    const first = app.messages[0]?.id ?? null;
+    const last = app.messages.at(-1)?.id ?? null;
+    const prior = previous.current;
+    const streamId = app.selection?.id ?? "";
+    if (!prior || prior.streamId !== streamId) {
+      element.scrollTop = element.scrollHeight;
+    } else if (last === prior.last && first !== prior.first) {
+      element.scrollTop += element.scrollHeight - prior.height;
+    } else if (last !== prior.last && prior.distanceFromBottom < 120) {
+      element.scrollTop = element.scrollHeight;
+    }
+    previous.current = {
+      streamId,
+      first,
+      last,
+      height: element.scrollHeight,
+      distanceFromBottom: element.scrollHeight - element.scrollTop - element.clientHeight,
+    };
+  }, [app.messages]);
 
   if (app.loadingMessages && app.messages.length === 0) return <div className="message-loading"><Spinner label="Loading messages" /></div>;
   if (app.messages.length === 0) return <div className="message-list"><EmptyState icon={<MessageCircleReply />} text="No messages yet." /><div ref={bottomRef} /></div>;
 
   return (
-    <div className={`message-list ${serverMode ? "server-message-list" : "bubble-message-list"}`} role="log" aria-live="polite" aria-relevant="additions">
+    <div ref={listRef} className={`message-list ${serverMode ? "server-message-list" : "bubble-message-list"}`} role="log" aria-live="polite" aria-relevant="additions" onScroll={(event) => {
+      const element = event.currentTarget;
+      if (previous.current) previous.current.distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    }}>
       {app.hasOlderMessages && <button className="load-older" onClick={() => void app.loadOlder()} disabled={app.loadingMessages}>{app.loadingMessages ? "Loading..." : "Load older messages"}</button>}
       {app.messages.map((message, index) => {
         const previous = app.messages[index - 1];
@@ -222,8 +244,20 @@ function AttachmentView({ attachment }: { attachment: Attachment }) {
 
 function VoiceNote({ attachment }: { attachment?: Attachment | undefined }) {
   const [speed, setSpeed] = useState(1);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const bars = attachment?.waveform?.length ? attachment.waveform : Array<number>(48).fill(0);
+  useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = speed; }, [speed]);
   if (!attachment) return null;
-  return <div className="voice-note"><button aria-label="Play voice note"><Play /></button><div className="waveform" aria-hidden="true">{Array.from({ length: 28 }, (_, index) => <i key={index} style={{ height: `${8 + ((index * 11) % 20)}px` }} />)}</div><audio src={attachment.url} preload="metadata" /><button className="speed-button" onClick={() => setSpeed(speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1)}>{speed}x</button></div>;
+  const toggle = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      try { await audio.play(); } catch { setPlaying(false); }
+    } else audio.pause();
+  };
+  return <div className="voice-note"><button aria-label={playing ? "Pause voice note" : "Play voice note"} onClick={() => void toggle()}>{playing ? <Pause /> : <Play />}</button><div className="waveform" aria-hidden="true">{bars.map((amplitude, index) => <i key={index} style={{ height: `${Math.max(3, Math.min(30, 3 + amplitude * 0.27))}px`, background: (index + 1) / bars.length <= progress ? "var(--accent)" : "var(--text-secondary)" }} />)}</div><audio ref={audioRef} src={attachment.url} preload="metadata" onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setProgress(0); }} onTimeUpdate={(event) => { const audio = event.currentTarget; setProgress(audio.duration > 0 ? audio.currentTime / audio.duration : 0); }} /><button className="speed-button" onClick={() => setSpeed(speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1)}>{speed}x</button></div>;
 }
 
 function VideoNote({ attachment }: { attachment?: Attachment | undefined }) {

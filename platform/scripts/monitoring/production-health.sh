@@ -9,6 +9,20 @@ readonly MAX_DISK_PERCENT="${SNEZHOK_MAX_DISK_PERCENT:-85}"
 readonly ALERT_WEBHOOK_URL="${SNEZHOK_ALERT_WEBHOOK_URL:-}"
 readonly STATUS_FILE="${SNEZHOK_MONITOR_STATUS_FILE:-/var/lib/snezhok-maintenance/monitoring.status}"
 readonly SOURCE_REVISION="${SNEZHOK_SOURCE_REVISION:-}"
+readonly LOCAL_TLS_HOST="${SNEZHOK_LOCAL_TLS_HOST:-merchedits.xyz}"
+readonly LOCAL_TLS_ADDRESS="${SNEZHOK_LOCAL_TLS_ADDRESS:-127.0.0.1}"
+readonly RUN_EXTERNAL_CONNECTIVITY_CHECK="${SNEZHOK_RUN_EXTERNAL_CONNECTIVITY_CHECK:-0}"
+readonly MAX_UNVERIFIED_BACKUP_AGE_HOURS="${SNEZHOK_MAX_UNVERIFIED_BACKUP_AGE_HOURS:-960}"
+readonly MAX_INCOMPLETE_BACKUP_AGE_HOURS="${SNEZHOK_MAX_INCOMPLETE_BACKUP_AGE_HOURS:-48}"
+readonly REQUIRE_OFFSITE_BACKUP="${SNEZHOK_REQUIRE_OFFSITE_BACKUP:-0}"
+readonly MAX_OFFSITE_BACKUP_AGE_HOURS="${SNEZHOK_MAX_OFFSITE_BACKUP_AGE_HOURS:-36}"
+readonly OFFSITE_STATUS_FILE="${SNEZHOK_OFFSITE_STATUS_FILE:-/var/lib/snezhok-maintenance/offsite-replication.status}"
+
+[[ "$LOCAL_TLS_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "invalid local TLS host" >&2; exit 2; }
+[[ "$LOCAL_TLS_ADDRESS" =~ ^[0-9A-Fa-f:.]+$ ]] || { echo "invalid local TLS address" >&2; exit 2; }
+[[ "$MAX_UNVERIFIED_BACKUP_AGE_HOURS" =~ ^[0-9]+$ ]] || { echo "invalid unverified backup age" >&2; exit 2; }
+[[ "$MAX_INCOMPLETE_BACKUP_AGE_HOURS" =~ ^[0-9]+$ ]] || { echo "invalid incomplete backup age" >&2; exit 2; }
+[[ "$MAX_OFFSITE_BACKUP_AGE_HOURS" =~ ^[0-9]+$ ]] || { echo "invalid off-site backup age" >&2; exit 2; }
 
 failures=()
 check() {
@@ -32,12 +46,41 @@ else
     [[ "$image_revision" == "$SOURCE_REVISION" ]] || failures+=("${container}-source-revision-mismatch")
   done
 fi
+
+if [[ "$REQUIRE_OFFSITE_BACKUP" == "1" ]]; then
+  if [[ "$(systemctl show --property=LoadState --value snezhok-offsite-backup.service 2>/dev/null)" != "loaded" ]]; then
+    failures+=("offsite-backup-service-missing")
+  elif systemctl is-failed --quiet snezhok-offsite-backup.service; then
+    failures+=("offsite-backup-service-failed")
+  fi
+  systemctl is-active --quiet snezhok-offsite-backup.timer || failures+=("offsite-backup-timer-inactive")
+  offsite_status="$OFFSITE_STATUS_FILE"
+  if [[ ! -s "$offsite_status" ]]; then
+    failures+=("offsite-backup-missing")
+  else
+    offsite_epoch=$(stat -c '%Y' "$offsite_status" 2>/dev/null || echo invalid)
+    if [[ ! "$offsite_epoch" =~ ^[0-9]+$ ]]; then
+      failures+=("offsite-backup-status-invalid")
+    else
+      offsite_age_hours=$(( ($(date +%s) - offsite_epoch) / 3600 ))
+      if (( offsite_age_hours > MAX_OFFSITE_BACKUP_AGE_HOURS )); then failures+=("offsite-backup-${offsite_age_hours}h-old"); fi
+    fi
+  fi
+elif [[ "$REQUIRE_OFFSITE_BACKUP" != "0" ]]; then
+  failures+=("offsite-backup-setting-invalid")
+fi
 check "postgres-container" container_healthy snezhok-v3-postgres-1
 check "api-container" container_healthy snezhok-v3-app-1
 check "media-worker-container" container_healthy snezhok-v3-media-worker-1
-check "livekit-signal" curl --fail --silent --show-error --max-time 8 https://merchedits.xyz/chat/livekit/
-check "turn-connectivity" python3 "$STACK_DIR/scripts/livekit/connectivity-smoke.py" --timeout 5
-check "certificate-expiry" bash -c "openssl s_client -servername merchedits.xyz -connect merchedits.xyz:443 </dev/null 2>/dev/null | openssl x509 -checkend 1209600 -noout"
+check "livekit-signal-local-tls" curl --fail --silent --show-error --max-time 8 \
+  --resolve "${LOCAL_TLS_HOST}:443:${LOCAL_TLS_ADDRESS}" "https://${LOCAL_TLS_HOST}/chat/livekit/"
+check "certificate-expiry-local-tls" bash -c \
+  "openssl s_client -servername '$LOCAL_TLS_HOST' -connect '$LOCAL_TLS_ADDRESS:443' </dev/null 2>/dev/null | openssl x509 -checkend 1209600 -noout"
+if [[ "$RUN_EXTERNAL_CONNECTIVITY_CHECK" == "1" ]]; then
+  check "external-turn-connectivity" python3 "$STACK_DIR/scripts/livekit/connectivity-smoke.py" --timeout 5
+elif [[ "$RUN_EXTERNAL_CONNECTIVITY_CHECK" != "0" ]]; then
+  failures+=("external-connectivity-setting-invalid")
+fi
 
 queue_age="$(docker exec snezhok-v3-postgres-1 psql -At -U snezhok -d snezhok -v ON_ERROR_STOP=1 -c "SELECT coalesce(extract(epoch from now()-min(created_at))::int,0) FROM media_jobs WHERE status='pending' AND available_at<=now();" 2>/dev/null || echo query-failed)"
 if [[ ! "$queue_age" =~ ^[0-9]+$ ]] || (( queue_age > 900 )); then failures+=("media-queue-${queue_age}s"); fi
@@ -117,6 +160,24 @@ else
     age_hours="$(awk -v now="$(date +%s)" -v then="$verified_epoch" 'BEGIN { print int((now-then)/3600) }')"
     if (( age_hours > MAX_VERIFIED_BACKUP_AGE_HOURS )); then failures+=("verified-backup-${age_hours}h-old"); fi
   fi
+
+  oldest_unverified="$(
+    while IFS= read -r marker; do
+      directory=${marker%/.complete}
+      [[ -f "$directory/.verified" ]] || stat -c '%Y' "$marker"
+    done < <(find "$BACKUP_DIR" -mindepth 2 -maxdepth 2 -type f -name .complete -print 2>/dev/null)
+  )"
+  if [[ -n "$oldest_unverified" ]]; then
+    oldest_unverified_epoch=$(sort -n <<<"$oldest_unverified" | head -1)
+    oldest_unverified_hours=$(( ($(date +%s) - oldest_unverified_epoch) / 3600 ))
+    if (( oldest_unverified_hours > MAX_UNVERIFIED_BACKUP_AGE_HOURS )); then failures+=("unverified-backup-${oldest_unverified_hours}h-old"); fi
+  fi
+
+  oldest_incomplete_epoch="$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -name '.incomplete-*' -printf '%T@\n' 2>/dev/null | sort -n | head -1 | cut -d. -f1)"
+  if [[ "$oldest_incomplete_epoch" =~ ^[0-9]+$ ]]; then
+    oldest_incomplete_hours=$(( ($(date +%s) - oldest_incomplete_epoch) / 3600 ))
+    if (( oldest_incomplete_hours > MAX_INCOMPLETE_BACKUP_AGE_HOURS )); then failures+=("incomplete-backup-${oldest_incomplete_hours}h-old"); fi
+  fi
 fi
 
 mkdir -p "$(dirname "$STATUS_FILE")"
@@ -130,6 +191,9 @@ printf 'failed %s %s\n' "$(date --iso-8601=seconds)" "$summary" >"$STATUS_FILE"
 logger --tag snezhok-monitor --priority daemon.err -- "$summary"
 if [[ -n "$ALERT_WEBHOOK_URL" ]]; then
   payload="$(python3 -c 'import json,sys; print(json.dumps({"text":sys.argv[1]}))' "$summary")"
-  curl --fail --silent --show-error --max-time 10 -H 'content-type: application/json' --data-binary "$payload" "$ALERT_WEBHOOK_URL" >/dev/null || true
+  if ! curl --fail --silent --show-error --max-time 10 -H 'content-type: application/json' --data-binary "$payload" "$ALERT_WEBHOOK_URL" >/dev/null; then
+    printf 'alert-delivery-failed %s %s\n' "$(date --iso-8601=seconds)" "$summary" >"$STATUS_FILE"
+    logger --tag snezhok-monitor --priority daemon.err -- "Snezhok alert delivery failed"
+  fi
 fi
 exit 1

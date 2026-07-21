@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily off-host Snezhok encrypted recovery replication
+
+[Timer]
+OnCalendar=*-*-* 06:30:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=snezhok-offsite-backup.service
+
+[Install]
+WantedBy=timers.target

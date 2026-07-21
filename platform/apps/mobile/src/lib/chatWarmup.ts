@@ -1,5 +1,14 @@
 import type { Message } from "@snezhok/contracts";
 
+export function uncachedWarmStreamIds(
+  streamIds: readonly string[],
+  messagesByStream: Readonly<Record<string, readonly Message[]>>,
+  limit = 12,
+): string[] {
+  if (limit <= 0) return [];
+  return [...new Set(streamIds)].filter((streamId) => !(messagesByStream[streamId]?.length)).slice(0, limit);
+}
+
 /** Selects only small previews that can make the first visible chat frame warm. */
 export function recentMediaPreviewUris(
   messagesByStream: Record<string, Message[]>,

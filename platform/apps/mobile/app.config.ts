@@ -5,15 +5,15 @@ const easProjectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
 const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
 const sourceRevision = process.env.SNEZHOK_SOURCE_REVISION ?? process.env.EAS_BUILD_GIT_COMMIT_HASH ?? "development";
 
-if (process.env.SNEZHOK_RELEASE_BUILD === "1" && !/^[0-9a-f]{7,40}$/i.test(sourceRevision)) {
-  throw new Error("SNEZHOK_SOURCE_REVISION must identify the public Git commit used for a release build");
+if (process.env.SNEZHOK_RELEASE_BUILD === "1" && !/^[0-9a-f]{40}$/i.test(sourceRevision)) {
+  throw new Error("SNEZHOK_SOURCE_REVISION must be the complete public Git commit used for a release build");
 }
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.8.0",
+  version: "3.8.1",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -68,7 +68,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 25,
+    versionCode: 26,
     // Messages, drafts and the durable outbox are private local data. They
     // must never leave the app sandbox through Android cloud/ADB backup.
     allowBackup: false,

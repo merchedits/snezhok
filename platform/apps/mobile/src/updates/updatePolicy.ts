@@ -8,6 +8,10 @@ export function isRequired(manifest: Pick<AndroidReleaseManifest, "mandatory" | 
   return manifest.mandatory || currentVersionCode < manifest.minimumVersionCode;
 }
 
+export function blocksApplicationForUpdate(required: boolean, phase: string): boolean {
+  return required && ["available", "downloading", "ready", "error"].includes(phase);
+}
+
 export function arrayBufferToHex(value: ArrayBuffer) {
   return Array.from(new Uint8Array(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { NativeTransferSnapshot } from "../../modules/snezhok-background-transfer";
-import { applyNativeSnapshot, batchComplete, batchProgress, createAttachmentBatch, readyAttachmentGroups } from "./backgroundTransferModel";
+import { applyInitializedAttachment, applyNativeSnapshot, batchComplete, batchProgress, createAttachmentBatch, readyAttachmentGroups } from "./backgroundTransferModel";
 
 const input = { uri: "file:///private/photo.jpg", filename: "photo.jpg", mimeType: "image/jpeg", kind: "image" as const, quality: "auto" as const };
 
@@ -57,4 +57,20 @@ test("native results become ordered ready groups without retaining the staged UR
   assert.equal(batch.transfers[0]?.input.uri, "");
   assert.deepEqual(readyAttachmentGroups(batch)[0]?.attachments.map((attachment) => attachment.id), ["a", "b"]);
   assert.equal(batchComplete(batch), false);
+});
+
+test("an idempotent server initializer can reconcile an upload completed while JS was killed", () => {
+  let batch = createAttachmentBatch({
+    id: "batch", ownerId: "owner", streamId: "stream", messageKind: "media", replyToId: null,
+    inputs: [input], transferIds: ["stable-upload"], clientIds: ["stable-message"], now: 1,
+  });
+  batch = applyInitializedAttachment(batch, "stable-upload", {
+    id: "stable-upload", ownerId: "owner", kind: "image", filename: "photo.jpg", mimeType: "image/jpeg",
+    bytes: 4, width: 1, height: 1, durationMs: null, quality: "auto", url: "/files/stable-upload",
+    originalUrl: "/files/stable-upload", thumbnailUrl: null, checksum: "a".repeat(64),
+  });
+  assert.equal(batch.transfers[0]?.status, "succeeded");
+  assert.equal(batch.transfers[0]?.progress, 100);
+  assert.equal(batch.transfers[0]?.input.uri, "");
+  assert.deepEqual(readyAttachmentGroups(batch)[0]?.attachments.map((attachment) => attachment.id), ["stable-upload"]);
 });

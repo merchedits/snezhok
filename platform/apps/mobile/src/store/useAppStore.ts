@@ -21,9 +21,10 @@ import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { boundedMessageWindow } from "../lib/cachePolicy";
 import { clearMediaCache } from "../lib/mediaCache";
 import { cachedHistoryCursor } from "../lib/offlineCachePolicy";
-import { clearLocalData, ensureOfflineOwner, readCache, readCachedMessagePage, readDirtyDraftIds, readDrafts, readOutbox, writeCacheDelta, writeDirtyDraftIds, writeDrafts, writeOutbox, type OfflineCacheDelta } from "../lib/offlineRepository";
+import { clearLocalData, ensureOfflineOwner, readCache, readCachedMessagePage, readCachedMessagePages, readDirtyDraftIds, readDrafts, readOutbox, readPendingSettingsPatch, writeCacheDelta, writeDirtyDraftIds, writeDrafts, writeOutbox, writePendingSettingsPatch, type OfflineCacheDelta } from "../lib/offlineRepository";
+import { acknowledgePendingSettings, hasPendingSettings, mergePendingSettings, type PendingSettingsPatch } from "../lib/pendingSettings";
 import { clearSession, getRuntimeSession, readSession, sessionOwnerId, subscribeToSession, writeSession } from "../lib/secureSession";
-import { mergeAcknowledgedPatch, rollbackRejectedPatch } from "../lib/settingsSync";
+import { mergeAcknowledgedPatch } from "../lib/settingsSync";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
 import type { ChatFolder, ScheduledMessage } from "../types";
 import {
@@ -72,6 +73,7 @@ interface AppState {
   refreshBootstrap: (options?: { force?: boolean; silent?: boolean }) => Promise<void>;
   refreshProductivity: () => Promise<void>;
   loadMessages: (streamId: string, before?: number) => Promise<void>;
+  preloadCachedMessages: (streamIds: readonly string[]) => Promise<void>;
   loadOlderMessages: (streamId: string) => Promise<void>;
   loadMessageContext: (streamId: string, messageId: string) => Promise<void>;
   markStreamRead: (streamId: string, sequence: number) => Promise<void>;
@@ -147,6 +149,7 @@ function toBootstrap(state: AppState): BootstrapPayload | null {
 
 let persistenceQueue: Promise<void> = Promise.resolve();
 let settingsSyncQueue: Promise<void> = Promise.resolve();
+let settingsPersistenceQueue: Promise<void> = Promise.resolve();
 let draftPersistenceQueue: Promise<void> = Promise.resolve();
 
 interface PersistenceRequest {
@@ -242,6 +245,7 @@ function persistState(request: PersistenceRequest): Promise<void> {
 }
 
 let bootstrapRefresh: Promise<void> | null = null;
+let bootstrapRefreshPending = false;
 let lastBootstrapCompletedAt = 0;
 let productivityRefresh: Promise<void> | null = null;
 let lastProductivityCompletedAt = 0;
@@ -260,6 +264,7 @@ let backgroundWakeListenerInstalled = false;
 let sessionListenerInstalled = false;
 let terminalDataClear: Promise<void> = Promise.resolve();
 let accountEpoch = 0;
+let pendingSettingsPatch: PendingSettingsPatch = {};
 
 interface AccountOperationGuard {
   epoch: number;
@@ -291,7 +296,8 @@ function ensureSessionLossListener(): void {
     invalidateAccountOperations();
     cancelScheduledPersistence();
     dirtyDraftIds.clear();
-    terminalDataClear = Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined)]).then(() => Promise.all([
+    pendingSettingsPatch = {};
+    terminalDataClear = Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined), settingsPersistenceQueue.catch(() => undefined)]).then(() => Promise.all([
       clearLocalData(), clearMediaCache().catch(() => undefined), clearAllBackgroundTransfers().catch(() => undefined),
     ])).then(() => undefined).finally(() => {
       useAppStore.setState({
@@ -334,6 +340,28 @@ function scheduleDraftPersistence(): void {
   }, 350);
 }
 
+function synchronizePendingSettings(guard: AccountOperationGuard | null): Promise<void> {
+  const operation = settingsSyncQueue.catch(() => undefined).then(async () => {
+    if (!accountOperationIsCurrent(guard) || !useAppStore.getState().online || !hasPendingSettings(pendingSettingsPatch)) return;
+    const requested = { ...pendingSettingsPatch };
+    const saved = await api.updateSettings(requested);
+    if (!accountOperationIsCurrent(guard)) return;
+    pendingSettingsPatch = acknowledgePendingSettings(pendingSettingsPatch, requested);
+    await persistPendingSettingsPatch();
+    if (!accountOperationIsCurrent(guard)) return;
+    useAppStore.setState((state) => ({ settings: mergeAcknowledgedPatch(state.settings, requested, saved) }));
+    schedulePersistence({ bootstrap: true });
+  });
+  settingsSyncQueue = operation.catch(() => undefined);
+  return operation;
+}
+
+function persistPendingSettingsPatch(): Promise<void> {
+  const snapshot = { ...pendingSettingsPatch };
+  settingsPersistenceQueue = settingsPersistenceQueue.catch(() => undefined).then(() => writePendingSettingsPatch(snapshot));
+  return settingsPersistenceQueue;
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   phase: "booting",
   error: null,
@@ -370,7 +398,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     await ensureOfflineOwner(ownerId);
     const cache = await readCache();
-    const [outbox, drafts, dirtyDrafts] = cache.bootstrap ? await Promise.all([readOutbox(), readDrafts(), readDirtyDraftIds()]) : [[], {}, []];
+    const storedSettingsPatch = await readPendingSettingsPatch();
+    const [outbox, drafts, dirtyDrafts] = cache.bootstrap
+      ? await Promise.all([readOutbox(), readDrafts(), readDirtyDraftIds()])
+      : [[], {}, []];
+    pendingSettingsPatch = storedSettingsPatch;
     dirtyDraftIds.clear();
     for (const streamId of dirtyDrafts) dirtyDraftIds.add(streamId);
     ensureBackgroundWakeListener();
@@ -383,7 +415,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       categories: cached?.categories ?? [],
       channels: cached?.channels ?? [],
       friends: cached?.friends ?? [],
-      settings: { ...defaultSettings, ...(cached?.settings ?? {}) },
+      settings: { ...defaultSettings, ...(cached?.settings ?? {}), ...pendingSettingsPatch },
       messages: cache.messages,
       drafts,
       outbox,
@@ -467,6 +499,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (draftPersistenceTimer) clearTimeout(draftPersistenceTimer);
     draftPersistenceTimer = null;
     lastBootstrapCompletedAt = 0;
+    bootstrapRefreshPending = false;
     lastProductivityCompletedAt = 0;
     productivityRefresh = null;
     latestMessageLoads.clear();
@@ -474,10 +507,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     for (const timer of remoteDraftTimers.values()) clearTimeout(timer);
     remoteDraftTimers.clear();
     dirtyDraftIds.clear();
-    await Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined)]);
+    pendingSettingsPatch = {};
+    await Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined), settingsPersistenceQueue.catch(() => undefined)]);
+    const session = getRuntimeSession() ?? await readSession();
     const pushInstallationId = await AsyncStorage.getItem("@snezhok/push-installation/v1").catch(() => null);
-    if (pushInstallationId) await api.unregisterPushDevice(pushInstallationId).catch(() => undefined);
-    await Promise.all([api.cancelUpload().catch(() => undefined), clearAllBackgroundTransfers().catch(() => undefined)]);
+    if (session) {
+      void api.closeDeviceSession(session.accessToken, pushInstallationId).catch((error) => {
+        recordDiagnostic("warn", "auth", "Remote device session cleanup failed", { error });
+      });
+    }
+    void Promise.all([api.cancelUpload().catch(() => undefined), clearAllBackgroundTransfers().catch(() => undefined)]);
     activeBackgroundBatchId = null;
     await Promise.all([clearSession(), clearLocalData(), clearMediaCache().catch(() => undefined)]);
     set({
@@ -514,7 +553,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   refreshBootstrap: (options = {}) => {
     if (!get().online) return Promise.resolve();
-    if (bootstrapRefresh) return bootstrapRefresh;
+    if (bootstrapRefresh) {
+      if (options.force) bootstrapRefreshPending = true;
+      return bootstrapRefresh;
+    }
     if (!options.force && Date.now() - lastBootstrapCompletedAt < 30_000) return Promise.resolve();
     if (!options.silent) set({ syncing: true });
     const guard = captureAccountOperation();
@@ -536,11 +578,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             ? { ...channel, unreadCount: 0, mentionCount: 0 }
             : channel),
           friends: payload.friends,
-          settings: payload.settings,
+          settings: { ...payload.settings, ...pendingSettingsPatch },
           eventCursor: payload.eventCursor,
         }));
         lastBootstrapCompletedAt = Date.now();
         schedulePersistence({ bootstrap: true });
+        await synchronizePendingSettings(guard).catch(() => undefined);
       } catch (error) {
         if (!accountOperationIsCurrent(guard)) return;
         set({ syncing: false });
@@ -554,6 +597,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     })().finally(() => {
       bootstrapRefresh = null;
+      if (bootstrapRefreshPending && accountOperationIsCurrent(guard)) {
+        bootstrapRefreshPending = false;
+        void get().refreshBootstrap({ force: true, silent: true }).catch(() => undefined);
+      }
     });
     return bootstrapRefresh;
   },
@@ -625,6 +672,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     })().finally(() => messageLoads.delete(key));
     messageLoads.set(key, loading);
     return loading;
+  },
+
+  preloadCachedMessages: async (streamIds) => {
+    const guard = captureAccountOperation();
+    const missing = [...new Set(streamIds)].filter((streamId) => !(get().messages[streamId]?.length));
+    if (!missing.length) return;
+    const cached = await readCachedMessagePages(missing, 40).catch(() => ({}));
+    if (!accountOperationIsCurrent(guard) || Object.keys(cached).length === 0) return;
+    set((state) => ({
+      messages: Object.fromEntries([
+        ...Object.entries(state.messages),
+        ...Object.entries(cached).map(([streamId, items]) => [
+          streamId,
+          boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], items)),
+        ]),
+      ]),
+    }));
   },
 
   loadOlderMessages: async (streamId) => {
@@ -1429,30 +1493,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  updateSettings: (patch) => {
+  updateSettings: async (patch) => {
     const guard = captureAccountOperation();
-    const previous = get().settings;
-    const next = { ...previous, ...patch };
+    const next = { ...get().settings, ...patch };
     set({ settings: next });
     schedulePersistence({ bootstrap: true });
-    if (!get().online) return Promise.resolve();
-
-    const operation = settingsSyncQueue.then(async () => {
-      if (!accountOperationIsCurrent(guard)) return;
-      try {
-        const saved = await api.updateSettings(patch);
-        if (!accountOperationIsCurrent(guard)) return;
-        set((state) => ({ settings: mergeAcknowledgedPatch(state.settings, patch, saved) }));
-        schedulePersistence({ bootstrap: true });
-      } catch (error) {
-        if (!accountOperationIsCurrent(guard)) return;
-        set((state) => ({ settings: rollbackRejectedPatch(state.settings, patch, previous) }));
-        schedulePersistence({ bootstrap: true });
-        throw error;
-      }
-    });
-    settingsSyncQueue = operation.catch(() => undefined);
-    return operation;
+    pendingSettingsPatch = mergePendingSettings(pendingSettingsPatch, patch);
+    await persistPendingSettingsPatch();
+    if (!accountOperationIsCurrent(guard) || !get().online) return;
+    await synchronizePendingSettings(guard);
   },
 
   setEventCursor: (cursor) => {

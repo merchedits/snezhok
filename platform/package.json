@@ -19,6 +19,7 @@
     "compliance:verify-android": "node scripts/compliance/validate-android-evidence.mjs",
     "release:verify-source": "node scripts/compliance/verify-public-source.mjs",
     "release:verify-config": "node scripts/android/verify-release-config.mjs",
+    "release:verify-production-env": "node scripts/android/verify-production-environment.mjs",
     "release:verify-apk": "node scripts/android/verify-release-artifact.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
@@ -33,7 +34,9 @@
   },
   "overrides": {
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "fast-uri@3.0.0 - 3.1.3": "3.1.4",
+    "fast-uri@4.0.0 - 4.1.0": "4.1.1"
   },
   "engines": {
     "node": ">=22.0.0"

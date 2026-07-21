@@ -1,5 +1,20 @@
 import type { ChannelCategory, ChannelSummary, ConversationSummary, FriendEntry, Id, Message, Presence, ServerRoleDefinition, ServerSummary, Timestamp } from "./models.js";
 
+export type CallEndReason =
+  | "ended-by-user"
+  | "declined"
+  | "room-finished"
+  | "stale-timeout"
+  | "no-participant-timeout"
+  | "permission-changed"
+  | "account-suspended"
+  | "account-deleted"
+  | "user-blocked"
+  | "member-left"
+  | "member-kicked"
+  | "member-banned"
+  | "channel-deleted";
+
 export interface CallUpdatePayload {
   roomId: Id;
   state: "started" | "ended";
@@ -13,7 +28,7 @@ export interface CallUpdatePayload {
   startedAt?: Timestamp;
   endedAt?: Timestamp;
   answeredByIds?: Id[];
-  reason?: "ended-by-user" | "declined" | "room-finished" | "stale-timeout";
+  reason?: CallEndReason;
 }
 
 export interface ServerToClientEvents {

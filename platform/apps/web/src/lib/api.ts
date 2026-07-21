@@ -156,6 +156,7 @@ export interface UploadInput {
   kind: Attachment["kind"];
   quality: UploadQuality;
   stripLocation: boolean;
+  purpose?: "standard" | "voice" | "video-note";
   onProgress?: (progress: number) => void;
   signal?: AbortSignal;
 }
@@ -268,11 +269,10 @@ export const api = {
     });
   },
 
-  search(query: string, options: { streamId?: Id; senderId?: Id; kind?: string } = {}) {
+  search(query: string, options: { streamId?: Id; scope?: "all" | "messages" | "media" | "files" | "links" } = {}) {
     const params = new URLSearchParams({ q: query });
     if (options.streamId) params.set("streamId", options.streamId);
-    if (options.senderId) params.set("senderId", options.senderId);
-    if (options.kind) params.set("kind", options.kind);
+    if (options.scope) params.set("scope", options.scope);
     return request<{ users: UserSummary[]; messages: Message[]; files: Attachment[] }>(`/search?${params}`).then((result) => ({
       people: result.users,
       messages: result.messages,
@@ -293,10 +293,10 @@ export const api = {
   },
 
   createServer(name: string) {
-    return request<{ server: { id: Id; name: string }; channelId: Id }>("/servers", {
+    return request<{ server: { id: Id; name: string }; channel: { id: Id } }>("/servers", {
       method: "POST",
       body: json({ name }),
-    });
+    }).then((result) => ({ server: result.server, channelId: result.channel.id }));
   },
 
   createChannel(serverId: Id, input: { name: string; kind: "text" | "voice"; categoryId: Id | null; topic: string }) {
@@ -360,10 +360,10 @@ export const api = {
     return request<void>(`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
   },
 
-  async upload({ file, kind, quality, stripLocation, onProgress, signal }: UploadInput): Promise<Attachment> {
+  async upload({ file, kind, quality, stripLocation, purpose = "standard", onProgress, signal }: UploadInput): Promise<Attachment> {
     const initialized = await request<{ uploadId: Id; upload: { id: Id; offset: number; chunkBytes: number; expiresAt: number } }>("/uploads/init", {
       method: "POST",
-      body: json({ filename: file.name, mimeType: file.type || "application/octet-stream", bytes: file.size, kind, quality, stripLocation }),
+      body: json({ filename: file.name, mimeType: file.type || "application/octet-stream", bytes: file.size, kind, quality, stripLocation, purpose }),
       ...(signal ? { signal } : {}),
     });
     const chunkSize = Math.max(initialized.upload.chunkBytes, 1);

@@ -16,7 +16,7 @@ cleanup() {
 trap cleanup EXIT
 
 docker volume create snezhok_v3_postgres >/dev/null
-mkdir -p data-v3/storage/objects data-v3/storage/tmp releases
+mkdir -p data-v3/storage/objects data-v3/storage/tmp runtime/releases
 chmod 0777 data-v3/storage data-v3/storage/objects data-v3/storage/tmp
 "${compose[@]}" up --wait --wait-timeout 120 db-provision
 

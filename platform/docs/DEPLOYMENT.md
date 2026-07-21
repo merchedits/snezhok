@@ -22,6 +22,12 @@ Daily age-encrypted synchronized backups, isolated weekly restore drills, and re
 1. Install from the lockfiles.
 2. Run contract, API, web and Android type checks and tests.
 3. Build the web/server production image and signed APK.
+   CI runs the native Kotlin background-transfer unit tests and compiles the
+   macrobenchmark APK. It cannot generate representative baseline-profile or
+   frame-timing evidence: the inbox/chat/media scenarios require an
+   authenticated physical device with private test data. Run the signed APK on
+   the Samsung A12 according to `apps/mobile/performance/A12_BUDGETS.md`; retain
+   the benchmark output and generated profile as release evidence.
 4. Run SQL migrations in a one-shot deployment task.
 5. Start PostgreSQL, the app and LiveKit without changing Nginx.
 6. Verify app, PostgreSQL and LiveKit health; inspect logs and resource limits.
@@ -32,6 +38,29 @@ Daily age-encrypted synchronized backups, isolated weekly restore drills, and re
 9. Validate Nginx configuration, switch the `/chat/` upstream to port 3003 and reload.
 10. Verify the public web app and APK against production.
 
+The production host uses exact 40-character public revisions. Install the
+maintenance services once with the revision that is currently running. After
+the source tree and protected `.env` have been updated so `IMAGE_TAG` equals
+the new public revision, run the guarded deployment helper:
+
+```bash
+# One-time bootstrap only; CURRENT_REVISION is read from the live health route.
+sudo bash scripts/deploy/install-maintenance.sh "$CURRENT_REVISION" --enable
+
+sudo bash scripts/deploy/deploy-production.sh "$SOURCE_REVISION"
+```
+
+The deployment helper refuses a permissive `.env`, creates a synchronized
+encrypted recovery point, builds all three revision-labelled images, runs the
+one-shot migration and role provisioning, waits for health, verifies OCI and
+API revision provenance through local TLS, and checks the Android channel's
+range response. The pre-deployment backup is deliberately labelled with the
+still-running revision; only after the new release passes verification does the
+helper update the maintenance environment and units to the new revision. It
+also refuses a dirty checkout or a revision that is not reachable from the
+public GPL source repository. It does not synchronize source files or modify
+`.env`; those remain explicit reviewed deployment inputs.
+
 ## Rollback
 
 Nginx can be switched back to port 3002 without modifying legacy data. Restore v3 PostgreSQL and media from the same backup point when a v3 rollback is required. Never restore only one side of the database/media pair.
@@ -41,3 +70,19 @@ Nginx can be switched back to port 3002 without modifying legacy data. Restore v
 The internal APK is signed with one stable release key and copied to an authenticated download endpoint. The signing key and passwords are backed up outside the server. Losing the key prevents installed clients from accepting upgrades with the same application ID.
 
 APK releases include version code, semantic version, source revision, API compatibility version and SHA-256 in a release manifest.
+
+After the APK passes the artifact, signing, public-source, and supply-chain
+checks, publish it on the host with temporary files on the same filesystem:
+
+```bash
+bash scripts/deploy/publish-android-release.sh \
+  /absolute/path/to/snezhok.apk \
+  /absolute/path/to/android-next.json \
+  /home/merchedits/sites/snezhok-v3/platform/runtime/releases
+bash scripts/deploy/verify-production-release.sh "$SOURCE_REVISION"
+```
+
+The publisher validates exact source provenance, monotonic version code,
+signing identity, byte count and SHA-256, retains immutable versioned files,
+then moves the current manifest last so clients never observe a new manifest
+with an old APK.

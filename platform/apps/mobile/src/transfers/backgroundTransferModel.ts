@@ -12,6 +12,8 @@ export interface QueuedBackgroundTransfer {
   position: number;
   status: QueuedTransferStatus;
   progress: number;
+  /** Persisted after group initialization so capability recovery never needs a pruned native row. */
+  declaredBytes?: number | null;
   attachment: Attachment | null;
   errorCode: string | null;
 }
@@ -68,6 +70,7 @@ export function createAttachmentBatch(input: {
     position: index,
     status: "pending",
     progress: 0,
+    declaredBytes: null,
     attachment: null,
     errorCode: null,
   }));
@@ -88,6 +91,20 @@ export function createAttachmentBatch(input: {
     transfers,
     groups,
   };
+}
+
+export function applyInitializedAttachment(
+  batch: QueuedAttachmentBatch,
+  transferId: string,
+  attachment: Attachment,
+): QueuedAttachmentBatch {
+  let changed = false;
+  const transfers = batch.transfers.map((transfer) => {
+    if (transfer.transferId !== transferId) return transfer;
+    changed = transfer.status !== "succeeded" || transfer.attachment?.id !== attachment.id || transfer.progress !== 100;
+    return { ...transfer, status: "succeeded" as const, progress: 100, attachment, errorCode: null, input: { ...transfer.input, uri: "" } };
+  });
+  return changed ? { ...batch, transfers, updatedAt: Date.now() } : batch;
 }
 
 export function applyNativeSnapshot(batch: QueuedAttachmentBatch, snapshot: NativeTransferSnapshot): QueuedAttachmentBatch {
