@@ -81,6 +81,10 @@ test("production deployment binds backup and image provenance to real commits", 
   assert.match(script, /verify-public-source\.mjs/);
   assert.match(script, /maintenance provenance does not match the currently running release/);
   assert.match(script, /install-maintenance\.sh" "\$REVISION" --enable/);
+  const verifier = await read("../deploy/verify-production-release.sh");
+  assert.match(verifier, /android_source_revision/);
+  assert.match(verifier, /verify-public-source\.mjs/);
+  assert.doesNotMatch(verifier, /body\.sourceRevision!==process\.argv\[2\]/);
 });
 
 test("every maintenance unit requires the protected environment", async () => {
