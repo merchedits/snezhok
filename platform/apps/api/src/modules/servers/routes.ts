@@ -13,6 +13,10 @@ import { requireAuth } from "../auth/middleware.js";
 import { publishStoredEvent, storeEvent, type StoredEvent } from "../realtime/events.js";
 import { assertUsersCanInteract } from "../users/privacy.js";
 import { mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
+import { requireGlobalPermission } from "../admin/policy.js";
+import {
+  requestCallMediaDrain, terminateChannelCalls, terminateServerCalls,
+} from "../calls/mediaControl.js";
 import {
   channelAuthorization, mayAssignLegacyRole, mayAssignRole, mayManageMember, requireServerPermission,
   serverAuthorization, visibleChannelUserIds, type ServerAuthorization,
@@ -37,6 +41,7 @@ export async function serverRoutes(app: FastifyInstance) {
     const { name } = serverCreateSchema.parse(request.body);
     const id = newId(); const generalId = newId();
     const result = await transaction(async (client) => {
+      await requireGlobalPermission(request.auth.id, "createServers", client);
       await client.query("INSERT INTO servers(id,owner_id,name) VALUES ($1,$2,$3)", [id, request.auth.id, name]);
       await client.query("INSERT INTO server_members(server_id,user_id,role) VALUES ($1,$2,'owner')", [id, request.auth.id]);
       await client.query("INSERT INTO channels(id,server_id,kind,name,position) VALUES ($1,$2,'text','general',0)", [generalId, id]);
@@ -87,11 +92,11 @@ export async function serverRoutes(app: FastifyInstance) {
       if (authorization.role !== "owner") throw forbidden("Only the server owner can delete a server");
       const recipients = await serverRecipientIds(serverId, client);
       const channelIds = (await client.query<{ id: string }>("SELECT id FROM channels WHERE server_id=$1", [serverId])).rows.map((row) => row.id);
-      await deleteChannelStreams(channelIds, client);
+      const callEvents = await deleteChannelStreams(channelIds, client);
       await client.query("DELETE FROM servers WHERE id=$1", [serverId]);
-      return storeEvent(client, recipients, "server:removed", { id: serverId });
+      return { event: await storeEvent(client, recipients, "server:removed", { id: serverId }), callEvents };
     });
-    publishStoredEvent(result); return { success: true };
+    publishStoredEvent(result.event); publishAll(result.callEvents); requestCallMediaDrain(app.log); return { success: true };
   });
 
   app.post("/servers/:serverId/ownership", { preHandler: requireAuth }, async (request) => {
@@ -104,11 +109,12 @@ export async function serverRoutes(app: FastifyInstance) {
       await serverAuthorization(serverId, userId, client);
       await client.query("UPDATE servers SET owner_id=$2,updated_at=now() WHERE id=$1", [serverId, userId]);
       await client.query("UPDATE server_members SET role=CASE WHEN user_id=$2 THEN 'owner' ELSE 'admin' END WHERE server_id=$1 AND user_id=ANY($3::uuid[])", [serverId, userId, [request.auth.id, userId]]);
+      const callEvents = await terminateServerCalls(client, serverId, "permission-changed");
       await writeAudit(client, serverId, request.auth.id, "ownership.transferred", {}, userId);
       const recipients = await serverRecipientIds(serverId, client);
-      return storeEvent(client, recipients, "membership:updated", { serverId, userId, state: "updated" });
+      return { event: await storeEvent(client, recipients, "membership:updated", { serverId, userId, state: "updated" }), callEvents };
     });
-    publishStoredEvent(result); return { success: true };
+    publishStoredEvent(result.event); publishAll(result.callEvents); requestCallMediaDrain(app.log); return { success: true };
   });
 
   app.post("/servers/:serverId/categories", { preHandler: requireAuth }, async (request, reply) => {
@@ -200,11 +206,11 @@ export async function serverRoutes(app: FastifyInstance) {
       const channel = await client.query("SELECT id FROM channels WHERE id=$1 AND server_id=$2 FOR UPDATE", [channelId, serverId]);
       if (!channel.rowCount) throw notFound("Channel not found");
       const recipients = await channelRecipientIds(channelId, client);
-      await deleteChannelStreams([channelId], client); await client.query("DELETE FROM channels WHERE id=$1", [channelId]);
+      const callEvents = await deleteChannelStreams([channelId], client); await client.query("DELETE FROM channels WHERE id=$1", [channelId]);
       await writeAudit(client, serverId, request.auth.id, "channel.deleted", {}, null, channelId);
-      return storeEvent(client, recipients, "channel:removed", { id: channelId, serverId });
+      return { event: await storeEvent(client, recipients, "channel:removed", { id: channelId, serverId }), callEvents };
     });
-    publishStoredEvent(result); return { success: true };
+    publishStoredEvent(result.event); publishAll(result.callEvents); requestCallMediaDrain(app.log); return { success: true };
   });
 
   app.get("/servers/:serverId/channels/:channelId/overrides", { preHandler: requireAuth }, async (request) => {
@@ -231,7 +237,7 @@ export async function serverRoutes(app: FastifyInstance) {
       await writeAudit(client, serverId, request.auth.id, "channel.everyone-override.updated", body, null, channelId);
       return { item: mapChannelOverride(channelId, "everyone", serverId, body.allow, body.deny), events: await channelVisibilityEvents(channelId, serverId, before, client) };
     });
-    publishAll(result.events); return { item: result.item };
+    publishAll(result.events); requestCallMediaDrain(app.log); return { item: result.item };
   });
 
   app.delete("/servers/:serverId/channels/:channelId/overrides/everyone", { preHandler: requireAuth }, async (request, reply) => {
@@ -245,7 +251,7 @@ export async function serverRoutes(app: FastifyInstance) {
       await writeAudit(client, serverId, request.auth.id, "channel.everyone-override.removed", {}, null, channelId);
       return channelVisibilityEvents(channelId, serverId, before, client);
     });
-    publishAll(events); return reply.status(204).send();
+    publishAll(events); requestCallMediaDrain(app.log); return reply.status(204).send();
   });
 
   app.put("/servers/:serverId/channels/:channelId/overrides/roles/:roleId", { preHandler: requireAuth }, async (request) => {
@@ -267,7 +273,7 @@ export async function serverRoutes(app: FastifyInstance) {
       await writeAudit(client, serverId, request.auth.id, "channel.role-override.updated", body, null, channelId);
       return { item: mapChannelOverride(channelId, "role", roleId, body.allow, body.deny), events: await channelVisibilityEvents(channelId, serverId, before, client) };
     });
-    publishAll(result.events); return { item: result.item };
+    publishAll(result.events); requestCallMediaDrain(app.log); return { item: result.item };
   });
 
   app.delete("/servers/:serverId/channels/:channelId/overrides/roles/:roleId", { preHandler: requireAuth }, async (request, reply) => {
@@ -283,7 +289,7 @@ export async function serverRoutes(app: FastifyInstance) {
       await writeAudit(client, serverId, request.auth.id, "channel.role-override.removed", {}, null, channelId);
       return channelVisibilityEvents(channelId, serverId, before, client);
     });
-    publishAll(events); return reply.status(204).send();
+    publishAll(events); requestCallMediaDrain(app.log); return reply.status(204).send();
   });
 
   app.put("/servers/:serverId/channels/:channelId/overrides/members/:userId", { preHandler: requireAuth }, async (request) => {
@@ -305,7 +311,7 @@ export async function serverRoutes(app: FastifyInstance) {
       await writeAudit(client, serverId, request.auth.id, "channel.member-override.updated", body, userId, channelId);
       return { item: mapChannelOverride(channelId, "member", userId, body.allow, body.deny), events: await channelVisibilityEvents(channelId, serverId, before, client) };
     });
-    publishAll(result.events); return { item: result.item };
+    publishAll(result.events); requestCallMediaDrain(app.log); return { item: result.item };
   });
 
   app.delete("/servers/:serverId/channels/:channelId/overrides/members/:userId", { preHandler: requireAuth }, async (request, reply) => {
@@ -321,7 +327,7 @@ export async function serverRoutes(app: FastifyInstance) {
       await writeAudit(client, serverId, request.auth.id, "channel.member-override.removed", {}, userId, channelId);
       return channelVisibilityEvents(channelId, serverId, before, client);
     });
-    publishAll(events); return reply.status(204).send();
+    publishAll(events); requestCallMediaDrain(app.log); return reply.status(204).send();
   });
 
   app.get("/servers/:serverId/members", { preHandler: requireAuth }, async (request) => {
@@ -371,10 +377,11 @@ export async function serverRoutes(app: FastifyInstance) {
       if (body.roleIds) await validateAssignableRoles(serverId, body.roleIds, actor, client);
       if (body.role) await client.query("UPDATE server_members SET role=$3 WHERE server_id=$1 AND user_id=$2", [serverId, userId, body.role]);
       if (body.roleIds) await replaceMemberRoles(serverId, userId, body.roleIds, request.auth.id, client);
+      const callEvents = body.role || body.roleIds ? await terminateServerCalls(client, serverId, "permission-changed") : [];
       await writeAudit(client, serverId, request.auth.id, "member.updated", body, userId);
-      return storeEvent(client, await serverRecipientIds(serverId, client), "membership:updated", { serverId, userId, state: "updated" });
+      return { event: await storeEvent(client, await serverRecipientIds(serverId, client), "membership:updated", { serverId, userId, state: "updated" }), callEvents };
     });
-    publishStoredEvent(result); return { success: true };
+    publishStoredEvent(result.event); publishAll(result.callEvents); requestCallMediaDrain(app.log); return { success: true };
   });
 
   app.delete("/servers/:serverId/members/:userId", { preHandler: requireAuth }, async (request) => {
@@ -389,13 +396,14 @@ export async function serverRoutes(app: FastifyInstance) {
         const target = await serverAuthorization(serverId, userId, client);
         if (!mayManageMember(actor, target)) throw forbidden("You cannot remove this server member");
       }
+      const callEvents = await terminateServerCalls(client, serverId, userId === request.auth.id ? "member-left" : "member-kicked");
       const deleted = await client.query("DELETE FROM server_members WHERE server_id=$1 AND user_id=$2 AND role<>'owner'", [serverId, userId]);
       if (!deleted.rowCount) throw notFound("Server member not found");
       await writeAudit(client, serverId, request.auth.id, userId === request.auth.id ? "member.left" : "member.kicked", {}, userId);
       const recipients = [userId, ...await serverRecipientIds(serverId, client)];
-      return storeEvent(client, [...new Set(recipients)], "membership:updated", { serverId, userId, state: "removed" });
+      return { event: await storeEvent(client, [...new Set(recipients)], "membership:updated", { serverId, userId, state: "removed" }), callEvents };
     });
-    publishStoredEvent(result); return { success: true };
+    publishStoredEvent(result.event); publishAll(result.callEvents); requestCallMediaDrain(app.log); return { success: true };
   });
 
   app.get("/servers/:serverId/bans", { preHandler: requireAuth }, async (request) => {
@@ -425,11 +433,12 @@ export async function serverRoutes(app: FastifyInstance) {
         [serverId, userId, request.auth.id, body.reason],
       );
       if (!inserted.rowCount) throw conflict("User is already banned");
+      const callEvents = await terminateServerCalls(client, serverId, "member-banned");
       await client.query("DELETE FROM server_members WHERE server_id=$1 AND user_id=$2", [serverId, userId]);
       await writeAudit(client, serverId, request.auth.id, "member.banned", { reason: body.reason }, userId);
-      return storeEvent(client, [userId, ...await serverRecipientIds(serverId, client)], "membership:updated", { serverId, userId, state: "removed" });
+      return { event: await storeEvent(client, [userId, ...await serverRecipientIds(serverId, client)], "membership:updated", { serverId, userId, state: "removed" }), callEvents };
     });
-    publishStoredEvent(result); return reply.status(201).send({ success: true });
+    publishStoredEvent(result.event); publishAll(result.callEvents); requestCallMediaDrain(app.log); return reply.status(201).send({ success: true });
   });
 
   app.delete("/servers/:serverId/bans/:userId", { preHandler: requireAuth }, async (request) => {
@@ -482,10 +491,11 @@ export async function serverRoutes(app: FastifyInstance) {
         [roleId, serverId, body.name ?? null, body.color !== undefined, body.color ?? null, body.permissions ?? null, body.position ?? null],
       );
       await writeAudit(client, serverId, request.auth.id, "role.updated", body, null, roleId);
+      const callEvents = body.permissions !== undefined ? await terminateServerCalls(client, serverId, "permission-changed") : [];
       const role = mapRole(updated.rows[0]!);
-      return { role, event: await storeEvent(client, await serverRecipientIds(serverId, client), "server-role:updated", role) };
+      return { role, event: await storeEvent(client, await serverRecipientIds(serverId, client), "server-role:updated", role), callEvents };
     });
-    publishStoredEvent(result.event); return { role: result.role };
+    publishStoredEvent(result.event); publishAll(result.callEvents); requestCallMediaDrain(app.log); return { role: result.role };
   });
 
   app.delete("/servers/:serverId/roles/:roleId", { preHandler: requireAuth }, async (request) => {
@@ -496,10 +506,11 @@ export async function serverRoutes(app: FastifyInstance) {
       const role = await loadRoleForUpdate(serverId, roleId, client);
       if (!mayAssignRole(actor, role.position)) throw forbidden("You cannot delete this role");
       await client.query("DELETE FROM server_roles WHERE id=$1 AND server_id=$2", [roleId, serverId]);
+      const callEvents = await terminateServerCalls(client, serverId, "permission-changed");
       await writeAudit(client, serverId, request.auth.id, "role.deleted", { name: role.name }, null, roleId);
-      return storeEvent(client, await serverRecipientIds(serverId, client), "server-role:removed", { id: roleId, serverId });
+      return { event: await storeEvent(client, await serverRecipientIds(serverId, client), "server-role:removed", { id: roleId, serverId }), callEvents };
     });
-    publishStoredEvent(event); return { success: true };
+    publishStoredEvent(event.event); publishAll(event.callEvents); requestCallMediaDrain(app.log); return { success: true };
   });
 
   app.get("/servers/:serverId/audit-log", { preHandler: requireAuth }, async (request) => {
@@ -606,10 +617,11 @@ async function channelRecipientIds(channelId: string, client: Pick<DbClient, "qu
 }
 
 async function channelVisibilityEvents(channelId: string, serverId: string, before: string[], client: DbClient): Promise<StoredEvent[]> {
+  const callEvents = await terminateChannelCalls(client, [channelId], "permission-changed");
   const after = await channelRecipientIds(channelId, client);
   const afterSet = new Set(after);
   const removed = before.filter((userId) => !afterSet.has(userId));
-  const events: StoredEvent[] = [];
+  const events: StoredEvent[] = [...callEvents];
   if (removed.length) events.push(await storeEvent(client, removed, "channel:removed", { id: channelId, serverId }));
   if (after.length) {
     const channel = await loadChannelSummary(channelId, after[0]!, client);
@@ -655,12 +667,14 @@ async function writeAudit(client: Pick<DbClient, "query">, serverId: string, act
   await client.query("INSERT INTO server_audit_log(server_id,actor_id,action,target_user_id,target_entity_id,metadata) VALUES ($1,$2,$3,$4,$5,$6)", [serverId, actorId, action, targetUserId, targetEntityId, metadata]);
 }
 
-async function deleteChannelStreams(ids: string[], client: Pick<DbClient, "query">) {
-  if (!ids.length) return;
+async function deleteChannelStreams(ids: string[], client: DbClient): Promise<StoredEvent[]> {
+  if (!ids.length) return [];
+  const callEvents = await terminateChannelCalls(client, ids, "channel-deleted");
   await client.query("DELETE FROM messages WHERE stream_kind='channel' AND stream_id=ANY($1::uuid[])", [ids]);
-  for (const table of ["read_states", "chat_drafts", "chat_folder_streams", "scheduled_messages", "call_sessions", "stream_notification_settings"] as const) {
+  for (const table of ["read_states", "chat_drafts", "chat_folder_streams", "scheduled_messages", "stream_notification_settings"] as const) {
     await client.query(`DELETE FROM ${table} WHERE stream_kind='channel' AND stream_id=ANY($1::uuid[])`, [ids]);
   }
+  return callEvents;
 }
 
 function publishAll(events: StoredEvent[]) { events.forEach(publishStoredEvent); }

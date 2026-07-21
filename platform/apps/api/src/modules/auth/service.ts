@@ -64,11 +64,10 @@ export async function register(input: LoginInput & { email: string }) {
     if (existing.rows[0]?.email_taken) throw conflict("Email is already in use");
 
     const userId = newId();
-    const isFirst = (await client.query<{ count: string }>("SELECT count(*)::text AS count FROM users WHERE deleted_at IS NULL")).rows[0]?.count === "0";
     await client.query(
       `INSERT INTO users(id, email, username, display_name, avatar_color, is_admin)
-       VALUES ($1,$2,$3,$3,$4,$5)`,
-      [userId, input.email, input.username, avatarColor(userId), isFirst],
+       VALUES ($1,$2,$3,$3,$4,false)`,
+      [userId, input.email, input.username, avatarColor(userId)],
     );
     await client.query(
       "INSERT INTO credentials(user_id, password_hash, algorithm) VALUES ($1,$2,'argon2id')",
@@ -113,7 +112,7 @@ async function getUserWithCredential(client: DbClient, username: string) {
     `SELECT u.id,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin,
             (extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms,
             c.password_hash,c.algorithm
-     FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.username=$1 AND u.deleted_at IS NULL`,
+     FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.username=$1 AND u.deleted_at IS NULL AND u.suspended_at IS NULL`,
     [username],
   );
   return result.rows[0];
@@ -146,7 +145,7 @@ export async function refresh(refreshToken: string) {
       `SELECT s.id,s.user_id,s.platform,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin,
               (extract(epoch from u.last_seen_at)*1000)::bigint::float8 AS last_seen_at_ms
        FROM device_sessions s JOIN users u ON u.id=s.user_id
-       WHERE s.refresh_token_hash=$1 AND u.deleted_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > now() FOR UPDATE`,
+       WHERE s.refresh_token_hash=$1 AND u.deleted_at IS NULL AND u.suspended_at IS NULL AND s.revoked_at IS NULL AND s.expires_at > now() FOR UPDATE`,
       [hashOpaqueToken(refreshToken)],
     );
     const row = result.rows[0];
@@ -185,7 +184,7 @@ export async function authenticateAccessToken(token: string): Promise<Authentica
     }>(
       `SELECT u.id,u.username,u.display_name,u.avatar_attachment_id,u.avatar_color,u.bio,u.status_text,u.is_admin
        FROM users u JOIN device_sessions s ON s.user_id=u.id
-       WHERE u.id=$1 AND u.deleted_at IS NULL AND s.id=$2 AND s.revoked_at IS NULL AND s.expires_at > now()`,
+       WHERE u.id=$1 AND u.deleted_at IS NULL AND u.suspended_at IS NULL AND s.id=$2 AND s.revoked_at IS NULL AND s.expires_at > now()`,
       [payload.sub, payload.sid],
     );
     const user = result.rows[0];

@@ -15,6 +15,7 @@
     "test": "tsx --test src/**/*.test.ts",
     "start": "node dist/index.js",
     "db:migrate": "tsx src/commands/migrate.ts",
+    "admin:bootstrap": "tsx src/commands/bootstrap-admin.ts",
     "import:legacy": "tsx src/commands/import-legacy.ts",
     "import:legacy:prod": "node dist/commands/import-legacy.js"
   },

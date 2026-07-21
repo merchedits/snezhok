@@ -6,8 +6,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
+import { validateAndroidEvidence } from "../compliance/validate-android-evidence.mjs";
 
 const FORBIDDEN_RELEASE_CLASSES = ["expo.modules.devlauncher", "expo.modules.devmenu"];
+const REQUIRED_LEGAL_ASSETS = [
+  "/assets/legal/LICENSE.txt",
+  "/assets/legal/THIRD_PARTY_NOTICES.txt",
+  "/assets/legal/android/ANDROID_THIRD_PARTY_NOTICES.txt",
+  "/assets/legal/android/android-dependencies.json",
+  "/assets/legal/android/snezhok-android.cdx.json",
+];
 
 export function parseArguments(values) {
   const result = {};
@@ -118,7 +126,7 @@ async function main() {
   const expectedPackage = args.package ?? manifest?.applicationId ?? "xyz.merchedits.snezhok";
   const expectedVersion = args.version ?? manifest?.version;
   const expectedVersionCode = Number(args["version-code"] ?? manifest?.versionCode);
-  const expectedArchitectures = String(args.architectures ?? manifest?.architectures?.join(",") ?? "arm64-v8a").split(",").map((value) => value.trim()).filter(Boolean).sort();
+  const expectedArchitectures = String(args.architectures ?? manifest?.architectures?.join(",") ?? "arm64-v8a,armeabi-v7a").split(",").map((value) => value.trim()).filter(Boolean).sort();
   const expectedCertificate = String(args["certificate-sha256"] ?? manifest?.signingCertificateSha256 ?? process.env.SNEZHOK_EXPECTED_CERT_SHA256 ?? "").replaceAll(":", "").toLowerCase();
 
   const apkanalyzer = findAndroidTool("apkanalyzer");
@@ -145,6 +153,27 @@ async function main() {
   if (/android:(?:debuggable|testOnly)="true"/.test(manifestXml)) failures.push("manifest is debuggable or test-only");
   for (const forbidden of FORBIDDEN_RELEASE_CLASSES) {
     if (packages.includes(forbidden)) failures.push(`forbidden development package is linked: ${forbidden}`);
+  }
+  for (const legalAsset of REQUIRED_LEGAL_ASSETS) {
+    if (!files.split(/\r?\n/).includes(legalAsset)) failures.push(`required legal asset is missing: ${legalAsset}`);
+  }
+  if (!failures.some((failure) => failure.startsWith("required legal asset is missing:"))) {
+    try {
+      const inventory = JSON.parse(run(apkanalyzer, ["files", "cat", "--file", "/assets/legal/android/android-dependencies.json", apk]));
+      const cdx = JSON.parse(run(apkanalyzer, ["files", "cat", "--file", "/assets/legal/android/snezhok-android.cdx.json", apk]));
+      const notices = run(apkanalyzer, ["files", "cat", "--file", "/assets/legal/android/ANDROID_THIRD_PARTY_NOTICES.txt", apk]);
+      const packagedTextPaths = files.split(/\r?\n/)
+        .filter((file) => file.startsWith("/assets/legal/android/"))
+        .map((file) => file.slice("/assets/legal/android/".length))
+        .filter((file) => file.startsWith("texts/"));
+      const packagedFiles = new Map(packagedTextPaths.map((file) => [
+        file,
+        run(apkanalyzer, ["files", "cat", "--file", `/assets/legal/android/${file}`, apk]),
+      ]));
+      failures.push(...validateAndroidEvidence(inventory, cdx, notices, packagedFiles, manifest?.sourceRevision ?? args.revision));
+    } catch (error) {
+      failures.push(`packaged Android dependency evidence cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   if (!certificate) failures.push("APK signing certificate could not be read");
   if (!/Verified using v(?:2|3|3\.1) scheme[^:]*:\s*true/i.test(signatureOutput)) failures.push("APK has no verified modern v2/v3 signing scheme");

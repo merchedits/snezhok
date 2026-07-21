@@ -46,6 +46,11 @@ not an acceptable substitute.
   lock screen. Users can disable previews globally or per stream.
 - Run dependency, migration, restore, artifact-signature, and attachment
   authorization gates for every release.
+- Run `npm run compliance:check` before review. CI keeps the committed-secret
+  scanner redacted, emits CycloneDX/license evidence, verifies public GPL source
+  reachability on pushed release builds, and blocks fixable high/critical
+  container vulnerabilities. A reported secret must be revoked before it is
+  removed from history; deleting the line alone is not incident response.
 
 ## Deletion and retention
 

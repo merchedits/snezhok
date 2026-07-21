@@ -13,6 +13,7 @@ COMPOSE_FILE=${COMPOSE_FILE:-$PLATFORM_ROOT/docker-compose.production.yml}
 BACKUP_ROOT=${BACKUP_ROOT:-/var/backups/snezhok}
 MEDIA_ROOT=${MEDIA_ROOT:-$PLATFORM_ROOT/data-v3/storage}
 AGE_RECIPIENT_FILE=${AGE_RECIPIENT_FILE:-}
+AGE_IDENTITY_FILE=${AGE_IDENTITY_FILE:-}
 BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
 BACKUP_KEEP_COUNT=${BACKUP_KEEP_COUNT:-14}
 BACKUP_REQUIRE_MOUNT=${BACKUP_REQUIRE_MOUNT:-1}
@@ -21,8 +22,9 @@ require_absolute_safe_directory "$BACKUP_ROOT" BACKUP_ROOT
 require_absolute_safe_directory "$MEDIA_ROOT" MEDIA_ROOT
 [[ -f "$COMPOSE_FILE" ]] || die "compose file does not exist: $COMPOSE_FILE"
 [[ -n "$AGE_RECIPIENT_FILE" ]] || die "AGE_RECIPIENT_FILE is mandatory; plaintext backups are forbidden"
-require_recipient_file_permissions "$AGE_RECIPIENT_FILE"
-for command in age awk cp df docker du find flock mktemp mountpoint sha256sum sort stat sync tar tr zstd; do require_command "$command"; done
+[[ -n "$AGE_IDENTITY_FILE" ]] || die "AGE_IDENTITY_FILE is mandatory so recovery encryption cannot drift"
+for command in age age-keygen awk cp df docker du find flock mktemp mountpoint realpath sha256sum sort stat sync tar tr zstd; do require_command "$command"; done
+require_matching_age_identity "$AGE_RECIPIENT_FILE" "$AGE_IDENTITY_FILE"
 [[ -d "$MEDIA_ROOT/objects" ]] || die "immutable media object directory does not exist: $MEDIA_ROOT/objects"
 if find "$MEDIA_ROOT/objects" -type l -print -quit | grep -q .; then
   die "media object directory contains symbolic links; refusing to archive it"
@@ -120,8 +122,8 @@ tar --numeric-owner --one-file-system -C "$snapshot_parent/media" -cf - objects 
   | zstd --quiet --threads=0 --adapt=min=1,max=5 \
   | age --encrypt --recipients-file "$AGE_RECIPIENT_FILE" --output "$incomplete_dir/media.tar.zst.age"
 
-revision=$(git -C "$PLATFORM_ROOT" rev-parse --verify HEAD 2>/dev/null || printf 'unknown')
-[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || revision=unknown
+revision=${SNEZHOK_SOURCE_REVISION:-$(git -C "$PLATFORM_ROOT" rev-parse --verify HEAD 2>/dev/null || true)}
+[[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die "SNEZHOK_SOURCE_REVISION must be the exact deployed public commit"
 cat >"$incomplete_dir/manifest.env" <<EOF
 SNEZHOK_BACKUP_FORMAT=2
 CREATED_AT=$timestamp

@@ -4,6 +4,8 @@ import { io, type Socket } from "socket.io-client";
 
 import type { ClientToServerEvents, ServerToClientEvents } from "@snezhok/contracts";
 
+import { receiveCallUpdate } from "../calls/callSessionBridge";
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { API_URL } from "../lib/api";
 import { readSession } from "../lib/secureSession";
 import { bindRealtimeSocket, receiveRealtimeTyping, rejoinRequestedStreams } from "../lib/realtimeBridge";
@@ -62,11 +64,12 @@ export function useRealtime(enabled: boolean): void {
       socket.on("sync:ready", ({ cursor }) => setEventCursor(cursor));
       socket.on("message:created", (message) => {
         applyMessage(message, "created");
-        if (!message.silent) void notifyIncomingMessage(message).catch((error) => console.warn("Message notification failed", error));
+        if (!message.silent) void notifyIncomingMessage(message).catch((error: unknown) => recordDiagnostic("warn", "notifications", "Message notification failed", { errorName: diagnosticErrorName(error) }));
       });
       socket.on("message:updated", (message) => applyMessage(message, "updated"));
       socket.on("call:updated", (payload) => {
-        void handleCallUpdate(payload).catch((error) => console.warn("Call notification failed", error));
+        receiveCallUpdate(payload);
+        void handleCallUpdate(payload).catch((error: unknown) => recordDiagnostic("warn", "notifications", "Call notification failed", { errorName: diagnosticErrorName(error) }));
       });
       socket.on("message:deleted", applyMessageDeleted);
       socket.on("read:updated", applyReadReceipt);
@@ -92,4 +95,8 @@ export function useRealtime(enabled: boolean): void {
       socket?.disconnect();
     };
   }, [applyConversation, applyMessage, applyMessageDeleted, applyPresence, applyReadReceipt, enabled, refreshBootstrap, removeConversation, setEventCursor]);
+}
+
+function diagnosticErrorName(error: unknown): string {
+  return error instanceof Error && error.name ? error.name.slice(0, 80) : "UnknownError";
 }

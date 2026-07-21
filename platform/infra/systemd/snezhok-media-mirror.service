@@ -1,0 +1,20 @@
+[Unit]
+Description=Synchronize immutable Snezhok media to encrypted recovery storage
+RequiresMountsFor=/var/backups/snezhok
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=merchedits
+Group=merchedits
+EnvironmentFile=-/etc/snezhok/maintenance.env
+ExecStart=/usr/bin/bash /home/merchedits/sites/snezhok-v3/platform/scripts/maintenance/sync-encrypted-media.sh
+StateDirectory=snezhok-maintenance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/backups/snezhok /var/lib/snezhok-maintenance
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=6h

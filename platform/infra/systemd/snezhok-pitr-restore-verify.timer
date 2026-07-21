@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify the weekly Snezhok PITR recovery chain
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00 UTC
+RandomizedDelaySec=20min
+Persistent=true
+Unit=snezhok-pitr-restore-verify.service
+
+[Install]
+WantedBy=timers.target

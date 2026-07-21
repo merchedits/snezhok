@@ -4,7 +4,8 @@ import { pool, transaction } from "../../db/pool.js";
 import { conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { publishStoredEvent, storeEvent } from "../realtime/events.js";
-import { findUser, mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
+import { findUser, mapContactUser, mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
+import { terminateDirectCallsBetween } from "../calls/mediaControl.js";
 
 export async function listFriends(userId: string, client: Pick<DbClient, "query"> = pool): Promise<FriendEntry[]> {
   const result = await client.query<PublicUserRow & { relationship: FriendEntry["relationship"]; request_id: string | null }>(
@@ -17,7 +18,7 @@ export async function listFriends(userId: string, client: Pick<DbClient, "query"
        UNION ALL SELECT b.blocked_id,'blocked',NULL::uuid FROM user_blocks b WHERE b.blocker_id=$1
      ) x JOIN users u ON u.id=x.user_id AND u.deleted_at IS NULL ORDER BY u.display_name`, [userId]);
   return result.rows.map((row) => {
-    const mapped = mapUser(row);
+    const mapped = row.relationship === "friend" ? mapContactUser(row) : mapUser(row);
     const user = row.relationship === "blocked"
       ? { ...mapped, avatarUrl: null, bio: "", statusText: "", presence: "offline" as const, lastSeenAt: 0 }
       : mapped;
@@ -94,7 +95,9 @@ export async function blockUser(userId: string, otherId: string) {
     await client.query("DELETE FROM friendships WHERE user_low_id=$1 AND user_high_id=$2", [low, high]);
     await client.query("UPDATE friend_requests SET status='cancelled',responded_at=now() WHERE status='pending' AND ((sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1))", [userId, otherId]);
     await client.query("INSERT INTO user_blocks(blocker_id,blocked_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", [userId, otherId]);
+    const callEvents = await terminateDirectCallsBetween(client, userId, otherId, "user-blocked");
     return [
+      ...callEvents,
       await storeEvent(client, [userId, otherId], "friend:removed", (recipient: string) => ({ userId: recipient === userId ? otherId : userId })),
       await storeEvent(client, [userId, otherId], "presence:updated", (recipient: string) => ({ userId: recipient === userId ? otherId : userId, presence: "offline", lastSeenAt: 0 })),
     ];
@@ -110,7 +113,7 @@ export async function unblockUser(userId: string, otherId: string) {
 async function entryFor(client: DbClient, ownerId: string, otherId: string, relationship: FriendEntry["relationship"], requestId: string | null): Promise<FriendEntry> {
   const user = await findUser(otherId, client);
   if (!user) throw notFound("User not found");
-  return { user: mapUser(user), relationship, ...(requestId ? { requestId } : {}) };
+  return { user: relationship === "friend" ? mapContactUser(user) : mapUser(user), relationship, ...(requestId ? { requestId } : {}) };
 }
 
 async function pairExists(client: DbClient, table: "friendships", a: string, b: string) {

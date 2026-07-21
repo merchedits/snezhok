@@ -26,6 +26,8 @@ export interface UserSummary {
   statusText: string;
   presence: Presence;
   lastSeenAt: Timestamp;
+  /** Present only for the authenticated account. Never exposed on public profiles. */
+  isAdmin?: boolean;
 }
 
 export interface ProfilePhoto {
@@ -269,7 +271,7 @@ export interface AppSettings {
 }
 
 export interface BootstrapPayload {
-  me: UserSummary;
+  me: UserSummary & { isAdmin: boolean };
   conversations: ConversationSummary[];
   servers: ServerSummary[];
   categories: ChannelCategory[];

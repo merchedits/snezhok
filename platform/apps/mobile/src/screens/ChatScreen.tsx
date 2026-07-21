@@ -498,13 +498,15 @@ export function ChatScreen({ navigation, route }: Props) {
         showDialog(t("requestFailed"), userFacingError(error, t));
       }
     };
+    const canDeleteForEveryone = selectedMessages.every((message) => message.sender.id === me?.id)
+      || (streamKind === "conversation" && !isGroup);
     showDialog(
       t("deleteMessagesTitle", { count: selectedMessages.length }),
       t("deleteMessagesAudience"),
       [
         { text: t("cancel"), style: "cancel" },
         { text: t("deleteForMe"), onPress: () => void remove("me") },
-        { text: t("deleteForEveryone"), style: "destructive", onPress: () => void remove("everyone") },
+        ...(canDeleteForEveryone ? [{ text: t("deleteForEveryone"), style: "destructive" as const, onPress: () => void remove("everyone") }] : []),
       ],
     );
   };
@@ -586,10 +588,9 @@ export function ChatScreen({ navigation, route }: Props) {
       </View>
       {selectedIds.size > 0 ? <View style={[styles.selectionToolbar, { paddingBottom: Math.max(insets.bottom, 8), borderColor: palette.border, backgroundColor: palette.background }]}>
         {clipboardText ? <SelectionAction icon="copy-outline" label={t("copy")} onPress={() => void copySelected()} /> : null}
-        {editableMessage ? <SelectionAction icon="create-outline" label={t("editMessage")} onPress={beginEditing} /> : null}
         <SelectionAction icon="return-up-forward-outline" label={t("forward")} onPress={() => setForwardPicker(true)} />
-        <SelectionAction icon={selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "pin-outline" : "pin"} label={t(selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "unpinMessage" : "pinMessage")} onPress={() => void toggleSelectedPins()} />
-        <SelectionAction danger icon="trash-outline" label={t("deleteMessage")} onPress={confirmDeleteSelected} />
+        <SelectionAction icon={selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "pin-outline" : "pin"} label={t(selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "unpinAction" : "pinAction")} onPress={() => void toggleSelectedPins()} />
+        <SelectionAction danger icon="trash-outline" label={t("deleteAction")} onPress={confirmDeleteSelected} />
       </View> : <>
         <TypingIndicator streamId={streamId} participants={typingParticipants} reducedMotion={reducedMotion} />
         {suggestedMentions.length ? <MentionSuggestions participants={suggestedMentions} onSelect={chooseMention} /> : null}

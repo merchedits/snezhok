@@ -3,6 +3,8 @@ import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
 import type { BootstrapPayload, Message } from "@snezhok/contracts";
 
+import { recordDiagnostic } from "../diagnostics/diagnostics";
+
 import type { CachedState, OutboxEntry } from "../types";
 import {
   cachedStreamDelta,
@@ -19,6 +21,8 @@ const CACHE_KEY = "@snezhok/cache/v2";
 const LEGACY_CACHE_KEY = "@snezhok/cache/v1";
 const OUTBOX_KEY = "@snezhok/outbox/v1";
 const DRAFTS_KEY = "@snezhok/drafts/v1";
+const DRAFT_DIRTY_KEY = "@snezhok/drafts-dirty/v1";
+const OWNER_KEY = "@snezhok/offline-owner/v1";
 const MIGRATION_KEY = "async_storage_v2_migrated";
 
 const EMPTY_CACHE: CachedState = { bootstrap: null, messages: {}, cachedAt: 0 };
@@ -39,6 +43,7 @@ interface StoredMessageRow extends CachedMessageRow {
 }
 
 let databasePromise: Promise<SQLiteDatabase> | null = null;
+let ownerQueue: Promise<void> = Promise.resolve();
 
 function database(): Promise<SQLiteDatabase> {
   databasePromise ??= openDatabaseAsync(DATABASE_NAME).then(async (db) => {
@@ -208,6 +213,14 @@ export async function readCache(): Promise<CachedState> {
     if (bootstrapRow) {
       try { bootstrap = JSON.parse(bootstrapRow.value) as CachedState["bootstrap"]; } catch { bootstrap = null; }
     }
+    const ownerRow = await db.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = 'owner_id'");
+    if (bootstrap && ownerRow?.value && ownerRow.value !== bootstrap.me.id) {
+      await db.withExclusiveTransactionAsync(async (transaction) => {
+        await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
+      });
+      return EMPTY_CACHE;
+    }
+    if (bootstrap && !ownerRow) await writeMetadata(db, "owner_id", bootstrap.me.id);
 
     const selectedStreams = startupStreamIds(bootstrap);
     const [importantRows, startupRows] = await Promise.all([
@@ -220,7 +233,7 @@ export async function readCache(): Promise<CachedState> {
       cachedAt: Number(cachedAtRow?.value) || 0,
     };
   } catch (error) {
-    console.warn("Could not read SQLite offline cache", error);
+    recordDiagnostic("warn", "storage", "SQLite cache unavailable; using legacy cache", { error });
     const [currentRaw, legacyRaw] = await AsyncStorage.multiGet([CACHE_KEY, LEGACY_CACHE_KEY]);
     return parseLegacyCache(currentRaw?.[1] ?? legacyRaw?.[1] ?? null) ?? EMPTY_CACHE;
   }
@@ -304,9 +317,56 @@ export async function writeDrafts(drafts: Record<string, string>): Promise<void>
   await AsyncStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
 }
 
+export async function readDirtyDraftIds(): Promise<string[]> {
+  const raw = await AsyncStorage.getItem(DRAFT_DIRTY_KEY);
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
+  } catch { return []; }
+}
+
+export async function writeDirtyDraftIds(ids: Iterable<string>): Promise<void> {
+  await AsyncStorage.setItem(DRAFT_DIRTY_KEY, JSON.stringify([...new Set(ids)]));
+}
+
 export async function clearLocalData(): Promise<void> {
   const clearDatabase = database().then((db) => db.withExclusiveTransactionAsync(async (transaction) => {
     await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
-  })).catch((error) => console.warn("Could not clear SQLite offline cache", error));
-  await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY])]);
+  })).catch((error) => recordDiagnostic("warn", "storage", "SQLite cache clear failed", { error }));
+  await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY, OWNER_KEY])]);
+}
+
+/** Serializes account changes so durable data cannot bleed between logins. */
+export function ensureOfflineOwner(ownerId: string): Promise<void> {
+  ownerQueue = ownerQueue.catch(() => undefined).then(async () => {
+    const db = await database();
+    const storageOwner = await AsyncStorage.getItem(OWNER_KEY);
+    let changed = false;
+    await db.withExclusiveTransactionAsync(async (transaction) => {
+      const row = await transaction.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = 'owner_id'");
+      const bootstrapRow = await transaction.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = 'bootstrap'");
+      let bootstrapOwner: string | null = null;
+      try {
+        const bootstrap = bootstrapRow?.value ? JSON.parse(bootstrapRow.value) as Partial<BootstrapPayload> : null;
+        bootstrapOwner = bootstrap?.me?.id ?? null;
+      } catch {
+        // Invalid account metadata is unowned and therefore cannot be reused.
+        bootstrapOwner = bootstrapRow?.value ? "__invalid__" : null;
+      }
+      changed = Boolean(
+        (!row?.value && !storageOwner)
+        || (row?.value && row.value !== ownerId)
+        || (storageOwner && storageOwner !== ownerId)
+        || (bootstrapOwner && bootstrapOwner !== ownerId),
+      );
+      if (changed) await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
+      await writeMetadata(transaction, "owner_id", ownerId);
+    });
+    if (changed || (storageOwner && storageOwner !== ownerId)) {
+      await AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY]);
+    }
+    await AsyncStorage.setItem(OWNER_KEY, ownerId);
+  });
+  return ownerQueue;
 }

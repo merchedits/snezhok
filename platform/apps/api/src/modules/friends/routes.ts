@@ -3,6 +3,7 @@ import { friendRequestSchema } from "@snezhok/contracts";
 import { z } from "zod";
 import { requireAuth } from "../auth/middleware.js";
 import { blockUser, cancelRequest, listFriends, removeFriend, requestFriend, respondFriend, unblockUser } from "./service.js";
+import { requestCallMediaDrain } from "../calls/mediaControl.js";
 
 const idParams = z.object({ id: z.string().uuid() });
 const respondSchema = z.object({ action: z.enum(["accept", "decline"]) });
@@ -16,6 +17,6 @@ export async function friendRoutes(app: FastifyInstance) {
   });
   app.delete("/friends/requests/:id", { preHandler: requireAuth }, async (request) => { await cancelRequest(request.auth.id, idParams.parse(request.params).id); return { success: true }; });
   app.delete("/friends/:id", { preHandler: requireAuth }, async (request) => { await removeFriend(request.auth.id, idParams.parse(request.params).id); return { success: true }; });
-  app.post("/friends/:id/block", { preHandler: requireAuth }, async (request) => { await blockUser(request.auth.id, idParams.parse(request.params).id); return { success: true }; });
+  app.post("/friends/:id/block", { preHandler: requireAuth }, async (request) => { await blockUser(request.auth.id, idParams.parse(request.params).id); requestCallMediaDrain(app.log); return { success: true }; });
   app.delete("/friends/:id/block", { preHandler: requireAuth }, async (request) => { await unblockUser(request.auth.id, idParams.parse(request.params).id); return { success: true }; });
 }

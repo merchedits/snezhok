@@ -12,10 +12,12 @@ node_modules
 apps/*/dist/
 .drizzle
 platform/**/dist/
+platform/build/
 platform/**/.expo/
 platform/**/.gradle/
 platform/**/android/.cxx/
 platform/**/android/app/build/
+platform/**/android/build/
 platform/**/android/local.properties
 platform/**/*.jks
 platform/**/*.keystore

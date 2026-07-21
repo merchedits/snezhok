@@ -6,13 +6,15 @@ import { setupRealtime } from "./modules/realtime/socket.js";
 import { startPushDeliveryWorker } from "./modules/notifications/pushWorker.js";
 import { startScheduledMessageDelivery } from "./modules/productivity/scheduler.js";
 import { startReliabilityMaintenance } from "./modules/reliability/cleanup.js";
+import { startCallMediaControlWorker } from "./modules/calls/mediaControl.js";
 
-await migrate();
+if (config.RUN_MIGRATIONS) await migrate();
 const app = await buildApp();
 const io = await setupRealtime(app.server);
 const stopScheduledMessages = startScheduledMessageDelivery(app.log);
 const stopPushDelivery = startPushDeliveryWorker(app.log);
 const stopReliabilityMaintenance = startReliabilityMaintenance(app.log);
+const stopCallMediaControl = startCallMediaControlWorker(app.log);
 
 await app.listen({ host: config.HOST, port: config.PORT });
 
@@ -23,6 +25,7 @@ async function stop(signal: string) {
   stopScheduledMessages();
   stopPushDelivery();
   stopReliabilityMaintenance();
+  stopCallMediaControl();
   await new Promise<void>((resolve) => io.close(() => resolve()));
   await app.close(); await pool.end();
 }

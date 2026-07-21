@@ -47,4 +47,76 @@ describe("API boundary", () => {
     expect(new Headers(firstChunk[1].headers).get("Content-Type")).toBe("application/offset+octet-stream");
     expect(fetchMock.mock.calls.at(-1)?.[0]).toMatch(/\/complete$/);
   });
+
+  it("uses live account, unblock, and server-member management routes", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockResolvedValueOnce(jsonResponse({ members: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.deleteAccount("secret");
+    await api.unblockUser(id);
+    await api.serverMembers(id);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toMatch(/\/users\/me$/);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ password: "secret" });
+    expect(fetchMock.mock.calls[1]?.[0]).toMatch(/\/friends\/.*\/block$/);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "DELETE" });
+    expect(fetchMock.mock.calls[2]?.[0]).toMatch(/\/servers\/.*\/members$/);
+  });
+
+  it("notifies the server when leaving or ending a call", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.leaveCall(id);
+    await api.endCall(id);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toMatch(/\/calls\/.*\/leave$/);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "POST" });
+    expect(fetchMock.mock.calls[1]?.[0]).toMatch(/\/calls\/.*\/end$/);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("coalesces concurrent unauthorized requests behind one refresh", async () => {
+    let protectedCalls = 0;
+    let refreshCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/refresh")) {
+        refreshCalls += 1;
+        return jsonResponse({ success: true });
+      }
+      protectedCalls += 1;
+      return protectedCalls <= 2 ? jsonResponse({ message: "expired" }, 401) : jsonResponse({ user: { id } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await Promise.all([api.me(), api.me()]);
+
+    expect(refreshCalls).toBe(1);
+    expect(protectedCalls).toBe(4);
+  });
+
+  it("invalidates an in-flight refresh before logout can be followed by a stale retry", async () => {
+    let releaseRefresh!: (response: Response) => void;
+    const refresh = new Promise<Response>((resolve) => { releaseRefresh = resolve; });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/auth/refresh")) return refresh;
+      if (url.endsWith("/auth/logout")) return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(jsonResponse({ message: "expired" }, 401));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = api.me();
+    await vi.waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/refresh"))).toBe(true));
+    await api.logout();
+    releaseRefresh(jsonResponse({ success: true }));
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/me"))).toHaveLength(1);
+  });
 });

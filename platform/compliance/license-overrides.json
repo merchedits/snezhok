@@ -1,0 +1,8 @@
+{
+  "xmlhttprequest-ssl@2.1.2": {
+    "license": "MIT",
+    "source": "https://github.com/mjwwit/node-XMLHttpRequest/blob/2.1.2/LICENSE",
+    "reviewedAt": "2026-07-19",
+    "reason": "npm lock metadata omits the license; the tagged upstream source includes the MIT license."
+  }
+}

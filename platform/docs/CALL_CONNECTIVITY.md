@@ -4,6 +4,45 @@ Snezhok signaling is served at `wss://merchedits.xyz/chat/livekit/`. The SFU
 already exposes direct ICE/UDP on UDP 7882, direct ICE/TCP on TCP 7881, and
 TURN/UDP on UDP 3478 with relay ports UDP 40000-40100.
 
+## Authoritative room lifecycle
+
+Client tokens never create rooms. `room.auto_create` is disabled and the API
+creates each random call room through the production-internal
+`LIVEKIT_CONTROL_URL` before returning a token. In Compose that endpoint is
+`http://host.docker.internal:7880`; it must not be routed through public Nginx.
+The host-gateway entry and loopback-only API port are intentional trust
+boundaries.
+
+LiveKit signs lifecycle webhooks with `LIVEKIT_WEBHOOK_API_KEY` and sends them
+to `http://127.0.0.1:3003/api/v1/livekit/webhook`. The key is injected from the
+same protected API-key environment value and is never written to YAML. Do not
+remove the webhook URL: participant joins are the durable evidence used to
+distinguish a real room from a notification/token phantom.
+
+End, direct decline/direct leave, block, kick, ban, membership and media-grant
+permission mutations commit a durable whole-room termination command in the
+same database transaction as the authorization change. Whole-room termination
+is intentionally conservative: LiveKit cannot revoke a grant for an identity
+which has not joined yet, so removing only a currently connected participant
+would leave an old five-minute token usable. The worker revokes every connected
+participant token before deletion and retries sanitized failures with a lease.
+Calls in which no participant webhook is ever observed expire after
+`CALL_PHANTOM_TIMEOUT_SECONDS` (120 seconds by default). Shared-room local leave
+does not end the room; it only removes that participant. A moderator end ends
+the room for everyone.
+
+The deployment gate must confirm all of the following with two accounts:
+
+1. ending or declining a direct call disconnects both clients and an old token
+   cannot recreate the deleted room;
+2. kicking, banning, blocking or changing `connect`, `speak`, `video` or
+   `screen_share` ends the current room for everyone; authorized members may
+   start or join only the newly created room;
+3. restoring permission allows only a freshly issued token to reconnect;
+4. an unanswered call disappears shortly after the phantom timeout; and
+5. stopping LiveKit leaves pending database commands which complete after it
+   restarts, without logging credentials or response bodies.
+
 The remaining production fallback is TURN/TLS. LiveKit's embedded TURN server
 listens on its configured backend port (5349 here), but advertises TURN/TLS to
 clients as public port 443. Exposing backend port 5349 directly therefore does

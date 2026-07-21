@@ -130,7 +130,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
-      <ScreenHeader title={t("chats")} />
+      <ScreenHeader title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
       <View style={[styles.search, { backgroundColor: palette.surface }]}> 
         <AppIcon name="search" size={18} color={palette.faintText} />
         <TextInput value={search} onChangeText={setSearch} placeholder={t("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} />

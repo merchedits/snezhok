@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -6,6 +6,8 @@ import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { AppIcon } from "./AppIcon";
 import type { ChatFolder } from "../types";
+import { useAppStore } from "../store/useAppStore";
+import { GroupAdminModal } from "./management/GroupAdminModal";
 
 interface ConversationActionsSheetProps {
   visible: boolean;
@@ -31,11 +33,14 @@ export const ConversationActionsSheet = memo(function ConversationActionsSheet({
   const palette = usePalette();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  return <Modal transparent visible={visible} animationType="fade" navigationBarTranslucent={false} onRequestClose={onClose}>
+  const group = useAppStore((state) => state.conversations.find((item) => item.id === conversationId)?.kind === "group");
+  const [manageId, setManageId] = useState<string | null>(null);
+  return <><Modal transparent visible={visible} animationType="fade" navigationBarTranslucent={false} onRequestClose={onClose}>
     <Pressable disabled={busy} onPress={onClose} style={[styles.overlay, { backgroundColor: palette.overlay }]}>
       <Pressable style={[styles.sheet, { backgroundColor: palette.elevated, paddingBottom: Math.max(insets.bottom, 12) }]}>
         <View style={[styles.handle, { backgroundColor: palette.faintText }]} />
         <Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{title}</Text>
+        {group && conversationId ? <SheetAction icon="settings-outline" label={t("settings")} onPress={() => { setManageId(conversationId); onClose(); }} /> : null}
         <SheetAction icon="pin-outline" label={t(pinned ? "unpinChat" : "pinChat")} onPress={onPin} />
         <SheetAction icon="bookmark" label={t(archived ? "unarchiveChat" : "archiveChat")} onPress={onArchive} />
         <SheetAction icon="volume-mute" label={t(muted ? "unmuteChat" : "muteChat")} onPress={onMute} />
@@ -51,10 +56,10 @@ export const ConversationActionsSheet = memo(function ConversationActionsSheet({
         </Pressable>
       </Pressable>
     </Pressable>
-  </Modal>;
+  </Modal><GroupAdminModal visible={manageId !== null} conversationId={manageId} onClose={() => setManageId(null)} /></>;
 });
 
-function SheetAction({ icon, label, onPress }: { icon: "pin-outline" | "bookmark" | "volume-mute" | "checkmark" | "mail-outline"; label: string; onPress: () => void }) {
+function SheetAction({ icon, label, onPress }: { icon: "pin-outline" | "bookmark" | "volume-mute" | "checkmark" | "mail-outline" | "settings-outline"; label: string; onPress: () => void }) {
   const palette = usePalette();
   return <Pressable onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: pressed ? palette.surface : "transparent" }]}><AppIcon name={icon} size={22} color={palette.accent} /><Text style={[styles.actionText, { color: palette.text }]}>{label}</Text></Pressable>;
 }

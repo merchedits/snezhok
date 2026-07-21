@@ -1,0 +1,258 @@
+import groovy.json.JsonOutput
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedDependencyResult
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+
+import java.security.MessageDigest
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
+
+def evidenceOutput = layout.projectDirectory.dir("src/main/assets/legal/android")
+def repositoryRoot = rootProject.file("../../..")
+def overrideFile = new File(repositoryRoot, "compliance/android-license-overrides.json")
+def sourceRevision = providers.environmentVariable("SNEZHOK_SOURCE_REVISION").orElse("development")
+
+def sha256Bytes = { byte[] bytes ->
+  MessageDigest.getInstance("SHA-256").digest(bytes).collect { String.format("%02x", it) }.join()
+}
+def sha256File = { File file ->
+  def digest = MessageDigest.getInstance("SHA-256")
+  file.withInputStream { stream ->
+    byte[] buffer = new byte[65536]
+    for (int read = stream.read(buffer); read >= 0; read = stream.read(buffer)) {
+      if (read > 0) digest.update(buffer, 0, read)
+    }
+  }
+  digest.digest().collect { String.format("%02x", it) }.join()
+}
+def xmlText = { String value ->
+  value.replaceAll(/<[^>]+>/, " ")
+    .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    .replace("&quot;", '"').replace("&apos;", "'").replaceAll(/\s+/, " ").trim()
+}
+def pomLicenses = { File pom ->
+  def xml = pom.getText("UTF-8")
+  def licenses = []
+  def section = (xml =~ /(?s)<licenses(?:\s[^>]*)?>(.*?)<\/licenses>/)
+  if (section.find()) {
+    def rows = (section.group(1) =~ /(?s)<license(?:\s[^>]*)?>(.*?)<\/license>/)
+    while (rows.find()) {
+      def row = rows.group(1)
+      def name = (row =~ /(?s)<name(?:\s[^>]*)?>(.*?)<\/name>/)
+      def url = (row =~ /(?s)<url(?:\s[^>]*)?>(.*?)<\/url>/)
+      licenses << [name: name.find() ? xmlText(name.group(1)) : null, url: url.find() ? xmlText(url.group(1)) : null]
+    }
+  }
+  licenses.findAll { it.name || it.url }
+}
+def inferSpdx = { List declared ->
+  def values = declared.collect { "${it.name ?: ''} ${it.url ?: ''}".toLowerCase(Locale.ROOT) }.join(" ")
+  if (values.contains("apache") && (values.contains("2.0") || values.contains("license-2.0"))) return "Apache-2.0"
+  if (values.contains("mit license") || values.contains("opensource.org/license/mit") || values.contains("opensource.org/licenses/mit")) return "MIT"
+  if (values.contains("bsd 3-clause") || values.contains("bsd-3-clause")) return "BSD-3-Clause"
+  if (values.contains("bsd 2-clause") || values.contains("bsd-2-clause")) return "BSD-2-Clause"
+  if (values.contains("mozilla public license") && values.contains("2.0")) return "MPL-2.0"
+  return null
+}
+def embeddedNotices = { File artifact ->
+  if (!(artifact.name.endsWith(".aar") || artifact.name.endsWith(".jar"))) return []
+  def found = []
+  def isLegalPath = { String name ->
+    name ==~ /(?i)(?:^|.*\/)(?:LICENSE|NOTICE|COPYING|DEPENDENCIES)(?:[._-].*)?/
+  }
+  try {
+    new ZipFile(artifact).withCloseable { zip ->
+      zip.entries().each { entry ->
+        if (!entry.directory && entry.size >= 0 && entry.size <= 4 * 1024 * 1024 &&
+            isLegalPath(entry.name)) {
+          byte[] bytes = zip.getInputStream(entry).withCloseable { it.readAllBytes() }
+          def text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8).replace("\r\n", "\n").trim()
+          if (text) found << [path: entry.name, text: text]
+        } else if (!entry.directory && entry.name.toLowerCase(Locale.ROOT).endsWith(".jar") &&
+            entry.size >= 0 && entry.size <= 64 * 1024 * 1024) {
+          zip.getInputStream(entry).withCloseable { nestedStream ->
+            new ZipInputStream(nestedStream).withCloseable { nestedZip ->
+              for (def nested = nestedZip.nextEntry; nested != null; nested = nestedZip.nextEntry) {
+                if (!nested.directory && isLegalPath(nested.name)) {
+                  byte[] bytes = nestedZip.readNBytes(4 * 1024 * 1024 + 1)
+                  if (bytes.length <= 4 * 1024 * 1024) {
+                    def text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8).replace("\r\n", "\n").trim()
+                    if (text) found << [path: "${entry.name}!/${nested.name}", text: text]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (Exception ignored) {
+    // A corrupt archive will still fail the Android build; evidence extraction
+    // does not mask or transform the resolved artifact.
+  }
+  found
+}
+
+def evidenceTask = tasks.register("generateReleaseDependencyEvidence") {
+  group = "verification"
+  description = "Inventories resolved Android release runtime artifacts and discoverable legal texts."
+  inputs.file(overrideFile)
+  inputs.file(new File(repositoryRoot, "package-lock.json"))
+  inputs.property("sourceRevision", sourceRevision)
+  outputs.dir(evidenceOutput)
+
+  doLast {
+    def output = evidenceOutput.asFile
+    delete(output)
+    output.mkdirs()
+    def textDirectory = new File(output, "texts")
+    textDirectory.mkdirs()
+
+    def overrides = new groovy.json.JsonSlurper().parse(overrideFile) as Map
+    def configuration = configurations.getByName("releaseRuntimeClasspath")
+    def moduleIds = configuration.incoming.resolutionResult.allComponents.collect { it.id }
+      .findAll { it instanceof ModuleComponentIdentifier }.unique { it.displayName }
+    def resolvedArtifacts = configuration.incoming.artifactView {
+      componentFilter { identifier -> identifier instanceof ModuleComponentIdentifier }
+      lenient(false)
+    }.artifacts.artifacts
+    def pomByComponent = [:]
+    def pomQuery = dependencies.createArtifactResolutionQuery()
+      .forComponents(moduleIds)
+      .withArtifacts(MavenModule, MavenPomArtifact)
+      .execute()
+    pomQuery.resolvedComponents.each { component ->
+      component.getArtifacts(MavenPomArtifact).each { artifact ->
+        try {
+          pomByComponent[component.id.displayName] = artifact.file
+        } catch (Exception ignored) {
+          // Missing publisher POM metadata is reported as unresolved evidence.
+        }
+      }
+    }
+
+    def textByHash = [:]
+    def dependencyEdges = [:]
+    configuration.incoming.resolutionResult.allComponents.each { resolved ->
+      if (resolved.id instanceof ModuleComponentIdentifier) {
+        ModuleComponentIdentifier sourceId = resolved.id as ModuleComponentIdentifier
+        def sourceCoordinate = "${sourceId.group}:${sourceId.module}:${sourceId.version}"
+        dependencyEdges[sourceCoordinate] = resolved.dependencies.findAll { it instanceof ResolvedDependencyResult }
+          .collect { (it as ResolvedDependencyResult).selected.id }
+          .findAll { it instanceof ModuleComponentIdentifier }
+          .collect { target -> "pkg:maven/${target.group}/${target.module}@${target.version}" }
+          .unique().sort()
+      }
+    }
+    def grouped = resolvedArtifacts.findAll { it.id.componentIdentifier instanceof ModuleComponentIdentifier }
+      .groupBy { it.id.componentIdentifier.displayName }
+    def unresolved = []
+    def components = grouped.collect { displayName, artifacts ->
+      ModuleComponentIdentifier id = artifacts.first().id.componentIdentifier as ModuleComponentIdentifier
+      def coordinate = "${id.group}:${id.module}:${id.version}"
+      def declared = pomByComponent[displayName] ? pomLicenses(pomByComponent[displayName] as File) : []
+      def override = overrides[coordinate] as Map
+      def expression = override?.license ?: inferSpdx(declared)
+      if (!expression) unresolved << coordinate
+      def noticeRefs = []
+      artifacts.sort { it.file.name }.each { artifact ->
+        embeddedNotices(artifact.file).each { notice ->
+          def bytes = notice.text.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+          def hash = sha256Bytes(bytes)
+          if (!textByHash.containsKey(hash)) {
+            textByHash[hash] = notice.text
+            new File(textDirectory, "${hash}.txt").setText("${notice.text}\n", "UTF-8")
+          }
+          noticeRefs << [artifact: artifact.file.name, path: notice.path, sha256: hash]
+        }
+      }
+      [
+        group: id.group,
+        name: id.module,
+        version: id.version,
+        coordinate: coordinate,
+        purl: "pkg:maven/${id.group}/${id.module}@${id.version}",
+        license: expression ?: "NOASSERTION",
+        licenseMetadataSource: override ? "reviewed-override" : (expression ? "pom" : "unresolved"),
+        declaredPomLicenses: declared,
+        (override ? "licenseEvidence" : "_noEvidence"): override ? [source: override.source, reviewedAt: override.reviewedAt, reason: override.reason] : null,
+        artifacts: artifacts.sort { it.file.name }.collect { [name: it.file.name, bytes: it.file.length(), sha256: sha256File(it.file)] },
+        embeddedLegalTexts: noticeRefs.unique { "${it.sha256}:${it.path}" }.sort { "${it.sha256}:${it.path}" },
+        dependsOn: dependencyEdges[coordinate] ?: [],
+      ].findAll { key, value -> key != "_noEvidence" }
+    }.sort { left, right -> left.coordinate <=> right.coordinate }
+    def componentPurls = components.collect { it.purl } as Set
+    components.each { component -> component.dependsOn = component.dependsOn.findAll { componentPurls.contains(it) } }
+
+    def unusedOverrides = overrides.keySet().findAll { coordinate -> !components.any { it.coordinate == coordinate } }
+    def invalidOverrides = overrides.findAll { coordinate, override ->
+      !(override instanceof Map) || !(override.license instanceof String) ||
+        !(override.source instanceof String) || !(override.source ==~ /https:\/\/.+/) ||
+        !(override.reviewedAt instanceof String) || !(override.reviewedAt ==~ /\d{4}-\d{2}-\d{2}/) ||
+        !(override.reason instanceof String) || override.reason.trim().length() < 10
+    }.keySet()
+    if (unresolved || unusedOverrides || invalidOverrides) {
+      throw new GradleException("Android dependency license evidence is incomplete. " +
+        "Unresolved=${unresolved}; unusedOverrides=${unusedOverrides}; invalidOverrides=${invalidOverrides}")
+    }
+
+    def revision = sourceRevision.get()
+    def inventory = [
+      schemaVersion: 1,
+      configuration: "releaseRuntimeClasspath",
+      sourceRevision: revision,
+      componentCount: components.size(),
+      legalTextCount: textByHash.size(),
+      unresolvedLicenseCount: 0,
+      components: components,
+    ]
+    new File(output, "android-dependencies.json").setText(JsonOutput.prettyPrint(JsonOutput.toJson(inventory)) + "\n", "UTF-8")
+
+    def cdx = [
+      bomFormat: "CycloneDX",
+      specVersion: "1.6",
+      version: 1,
+      metadata: [
+        component: [type: "application", name: "Snezhok Android", version: android.defaultConfig.versionName],
+        properties: [[name: "snezhok:source-revision", value: revision], [name: "snezhok:gradle-configuration", value: "releaseRuntimeClasspath"]],
+      ],
+      components: components.collect { component ->
+        [
+          type: "library",
+          "bom-ref": component.purl,
+          group: component.group,
+          name: component.name,
+          version: component.version,
+          purl: component.purl,
+          licenses: component.license.contains(" ") || component.license.contains("(") ? [[expression: component.license]] : [[license: [id: component.license]]],
+          hashes: component.artifacts.collect { [alg: "SHA-256", content: it.sha256] },
+          properties: [[name: "snezhok:artifact-files", value: component.artifacts.collect { it.name }.join(",")]],
+        ]
+      },
+      dependencies: components.collect { component -> [ref: component.purl, dependsOn: component.dependsOn] },
+    ]
+    new File(output, "snezhok-android.cdx.json").setText(JsonOutput.prettyPrint(JsonOutput.toJson(cdx)) + "\n", "UTF-8")
+
+    def notices = new StringBuilder()
+    notices.append("Snezhok Android resolved third-party notices\n\n")
+    notices.append("Generated from releaseRuntimeClasspath for source revision ${revision}.\n")
+    notices.append("License names from Maven POM metadata are declarations by their publishers; reviewed overrides are evidence records, not legal conclusions.\n")
+    notices.append("Embedded LICENSE/NOTICE text is reproduced below where present in resolved AAR/JAR artifacts.\n\n")
+    components.each { component ->
+      notices.append("================================================================================\n")
+      notices.append("${component.coordinate}\nSPDX: ${component.license}\nMetadata: ${component.licenseMetadataSource}\n")
+      component.declaredPomLicenses.each { license -> notices.append("POM declaration: ${license.name ?: '(unnamed)'}${license.url ? ' - ' + license.url : ''}\n") }
+      component.embeddedLegalTexts.each { notice ->
+        notices.append("\n--- ${notice.artifact}!/${notice.path} [sha256:${notice.sha256}] ---\n")
+        notices.append(textByHash[notice.sha256]).append("\n")
+      }
+      notices.append("\n")
+    }
+    new File(output, "ANDROID_THIRD_PARTY_NOTICES.txt").setText(notices.toString(), "UTF-8")
+  }
+}
+
+tasks.configureEach { task ->
+  if (task.name == "preReleaseBuild") task.dependsOn(evidenceTask)
+}

@@ -18,7 +18,7 @@ import {
 import type { AppSettings, SessionDevice, UserSummary } from "@snezhok/contracts";
 import { api } from "../lib/api.js";
 import { useApp } from "../state/AppContext.js";
-import { Avatar, IconButton, Toggle } from "./ui.js";
+import { Avatar, ConfirmDialog, IconButton, Toggle } from "./ui.js";
 
 type Section = "profile" | "account" | "privacy" | "notifications" | "storage" | "appearance" | "voice" | "accessibility" | "language" | "advanced" | "admin";
 
@@ -40,7 +40,8 @@ export function Settings() {
   const [section, setSection] = useState<Section | null>(() => window.matchMedia("(max-width: 767px)").matches ? null : "profile");
   const [query, setQuery] = useState("");
   const isAdmin = Boolean((app.me as UserSummary & { isAdmin?: boolean } | null)?.isAdmin);
-  const sections = useMemo(() => [...SECTIONS, ...(isAdmin ? [{ id: "admin" as const, label: "Administration", icon: <ShieldCheck /> }] : [])].filter((item) => item.label.toLowerCase().includes(query.toLowerCase())), [isAdmin, query]);
+  const canAdmin = isAdmin || Boolean(app.me && app.bootstrap?.servers.some((server) => server.ownerId === app.me?.id));
+  const sections = useMemo(() => [...SECTIONS, ...(canAdmin ? [{ id: "admin" as const, label: "Administration", icon: <ShieldCheck /> }] : [])].filter((item) => item.label.toLowerCase().includes(query.toLowerCase())), [canAdmin, query]);
 
   useEffect(() => {
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") app.setSettingsOpen(false); };
@@ -71,7 +72,7 @@ export function Settings() {
         {section === "accessibility" && <AccessibilitySettings />}
         {section === "language" && <LanguageSettings />}
         {section === "advanced" && <AdvancedSettings />}
-        {section === "admin" && isAdmin && <AdminSettings />}
+        {section === "admin" && canAdmin && <AdminSettings />}
       </main>
     </div>
   );
@@ -105,38 +106,53 @@ function ProfileSettings() {
 function AccountSettings() {
   const app = useApp();
   const [sessions, setSessions] = useState<SessionDevice[]>([]);
+  const [password, setPassword] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<SessionDevice | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => { api.settings.sessions().then((result) => setSessions(result.sessions)).catch(() => undefined); }, []);
   const revoke = async (session: SessionDevice) => {
-    if (!window.confirm(`Sign out ${session.label}?`)) return;
     await api.settings.revokeSession(session.id);
     setSessions((current) => current.filter((item) => item.id !== session.id));
+    setRevokeTarget(null);
   };
-  return <SettingsPage title="Account"><SettingsGroup title="Devices and sessions">{sessions.map((session) => <div className="session-row" key={session.id}><Monitor /><span><strong>{session.label}{session.current ? " (current)" : ""}</strong><small>{session.platform} · {session.ipAddress}</small></span>{!session.current && <button className="text-button danger-text" onClick={() => void revoke(session)}>Sign out</button>}</div>)}</SettingsGroup><SettingsGroup title="Danger zone"><button className="button button-danger" onClick={() => app.announce("Account deletion requires password confirmation.")}><Trash2 /> Delete account</button></SettingsGroup></SettingsPage>;
+  const removeAccount = async (event: FormEvent) => {
+    event.preventDefault();
+    if (password) setConfirmDelete(true);
+  };
+  const deleteConfirmed = async () => {
+    setConfirmDelete(false);
+    setDeleting(true);
+    try { await api.deleteAccount(password); await app.logout().catch(() => undefined); }
+    catch (error) { app.announce(error instanceof Error ? error.message : "Account deletion failed."); }
+    finally { setDeleting(false); }
+  };
+  return <SettingsPage title="Account"><SettingsGroup title="Devices and sessions">{sessions.map((session) => <div className="session-row" key={session.id}><Monitor /><span><strong>{session.label}{session.current ? " (current)" : ""}</strong><small>{session.platform} · {session.ipAddress}</small></span>{!session.current && <button className="text-button danger-text" onClick={() => setRevokeTarget(session)}>Sign out</button>}</div>)}</SettingsGroup><SettingsGroup title="Danger zone"><form className="settings-form" onSubmit={removeAccount}><label>Confirm with password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label><button className="button button-danger" disabled={deleting}><Trash2 /> {deleting ? "Deleting…" : "Delete account"}</button></form></SettingsGroup>{revokeTarget && <ConfirmDialog title="Sign out device" body={`Sign out ${revokeTarget.label}?`} confirmLabel="Sign out" destructive onCancel={() => setRevokeTarget(null)} onConfirm={() => void revoke(revokeTarget)} />}{confirmDelete && <ConfirmDialog title="Delete account" body="Permanently delete your account and all active sessions?" confirmLabel="Delete account" destructive onCancel={() => setConfirmDelete(false)} onConfirm={() => void deleteConfirmed()} />}</SettingsPage>;
 }
 
 function PrivacySettings() {
   const app = useApp();
   const settings = app.bootstrap!.settings;
-  return <SettingsPage title="Privacy and safety"><SettingsGroup title="Activity"><SettingRow title="Read receipts" description="Let people know when you have read a message."><Toggle label="Read receipts" checked={settings.readReceipts} onChange={(value) => void app.updateSettings({ readReceipts: value })} /></SettingRow><SettingRow title="Show last seen" description="Friends can see when you were last active."><Toggle label="Show last seen" checked={settings.showLastSeen} onChange={(value) => void app.updateSettings({ showLastSeen: value })} /></SettingRow></SettingsGroup><SettingsGroup title="Media"><SettingRow title="Strip location metadata" description="Remove embedded GPS data from compressed photos and videos."><Toggle label="Strip location metadata" checked={settings.stripMediaLocation} onChange={(value) => void app.updateSettings({ stripMediaLocation: value })} /></SettingRow></SettingsGroup><SettingsGroup title="People"><button className="button button-secondary">Blocked users</button></SettingsGroup></SettingsPage>;
+  const blocked = app.bootstrap!.friends.filter((entry) => entry.relationship === "blocked");
+  const unblock = async (userId: string) => {
+    try { await api.unblockUser(userId); app.removeFriendEntry(userId); app.announce("User unblocked."); }
+    catch (error) { app.announce(error instanceof Error ? error.message : "Could not unblock user."); }
+  };
+  return <SettingsPage title="Privacy and safety"><SettingsGroup title="Activity"><SettingRow title="Read receipts" description="Let people know when you have read a message."><Toggle label="Read receipts" checked={settings.readReceipts} onChange={(value) => void app.updateSettings({ readReceipts: value })} /></SettingRow><SettingRow title="Show last seen" description="Friends can see when you were last active."><Toggle label="Show last seen" checked={settings.showLastSeen} onChange={(value) => void app.updateSettings({ showLastSeen: value })} /></SettingRow></SettingsGroup><SettingsGroup title="Media"><SettingRow title="Strip location metadata" description="Remove embedded GPS data from compressed photos and videos."><Toggle label="Strip location metadata" checked={settings.stripMediaLocation} onChange={(value) => void app.updateSettings({ stripMediaLocation: value })} /></SettingRow></SettingsGroup><SettingsGroup title="Blocked users">{blocked.length ? blocked.map((entry) => <div className="session-row" key={entry.user.id}><Avatar user={entry.user} size={36} /><span><strong>{entry.user.displayName}</strong><small>@{entry.user.username}</small></span><button className="button button-secondary" onClick={() => void unblock(entry.user.id)}>Unblock</button></div>) : <p className="settings-note">You have not blocked anyone.</p>}</SettingsGroup></SettingsPage>;
 }
 
 function NotificationSettings() {
-  const [desktop, setDesktop] = useLocalBoolean("notifications.desktop", true);
-  const [preview, setPreview] = useLocalBoolean("notifications.preview", true);
-  const [sound, setSound] = useLocalBoolean("notifications.sound", true);
-  const requestDesktop = async (value: boolean) => {
-    if (value && "Notification" in window) {
-      const permission = await Notification.requestPermission();
-      setDesktop(permission === "granted");
-    } else setDesktop(false);
-  };
-  return <SettingsPage title="Notifications and sounds"><SettingsGroup title="Messages"><SettingRow title="Desktop notifications"><Toggle label="Desktop notifications" checked={desktop} onChange={(value) => void requestDesktop(value)} /></SettingRow><SettingRow title="Message preview"><Toggle label="Message preview" checked={preview} onChange={setPreview} /></SettingRow><SettingRow title="Sounds"><Toggle label="Notification sounds" checked={sound} onChange={setSound} /></SettingRow></SettingsGroup><SettingsGroup title="Quiet hours"><SettingRow title="Schedule"><button className="button button-secondary">Set schedule</button></SettingRow></SettingsGroup></SettingsPage>;
+  const app = useApp();
+  const settings = app.bootstrap!.settings;
+  const enabled = settings.quietHoursStart != null && settings.quietHoursEnd != null;
+  const updateQuiet = (patch: Partial<AppSettings>) => void app.updateSettings(patch);
+  return <SettingsPage title="Notifications"><SettingsGroup title="Quiet hours"><SettingRow title="Enable schedule" description="Suppress message notifications during this local-time window."><Toggle label="Quiet hours" checked={enabled} onChange={(value) => updateQuiet(value ? { quietHoursStart: 1320, quietHoursEnd: 480, quietHoursTimezoneOffsetMinutes: new Date().getTimezoneOffset(), quietHoursDays: [0, 1, 2, 3, 4, 5, 6] } : { quietHoursStart: null, quietHoursEnd: null })} /></SettingRow>{enabled && <><SettingRow title="Starts"><input type="time" aria-label="Quiet hours start" value={minutesToTime(settings.quietHoursStart ?? 1320)} onChange={(event) => updateQuiet({ quietHoursStart: timeToMinutes(event.target.value), quietHoursTimezoneOffsetMinutes: new Date().getTimezoneOffset() })} /></SettingRow><SettingRow title="Ends"><input type="time" aria-label="Quiet hours end" value={minutesToTime(settings.quietHoursEnd ?? 480)} onChange={(event) => updateQuiet({ quietHoursEnd: timeToMinutes(event.target.value), quietHoursTimezoneOffsetMinutes: new Date().getTimezoneOffset() })} /></SettingRow><div className="quiet-days">{["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => { const days = settings.quietHoursDays ?? [0, 1, 2, 3, 4, 5, 6]; return <label key={day}><input type="checkbox" checked={days.includes(index)} onChange={(event) => { const next = event.target.checked ? [...days, index] : days.filter((value) => value !== index); if (next.length) updateQuiet({ quietHoursDays: next.sort() }); }} />{day}</label>; })}</div></>}</SettingsGroup></SettingsPage>;
 }
 
 function StorageSettings() {
   const app = useApp();
   const settings = app.bootstrap!.settings;
-  return <SettingsPage title="Data and storage"><SettingsGroup title="Upload"><SettingRow title="Default media quality"><select value={settings.defaultUploadQuality} onChange={(event) => void app.updateSettings({ defaultUploadQuality: event.target.value as AppSettings["defaultUploadQuality"] })}><option value="data-saver">Data saver</option><option value="auto">Auto</option><option value="high">High quality</option><option value="original">Original</option></select></SettingRow></SettingsGroup><SettingsGroup title="Automatic download"><SettingRow title="Wi-Fi"><Toggle label="Auto-download on Wi-Fi" checked={settings.autoDownloadWifi} onChange={(value) => void app.updateSettings({ autoDownloadWifi: value })} /></SettingRow><SettingRow title="Mobile data"><Toggle label="Auto-download on mobile data" checked={settings.autoDownloadMobile} onChange={(value) => void app.updateSettings({ autoDownloadMobile: value })} /></SettingRow></SettingsGroup><SettingsGroup title="Cache"><SettingRow title="Local media cache" description="Recent messages remain available offline."><button className="button button-secondary" onClick={() => { Object.keys(localStorage).filter((key) => key.includes("messages")).forEach((key) => localStorage.removeItem(key)); app.announce("Media cache cleared."); }}>Clear cache</button></SettingRow></SettingsGroup></SettingsPage>;
+  return <SettingsPage title="Data and storage"><SettingsGroup title="Upload"><SettingRow title="Default media quality"><select value={settings.defaultUploadQuality} onChange={(event) => void app.updateSettings({ defaultUploadQuality: event.target.value as AppSettings["defaultUploadQuality"] })}><option value="data-saver">Data saver</option><option value="auto">Auto</option><option value="high">High quality</option><option value="original">Original</option></select></SettingRow></SettingsGroup><SettingsGroup title="Automatic download"><SettingRow title="Wi-Fi"><Toggle label="Auto-download on Wi-Fi" checked={settings.autoDownloadWifi} onChange={(value) => void app.updateSettings({ autoDownloadWifi: value })} /></SettingRow><SettingRow title="Mobile data"><Toggle label="Auto-download on mobile data" checked={settings.autoDownloadMobile} onChange={(value) => void app.updateSettings({ autoDownloadMobile: value })} /></SettingRow></SettingsGroup><SettingsGroup title="Cache"><SettingRow title="Local message cache" description="Recent messages, drafts, and queued sends are stored in this browser."><button className="button button-secondary" onClick={() => void app.clearOfflineCache()}>Clear offline data</button></SettingRow></SettingsGroup></SettingsPage>;
 }
 
 function AppearanceSettings() {
@@ -148,9 +164,7 @@ function AppearanceSettings() {
 function VoiceSettings() {
   const app = useApp();
   const settings = app.bootstrap!.settings;
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  useEffect(() => { navigator.mediaDevices?.enumerateDevices().then(setDevices).catch(() => undefined); }, []);
-  return <SettingsPage title="Voice and video"><SettingsGroup title="Devices"><SettingRow title="Input device"><select aria-label="Input device"><option>Default</option>{devices.filter((device) => device.kind === "audioinput").map((device) => <option key={device.deviceId}>{device.label || "Microphone"}</option>)}</select></SettingRow><SettingRow title="Output device"><select aria-label="Output device"><option>Default</option>{devices.filter((device) => device.kind === "audiooutput").map((device) => <option key={device.deviceId}>{device.label || "Speaker"}</option>)}</select></SettingRow></SettingsGroup><SettingsGroup title="Processing"><SettingRow title="Noise suppression"><select value={settings.noiseSuppression} onChange={(event) => void app.updateSettings({ noiseSuppression: event.target.value as AppSettings["noiseSuppression"] })}><option value="off">Off</option><option value="standard">Standard</option><option value="high">High</option></select></SettingRow><SettingRow title="Echo cancellation"><Toggle label="Echo cancellation" checked={settings.echoCancellation} onChange={(value) => void app.updateSettings({ echoCancellation: value })} /></SettingRow><SettingRow title="Automatic gain control"><Toggle label="Automatic gain control" checked={settings.autoGainControl} onChange={(value) => void app.updateSettings({ autoGainControl: value })} /></SettingRow><SettingRow title="Push to talk"><Toggle label="Push to talk" checked={settings.pushToTalk} onChange={(value) => void app.updateSettings({ pushToTalk: value })} /></SettingRow></SettingsGroup><SettingsGroup title="Test"><button className="button button-secondary" onClick={() => app.announce("Microphone test started.")}>Test microphone</button></SettingsGroup></SettingsPage>;
+  return <SettingsPage title="Voice and video"><SettingsGroup title="Processing"><SettingRow title="Noise suppression"><select value={settings.noiseSuppression} onChange={(event) => void app.updateSettings({ noiseSuppression: event.target.value as AppSettings["noiseSuppression"] })}><option value="off">Off</option><option value="standard">Standard</option><option value="high">High</option></select></SettingRow><SettingRow title="Echo cancellation"><Toggle label="Echo cancellation" checked={settings.echoCancellation} onChange={(value) => void app.updateSettings({ echoCancellation: value })} /></SettingRow><SettingRow title="Automatic gain control"><Toggle label="Automatic gain control" checked={settings.autoGainControl} onChange={(value) => void app.updateSettings({ autoGainControl: value })} /></SettingRow></SettingsGroup></SettingsPage>;
 }
 
 function AccessibilitySettings() {
@@ -165,20 +179,33 @@ function LanguageSettings() {
 }
 
 function AdvancedSettings() {
-  const [hardware, setHardware] = useLocalBoolean("advanced.hardwareAcceleration", true);
   const app = useApp();
-  return <SettingsPage title="Advanced"><SettingsGroup title="Rendering"><SettingRow title="Hardware acceleration" description="A restart may be required after changing this setting."><Toggle label="Hardware acceleration" checked={hardware} onChange={setHardware} /></SettingRow></SettingsGroup><SettingsGroup title="Diagnostics"><button className="button button-secondary" onClick={() => {
+  return <SettingsPage title="Advanced"><SettingsGroup title="Diagnostics"><button className="button button-secondary" onClick={() => {
     const data = JSON.stringify({ online: app.online, realtime: app.socketConnected, userAgent: navigator.userAgent, time: new Date().toISOString() }, null, 2);
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([data], { type: "application/json" })); link.download = "snezhok-diagnostics.json"; link.click(); URL.revokeObjectURL(link.href);
   }}>Export diagnostics</button></SettingsGroup></SettingsPage>;
 }
 
 function AdminSettings() {
-  return <SettingsPage title="Administration"><SettingsGroup title="Access"><SettingRow title="Members"><button className="button button-secondary">Manage members</button></SettingRow></SettingsGroup><SettingsGroup title="Storage and retention"><p className="settings-note">Server storage limits and retention policies apply to every client.</p></SettingsGroup></SettingsPage>;
+  const app = useApp();
+  const announce = app.announce;
+  const servers = app.bootstrap!.servers.filter((server) => server.ownerId === app.me?.id);
+  const [serverId, setServerId] = useState(servers[0]?.id ?? "");
+  const [members, setMembers] = useState<Array<{ user: UserSummary; role: "owner" | "admin" | "moderator" | "member" }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{ user: UserSummary; role: string } | null>(null);
+  useEffect(() => {
+    if (!serverId) { setMembers([]); return; }
+    setLoading(true);
+    api.serverMembers(serverId).then((result) => setMembers(result.members)).catch((error) => announce(error instanceof Error ? error.message : "Could not load members.")).finally(() => setLoading(false));
+  }, [announce, serverId]);
+  const remove = async (member: { user: UserSummary; role: string }) => {
+    try { await api.removeServerMember(serverId, member.user.id); setMembers((current) => current.filter((item) => item.user.id !== member.user.id)); app.announce("Member removed."); }
+    catch (error) { app.announce(error instanceof Error ? error.message : "Could not remove member."); }
+    finally { setRemoveTarget(null); }
+  };
+  return <SettingsPage title="Administration"><SettingsGroup title="Server members">{servers.length ? <><label className="settings-form">Server<select value={serverId} onChange={(event) => setServerId(event.target.value)}>{servers.map((server) => <option key={server.id} value={server.id}>{server.name}</option>)}</select></label>{loading ? <p className="settings-note">Loading members…</p> : members.map((member) => <div className="session-row" key={member.user.id}><Avatar user={member.user} size={36} /><span><strong>{member.user.displayName}</strong><small>{member.role}</small></span>{member.role !== "owner" && member.user.id !== app.me?.id && <button className="text-button danger-text" onClick={() => setRemoveTarget(member)}>Remove</button>}</div>)}</> : <p className="settings-note">Create or own a server to manage its members here.</p>}</SettingsGroup><SettingsGroup title="Storage and retention"><p className="settings-note">Server storage limits and retention policies apply to every client.</p></SettingsGroup>{removeTarget && <ConfirmDialog title="Remove member" body={`Remove ${removeTarget.user.displayName} from this server?`} confirmLabel="Remove" destructive onCancel={() => setRemoveTarget(null)} onConfirm={() => void remove(removeTarget)} />}</SettingsPage>;
 }
 
-function useLocalBoolean(key: string, initial: boolean) {
-  const [value, setValue] = useState(() => localStorage.getItem(`snezhok.v3.${key}`) !== null ? localStorage.getItem(`snezhok.v3.${key}`) === "true" : initial);
-  const update = (next: boolean) => { setValue(next); localStorage.setItem(`snezhok.v3.${key}`, String(next)); };
-  return [value, update] as const;
-}
+function minutesToTime(minutes: number) { return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`; }
+function timeToMinutes(value: string) { const [hours = 0, minutes = 0] = value.split(":").map(Number); return hours * 60 + minutes; }

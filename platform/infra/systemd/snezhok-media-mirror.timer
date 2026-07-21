@@ -1,0 +1,12 @@
+[Unit]
+Description=Synchronize encrypted Snezhok media every ten minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=10min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=snezhok-media-mirror.service
+
+[Install]
+WantedBy=timers.target

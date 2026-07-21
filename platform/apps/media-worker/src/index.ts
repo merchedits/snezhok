@@ -6,4 +6,4 @@ for (const event of ["SIGINT", "SIGTERM"] as const) process.once(event, () => co
 
 runWorker(controller.signal)
   .then(() => pool.end())
-  .catch(async (error) => { console.error("Media worker stopped", error); await pool.end().catch(() => undefined); process.exitCode = 1; });
+  .catch(async (error) => { console.error(JSON.stringify({ event: "media_worker_stopped", errorName: error instanceof Error ? error.name : "UnknownError" })); await pool.end().catch(() => undefined); process.exitCode = 1; });

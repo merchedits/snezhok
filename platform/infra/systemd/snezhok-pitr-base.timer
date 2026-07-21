@@ -1,0 +1,11 @@
+[Unit]
+Description=Create a weekly Snezhok PITR base backup
+
+[Timer]
+OnCalendar=Sun *-*-* 03:20:00 UTC
+RandomizedDelaySec=20min
+Persistent=true
+Unit=snezhok-pitr-base.service
+
+[Install]
+WantedBy=timers.target

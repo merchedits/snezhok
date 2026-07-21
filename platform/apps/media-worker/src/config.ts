@@ -1,7 +1,14 @@
 import { z } from "zod";
 
 const schema = z.object({
+  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  SOURCE_REVISION: z.string().default("development"),
   DATABASE_URL: z.string().min(1).default("postgres://snezhok:snezhok@127.0.0.1:5432/snezhok"),
+  DATABASE_HOST: z.string().min(1).optional(),
+  DATABASE_PORT: z.coerce.number().int().min(1).max(65_535).default(5432),
+  DATABASE_NAME: z.string().min(1).default("snezhok"),
+  DATABASE_USER: z.string().min(1).optional(),
+  DATABASE_PASSWORD: z.string().min(1).optional(),
   STORAGE_ROOT: z.string().default("./data"),
   WORKER_ID: z.string().min(1).default(`media-${process.pid}`),
   POLL_INTERVAL_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
@@ -19,3 +26,9 @@ const schema = z.object({
 });
 
 export const config = schema.parse(process.env);
+if (config.NODE_ENV === "production" && (!config.DATABASE_HOST || !config.DATABASE_USER || !config.DATABASE_PASSWORD || config.DATABASE_PASSWORD.length < 24)) {
+  throw new Error("Production media worker requires a high-entropy field-based database connection");
+}
+if (config.NODE_ENV === "production" && !/^[0-9a-f]{40}$/.test(config.SOURCE_REVISION)) {
+  throw new Error("Production media worker requires the exact 40-character public source revision");
+}

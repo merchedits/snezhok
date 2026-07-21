@@ -9,6 +9,8 @@ import { conversationSummary } from "../bootstrap/service.js";
 import { publishStoredEvent, storeEvent } from "../realtime/events.js";
 import { assertUsersCanInteract } from "../users/privacy.js";
 import { mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
+import { requireGlobalPermission } from "../admin/policy.js";
+import { requestCallMediaDrain, revokeConversationParticipantMedia } from "../calls/mediaControl.js";
 
 const params = z.object({ id: z.string().uuid() });
 const memberParams = z.object({ id: z.string().uuid(), userId: z.string().uuid() });
@@ -25,6 +27,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     if (participantIds.length < 2) throw conflict("A conversation requires another participant");
     const kind = participantIds.length <= 2 ? "direct" : "group";
     const creation = await transaction(async (client) => {
+      if (kind === "group") await requireGlobalPermission(request.auth.id, "createGroups", client);
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`dm:${participantIds.join(":")}`]);
       const users = await client.query<{ id: string }>("SELECT id FROM users WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL", [participantIds]);
       if (users.rowCount !== participantIds.length) throw notFound("One or more participants do not exist");
@@ -131,15 +134,17 @@ export async function conversationRoutes(app: FastifyInstance) {
       const actorRole = await requireGroupRole(id, request.auth.id, ["owner", "admin", "member"], client);
       const targetRole = await requireGroupRole(id, userId, ["admin", "member"], client);
       if (userId !== request.auth.id && actorRole !== "owner" && !(actorRole === "admin" && targetRole === "member")) throw forbidden("You cannot remove this group member");
+      const callEvents = await revokeConversationParticipantMedia(client, id, userId, userId === request.auth.id ? "member-left" : "member-kicked");
       const removed = await client.query("DELETE FROM conversation_members WHERE conversation_id=$1 AND user_id=$2 AND role<>'owner'", [id, userId]);
       if (!removed.rowCount) throw forbidden("The group owner must transfer ownership before leaving");
       const recipients = await groupRecipientIds(id, client); const summaries = await groupSummaryEvents(id, recipients, client);
       return { events: [
+        ...callEvents,
         await storeEvent(client, [userId], "conversation:removed", { id }),
         ...(recipients.length ? [await storeEvent(client, recipients, "conversation:updated", (recipient: string) => summaries.get(recipient))] : []),
       ] };
     });
-    result.events.forEach(publishStoredEvent); return { success: true };
+    result.events.forEach(publishStoredEvent); requestCallMediaDrain(app.log); return { success: true };
   });
 
   app.post("/conversations/:id/ownership", { preHandler: requireAuth }, async (request) => {
@@ -190,6 +195,7 @@ export async function conversationRoutes(app: FastifyInstance) {
     const { id } = params.parse(request.params);
     const result = await transaction(async (client) => {
       await lockConversation(id, client);
+      const callEvents = await revokeConversationParticipantMedia(client, id, request.auth.id, "member-left");
       const result = await client.query(
         `DELETE FROM conversation_members cm USING conversations c
          WHERE cm.conversation_id=$1 AND cm.user_id=$2 AND c.id=cm.conversation_id AND c.saved_owner_id IS NULL
@@ -197,7 +203,7 @@ export async function conversationRoutes(app: FastifyInstance) {
         [id, request.auth.id],
       );
       if (!result.rowCount) throw forbidden("The group owner must transfer ownership before leaving");
-      const events = [await storeEvent(client, [request.auth.id], "conversation:removed", { id })];
+      const events = [...callEvents, await storeEvent(client, [request.auth.id], "conversation:removed", { id })];
       if (result.rows[0]?.kind === "group") {
         const recipients = await groupRecipientIds(id, client);
         if (recipients.length) {
@@ -208,6 +214,7 @@ export async function conversationRoutes(app: FastifyInstance) {
       return events;
     });
     result.forEach(publishStoredEvent);
+    requestCallMediaDrain(app.log);
     return { success: true };
   });
 }

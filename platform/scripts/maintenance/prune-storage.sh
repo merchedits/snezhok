@@ -73,7 +73,7 @@ compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" exec -T postgres psql \
   | sort -u >"$temporary_dir/referenced-objects"
 compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" exec -T postgres psql \
   --username=snezhok --dbname=snezhok --tuples-only --no-align \
-  --command="SELECT temp_key FROM upload_sessions WHERE status IN ('uploading','finalizing') AND expires_at > now() ORDER BY temp_key;" \
+  --command="SELECT temp_key FROM upload_sessions WHERE status IN ('uploading','receiving','finalizing') AND expires_at > now() ORDER BY temp_key;" \
   | sort -u >"$temporary_dir/active-temp-keys"
 
 deleted_objects=0

@@ -1,5 +1,5 @@
-import { type ReactNode, useCallback, useLayoutEffect, useRef, useState } from "react";
-import { type LayoutChangeEvent, StyleSheet, View } from "react-native";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { InteractionManager, type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import Animated, { cancelAnimation, Easing, runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { BottomNavigation } from "../components/BottomNavigation";
@@ -23,6 +23,27 @@ export function MainScreen() {
   const transitionId = useRef(0);
   const activeTab = useRef<MainTab>(tab);
   const requestedTab = useRef<{ from: MainTab; to: MainTab; startedAt: number } | null>(null);
+
+  useEffect(() => {
+    // First visits used to mount a complete tab tree inside the press frame,
+    // which was visible as a 40-120 ms pause on the Galaxy A12. Warm the
+    // hidden roots only after startup/navigation work is idle, one per turn,
+    // so later tab switches contain only the compositor transition.
+    let cancelled = false;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const task = InteractionManager.runAfterInteractions(() => {
+      (["servers", "profile", "settings"] as const).forEach((next, index) => {
+        timers.push(setTimeout(() => {
+          if (!cancelled) setVisitedTabs((current) => visitMainTab(current, next));
+        }, index * 350));
+      });
+    });
+    return () => {
+      cancelled = true;
+      task.cancel();
+      timers.forEach(clearTimeout);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const request = requestedTab.current;

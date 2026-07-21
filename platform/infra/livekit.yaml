@@ -27,11 +27,20 @@ turn:
 room:
   empty_timeout: 300
   departure_timeout: 20
-  auto_create: true
+  # Rooms are created only by the authenticated API control client. A stale
+  # participant token therefore cannot recreate a room after moderation ends it.
+  auto_create: false
   enabled_codecs:
     - mime: audio/opus
     - mime: video/VP8
     - mime: video/H264
+
+# The signing key is injected as LIVEKIT_WEBHOOK_API_KEY so it never enters
+# source control. LiveKit runs on the host network and reaches the API through
+# its loopback-only published port.
+webhook:
+  urls:
+    - http://127.0.0.1:3003/api/v1/livekit/webhook
 
 audio:
   active_level: 30

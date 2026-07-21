@@ -7,6 +7,7 @@ import { conflict, forbidden, notFound } from "../../lib/errors.js";
 import { requireAuth } from "../auth/middleware.js";
 import { mapUser, publicUserSelect, type PublicUserRow } from "./queries.js";
 import { deleteAccount } from "./account.js";
+import { requestCallMediaDrain } from "../calls/mediaControl.js";
 import { loadPrivacy, mayViewProfilePhotos, updatePrivacy, usersAreBlocked } from "./privacy.js";
 
 const searchQuery = z.object({ q: z.string().trim().min(1).max(64) });
@@ -89,7 +90,8 @@ export async function userRoutes(app: FastifyInstance) {
 
   app.delete("/users/me", { preHandler: requireAuth, config: { rateLimit: { max: 3, timeWindow: "1 hour" } } }, async (request, reply) => {
     const body = accountDeletionSchema.parse(request.body);
-    await deleteAccount(request.auth.id, body.password);
+    const deletion = await deleteAccount(request.auth.id, body.password);
+    if (deletion.mediaChanged) requestCallMediaDrain(app.log);
     reply.clearCookie("access_token", { path: "/" });
     reply.clearCookie("refresh_token", { path: "/" });
     return { success: true };

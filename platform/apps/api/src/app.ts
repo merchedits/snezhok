@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
+import { pool } from "./db/pool.js";
 import { installErrorHandler } from "./lib/errors.js";
 import { observeHttpRequest } from "./lib/metrics.js";
 import { authRoutes } from "./modules/auth/routes.js";
@@ -25,6 +26,7 @@ import { serverRoutes } from "./modules/servers/routes.js";
 import { settingsRoutes } from "./modules/settings/routes.js";
 import { uploadRoutes } from "./modules/uploads/routes.js";
 import { userRoutes } from "./modules/users/routes.js";
+import { adminRoutes } from "./modules/admin/routes.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -79,8 +81,17 @@ export async function buildApp() {
   installErrorHandler(app);
   app.get("/api/health", async () => ({ status: "ok", time: Date.now() }));
   await app.register(async (api) => {
-    api.get("/health", async () => ({ status: "ok", time: Date.now() }));
+    api.get("/health/live", async () => ({ status: "ok", time: Date.now(), revision: config.SOURCE_REVISION }));
+    api.get("/health", async (_request, reply) => {
+      try {
+        await pool.query("SELECT 1");
+        return { status: "ready", time: Date.now(), revision: config.SOURCE_REVISION };
+      } catch {
+        return reply.status(503).send({ status: "unavailable", time: Date.now() });
+      }
+    });
     await api.register(authRoutes);
+    await api.register(adminRoutes);
     await api.register(bootstrapRoutes);
     await api.register(userRoutes);
     await api.register(friendRoutes);

@@ -15,7 +15,12 @@ export const publicUserSelect = `u.id,u.username,u.display_name,u.avatar_attachm
 
 export function mapUser(row: PublicUserRow): UserSummary {
   return { id: row.id, username: row.username, displayName: row.display_name, avatarUrl: row.avatar_url, avatarColor: row.avatar_color,
-    bio: row.bio, statusText: row.status_text, presence: "offline", lastSeenAt: row.show_last_seen ? Number(row.last_seen_at_ms) : 0 };
+    bio: row.bio, statusText: row.status_text, presence: "offline", lastSeenAt: 0 };
+}
+
+export function mapContactUser(row: PublicUserRow): UserSummary {
+  const user = mapUser(row);
+  return { ...user, lastSeenAt: row.show_last_seen ? Number(row.last_seen_at_ms) : 0 };
 }
 
 export async function findUser(userId: string, client: Pick<DbClient, "query"> = pool) {

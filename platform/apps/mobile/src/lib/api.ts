@@ -24,7 +24,7 @@ import { recordDiagnostic, recordPerformance } from "../diagnostics/diagnostics"
 import type { DiagnosticReport } from "../diagnostics/diagnostics";
 import { ApiError } from "./apiError";
 import { clearPendingUpload, rememberPendingUpload, reusablePendingUpload } from "./pendingUpload";
-import { clearSession, readSession, writeSession } from "./secureSession";
+import { clearSessionIfCurrent, getRuntimeSession, getSessionGeneration, readSession, sessionOwnerId, writeSessionIfCurrent } from "./secureSession";
 import {
   boundedUploadOffset,
   isUploadCancelled,
@@ -41,10 +41,45 @@ export { ApiError } from "./apiError";
 
 type RequestOptions = Omit<RequestInit, "body"> & { body?: BodyInit | object; authenticated?: boolean };
 
+export type GlobalPermission = "createServers" | "createGroups" | "uploadFiles" | "startCalls";
+export type GlobalPermissions = Record<GlobalPermission, boolean>;
+export interface AdminSettings {
+  revision: number;
+  defaultPermissions: GlobalPermissions;
+  defaultStorageQuotaBytes: number;
+  maxUploadBytes: number;
+  messageRetentionDays: number | null;
+  orphanMediaRetentionDays: number;
+  eventRetentionDays: number;
+  updatedAt: number;
+}
+export interface AdminMember {
+  id: string; username: string; displayName: string; isAdmin: boolean; suspended: boolean; createdAt: number;
+  permissionOverrides: Partial<GlobalPermissions>; storageQuotaBytes: number | null; storageUsedBytes: number;
+}
+
 const configuredUrl = Constants.expoConfig?.extra?.apiUrl as string | undefined;
 export const API_URL = (configuredUrl ?? "https://merchedits.xyz/chat/api/v1").replace(/\/$/, "");
 
 let refreshing: Promise<AuthTokens | null> | null = null;
+const REQUEST_TIMEOUT_MS = 20_000;
+const UPLOAD_CONTROL_TIMEOUT_MS = 60_000;
+
+async function fetchBounded(url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(init.signal?.reason);
+  if (init.signal) {
+    if (init.signal.aborted) controller.abort(init.signal.reason);
+    else init.signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(new Error("Request timed out")), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener("abort", onAbort);
+  }
+}
 
 type NativeUploadTask = ReturnType<typeof FileSystem.createUploadTask>;
 interface ActiveUpload {
@@ -59,15 +94,16 @@ class ApiClient {
   private async refresh(): Promise<AuthTokens | null> {
     if (refreshing) return refreshing;
     refreshing = (async () => {
+      const sessionGeneration = getSessionGeneration();
       const current = await readSession();
       if (!current) return null;
-      const response = await fetch(`${API_URL}/auth/refresh`, {
+      const response = await fetchBounded(`${API_URL}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken: current.refreshToken }),
       });
       if (!response.ok) {
-        if (response.status === 400 || response.status === 401 || response.status === 403) await clearSession();
+        if (response.status === 400 || response.status === 401 || response.status === 403) await clearSessionIfCurrent(sessionGeneration);
         return null;
       }
       const result = (await response.json()) as AuthResponse;
@@ -75,9 +111,9 @@ class ApiClient {
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         expiresAt: Date.now() + result.expiresIn * 1_000,
+        ...(current.ownerId ? { ownerId: current.ownerId } : {}),
       };
-      await writeSession(tokens);
-      return tokens;
+      return await writeSessionIfCurrent(tokens, sessionGeneration) ? tokens : null;
     })().finally(() => {
       refreshing = null;
     });
@@ -90,6 +126,7 @@ class ApiClient {
     const { authenticated: authenticationOption, body: rawBody, ...fetchOptions } = options;
     const authenticated = authenticationOption !== false;
     const session = authenticated ? await readSession() : null;
+    const requestOwnerId = sessionOwnerId(session);
     const isForm = typeof FormData !== "undefined" && rawBody instanceof FormData;
     const isBlob = typeof Blob !== "undefined" && rawBody instanceof Blob;
     const isRaw = typeof rawBody === "string" || isForm || isBlob || rawBody instanceof ArrayBuffer;
@@ -103,7 +140,7 @@ class ApiClient {
     if (rawBody !== undefined) init.body = isRaw ? rawBody as BodyInit : JSON.stringify(rawBody);
     let response: Response;
     try {
-      response = await fetch(`${API_URL}${path}`, init);
+      response = await fetchBounded(`${API_URL}${path}`, init, path.startsWith("/uploads/") ? UPLOAD_CONTROL_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     } catch (error) {
       recordDiagnostic("error", "network", "API request could not reach the server", { path: path.split("?", 1)[0], method: init.method ?? "GET", requestId, error }, performance.now() - startedAt);
       throw error;
@@ -115,6 +152,10 @@ class ApiClient {
       status: response.status,
       requestId: response.headers.get("x-request-id") ?? requestId,
     }, performance.now() - startedAt);
+
+    if (authenticated && requestOwnerId !== sessionOwnerId(getRuntimeSession())) {
+      throw new ApiError("Account changed while the request was in progress", 401, "SESSION_CHANGED");
+    }
 
     if (response.status === 401 && authenticated && retry && (await this.refresh())) {
       return this.request<T>(path, options, false);
@@ -145,6 +186,24 @@ class ApiClient {
 
   bootstrap(): Promise<BootstrapPayload> {
     return this.request<BootstrapPayload>("/bootstrap");
+  }
+
+  adminSettings(): Promise<AdminSettings> {
+    return this.request<{ settings: AdminSettings }>("/admin/settings").then((result) => result.settings);
+  }
+
+  updateAdminSettings(input: { revision: number } & Partial<Omit<AdminSettings, "revision" | "updatedAt">>): Promise<AdminSettings> {
+    return this.request<{ settings: AdminSettings }>("/admin/settings", { method: "PATCH", body: input }).then((result) => result.settings);
+  }
+
+  adminMembers(query = "", cursor?: string): Promise<{ items: AdminMember[]; nextCursor: string | null }> {
+    const params = new URLSearchParams({ limit: "50", q: query });
+    if (cursor) params.set("cursor", cursor);
+    return this.request(`/admin/members?${params}`);
+  }
+
+  updateAdminMember(userId: string, input: { isAdmin?: boolean; suspended?: boolean; permissionOverrides?: Partial<Record<GlobalPermission, boolean | null>>; storageQuotaBytes?: number | null }): Promise<AdminMember> {
+    return this.request<{ member: AdminMember }>(`/admin/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: input }).then((result) => result.member);
   }
 
   androidRelease(): Promise<AndroidReleaseManifest> {
@@ -400,7 +459,7 @@ class ApiClient {
   private async uploadOffset(uploadId: string, retry = true): Promise<number> {
     const session = await readSession();
     if (!session) throw new Error("Your session has expired");
-    const response = await fetch(`${API_URL}/uploads/${encodeURIComponent(uploadId)}`, { method: "HEAD", headers: { Authorization: `Bearer ${session.accessToken}` } });
+    const response = await fetchBounded(`${API_URL}/uploads/${encodeURIComponent(uploadId)}`, { method: "HEAD", headers: { Authorization: `Bearer ${session.accessToken}` } });
     if (response.status === 401 && retry && await this.refresh()) return this.uploadOffset(uploadId, false);
     if (!response.ok) throw new ApiError(`Could not resume upload (${response.status})`, response.status);
     const offset = Number(response.headers.get("upload-offset"));
@@ -557,6 +616,18 @@ class ApiClient {
 
   respondFriend(requestId: string, action: "accept" | "decline"): Promise<FriendEntry> {
     return this.request<{ entry: FriendEntry }>(`/friends/requests/${encodeURIComponent(requestId)}/respond`, { method: "POST", body: { action } }).then((result) => result.entry);
+  }
+
+  cancelFriendRequest(requestId: string): Promise<void> {
+    return this.request(`/friends/requests/${encodeURIComponent(requestId)}`, { method: "DELETE" }).then(() => undefined);
+  }
+
+  removeFriend(userId: string): Promise<void> {
+    return this.request(`/friends/${encodeURIComponent(userId)}`, { method: "DELETE" }).then(() => undefined);
+  }
+
+  blockUser(userId: string): Promise<void> {
+    return this.request(`/friends/${encodeURIComponent(userId)}/block`, { method: "POST" }).then(() => undefined);
   }
 }
 

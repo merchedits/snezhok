@@ -12,6 +12,7 @@ import type {
   AppSettings,
   Attachment,
   BootstrapPayload,
+  CallUpdatePayload,
   FriendEntry,
   Id,
   Message,
@@ -20,6 +21,17 @@ import type {
   UserSummary,
 } from "@snezhok/contracts";
 import { api, RequestError, type AuthCredentials } from "../lib/api.js";
+import {
+  cacheMessages,
+  claimOfflineOwner,
+  clearOfflineData,
+  enqueueOutbox,
+  loadCachedMessages,
+  loadOutbox,
+  removeOutbox,
+  updateOutbox,
+  type OutboxEntry,
+} from "../lib/offlineStore.js";
 import { closeRealtimeSocket, getRealtimeSocket } from "../lib/realtime.js";
 
 export interface StreamSelection {
@@ -76,15 +88,13 @@ interface AppContextValue {
   replaceFriend: (entry: FriendEntry) => void;
   removeFriendEntry: (userId: Id) => void;
   announce: (message: string) => void;
+  clearOfflineCache: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 const BOOTSTRAP_CACHE = "snezhok.v3.bootstrap";
 const SELECTION_CACHE = "snezhok.v3.selection";
-
-function cacheKey(selection: StreamSelection) {
-  return `snezhok.v3.messages.${selection.kind}.${selection.id}`;
-}
+const OWNER_CACHE = "snezhok.v3.owner";
 
 function selectionKey(selection: StreamSelection) {
   return `${selection.kind}:${selection.id}`;
@@ -107,6 +117,11 @@ function writeCache(key: string, value: unknown) {
   }
 }
 
+function cachedBootstrap(): BootstrapPayload | null {
+  const payload = parseCache<BootstrapPayload>(BOOTSTRAP_CACHE);
+  return payload && localStorage.getItem(OWNER_CACHE) === payload.me.id ? payload : null;
+}
+
 function initialSelection(payload: BootstrapPayload): StreamSelection | null {
   const cached = parseCache<StreamSelection>(SELECTION_CACHE);
   if (cached?.kind === "conversation" && payload.conversations.some((item) => item.id === cached.id)) return cached;
@@ -117,7 +132,7 @@ function initialSelection(payload: BootstrapPayload): StreamSelection | null {
   return channel ? { kind: "channel", id: channel.id } : null;
 }
 
-function mergeMessage(list: Message[], incoming: Message): Message[] {
+export function mergeMessage(list: Message[], incoming: Message): Message[] {
   const optimisticIndex = list.findIndex((message) =>
     message.id === incoming.id || Boolean(incoming.clientId && (message.clientId === incoming.clientId || ((message.pending || message.failed) && message.id === incoming.clientId))),
   );
@@ -147,9 +162,18 @@ function userMessage(error: unknown): string {
   return "Request failed. Retry.";
 }
 
+function isPermanentOutboxFailure(error: unknown): boolean {
+  if (!(error instanceof RequestError)) return false;
+  return error.status >= 400 && error.status < 500 && ![408, 409, 425, 429].includes(error.status);
+}
+
+function outboxDelay(attempts: number): number {
+  return Math.min(60_000, 1_000 * (2 ** Math.min(6, Math.max(0, attempts - 1))));
+}
+
 export function AppProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<AuthStatus>("checking");
-  const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(() => parseCache(BOOTSTRAP_CACHE));
+  const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(cachedBootstrap);
   const [selection, setSelection] = useState<StreamSelection | null>(null);
   const [view, setView] = useState<View>("stream");
   const [messagesByStream, setMessagesByStream] = useState<Record<string, Message[]>>({});
@@ -169,6 +193,29 @@ export function AppProvider({ children }: PropsWithChildren) {
   const [authError, setAuthError] = useState<string | null>(null);
   const selectionRef = useRef<StreamSelection | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const flushingOutbox = useRef(new Set<Id>());
+  const settingsGeneration = useRef(0);
+  const settingsQueue = useRef<Promise<void>>(Promise.resolve());
+  const offlineClear = useRef<Promise<void>>(Promise.resolve());
+  const sessionGeneration = useRef(0);
+  const ownerRef = useRef<Id | null>(bootstrap?.me.id ?? null);
+  const eventCursorRef = useRef(bootstrap?.eventCursor ?? 0);
+  const streamKindById = useRef(new Map<Id, StreamSelection["kind"]>());
+  streamKindById.current = new Map([
+    ...(bootstrap?.conversations.map((item) => [item.id, "conversation"] as const) ?? []),
+    ...(bootstrap?.channels.map((item) => [item.id, "channel"] as const) ?? []),
+  ]);
+
+  const sessionIsActive = useCallback((generation: number, ownerId: Id | null) => (
+    generation === sessionGeneration.current && ownerId !== null && ownerRef.current === ownerId
+  ), []);
+
+  const invalidateSession = useCallback(() => {
+    sessionGeneration.current += 1;
+    ownerRef.current = null;
+    settingsGeneration.current += 1;
+    flushingOutbox.current.clear();
+  }, []);
 
   const announce = useCallback((message: string) => {
     setToast(message);
@@ -177,27 +224,55 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, []);
 
   const applyBootstrap = useCallback((payload: BootstrapPayload) => {
-    setBootstrap(payload);
-    writeCache(BOOTSTRAP_CACHE, payload);
+    ownerRef.current = payload.me.id;
+    eventCursorRef.current = Math.max(eventCursorRef.current, payload.eventCursor);
+    const currentPayload = payload.eventCursor === eventCursorRef.current
+      ? payload
+      : { ...payload, eventCursor: eventCursorRef.current };
+    setBootstrap(currentPayload);
+    writeCache(BOOTSTRAP_CACHE, currentPayload);
     setSelection((current) => {
       if (current) return current;
-      const next = initialSelection(payload);
+      const next = initialSelection(currentPayload);
       selectionRef.current = next;
       return next;
     });
   }, []);
 
+  const prepareOfflineOwner = useCallback(async (payload: BootstrapPayload) => {
+    const previous = localStorage.getItem(OWNER_CACHE) ?? parseCache<BootstrapPayload>(BOOTSTRAP_CACHE)?.me.id ?? null;
+    const changed = await claimOfflineOwner(payload.me.id);
+    if (changed || (previous && previous !== payload.me.id)) {
+      localStorage.removeItem(BOOTSTRAP_CACHE);
+      localStorage.removeItem(SELECTION_CACHE);
+      setMessagesByStream({});
+      setCursors({});
+      setSelection(null);
+      selectionRef.current = null;
+    }
+    localStorage.setItem(OWNER_CACHE, payload.me.id);
+    ownerRef.current = payload.me.id;
+  }, []);
+
   const refreshBootstrap = useCallback(async () => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
     const payload = await api.bootstrap();
+    if (!sessionIsActive(generation, ownerId) || payload.me.id !== ownerId) return;
+    await prepareOfflineOwner(payload);
+    if (!sessionIsActive(generation, ownerId)) return;
     applyBootstrap(payload);
-  }, [applyBootstrap]);
+  }, [applyBootstrap, prepareOfflineOwner, sessionIsActive]);
 
   useEffect(() => {
     let active = true;
+    const generation = sessionGeneration.current;
     api.me()
       .then(async () => {
         const payload = await api.bootstrap();
-        if (!active) return;
+        if (!active || generation !== sessionGeneration.current) return;
+        await prepareOfflineOwner(payload);
+        if (!active || generation !== sessionGeneration.current) return;
         applyBootstrap(payload);
         setStatus("ready");
       })
@@ -206,7 +281,7 @@ export function AppProvider({ children }: PropsWithChildren) {
         if (error instanceof RequestError && error.status === 401) {
           setBootstrap(null);
           setStatus("guest");
-        } else if (parseCache(BOOTSTRAP_CACHE)) {
+        } else if (cachedBootstrap()) {
           setStatus("ready");
         } else {
           setAuthError(userMessage(error));
@@ -214,7 +289,27 @@ export function AppProvider({ children }: PropsWithChildren) {
         }
       });
     return () => { active = false; };
-  }, [applyBootstrap]);
+  }, [applyBootstrap, prepareOfflineOwner]);
+
+  useEffect(() => {
+    const expire = () => {
+      invalidateSession();
+      closeRealtimeSocket();
+      setBootstrap(null);
+      setSelection(null);
+      selectionRef.current = null;
+      setMessagesByStream({});
+      setCursors({});
+      localStorage.removeItem(BOOTSTRAP_CACHE);
+      localStorage.removeItem(SELECTION_CACHE);
+      localStorage.removeItem(OWNER_CACHE);
+      offlineClear.current = clearOfflineData();
+      void offlineClear.current.catch(() => undefined);
+      setStatus("guest");
+    };
+    window.addEventListener("snezhok:auth-expired", expire);
+    return () => window.removeEventListener("snezhok:auth-expired", expire);
+  }, [invalidateSession]);
 
   useEffect(() => {
     const onOnline = () => setOnline(true);
@@ -232,16 +327,33 @@ export function AppProvider({ children }: PropsWithChildren) {
     const socket = getRealtimeSocket();
     const onCreated = (message: Message) => {
       const key = `${message.streamKind}:${message.streamId}`;
-      setMessagesByStream((current) => ({ ...current, [key]: mergeMessage(current[key] || [], message) }));
+      setMessagesByStream((current) => {
+        const loaded = current[key];
+        const next = mergeMessage(loaded || [], message);
+        if (loaded) void cacheMessages(key, next);
+        else void loadCachedMessages(key).then((cached) => cacheMessages(key, mergeMessage(cached, message)));
+        return { ...current, [key]: next };
+      });
+      if (message.clientId) void removeOutbox(message.clientId).catch(() => undefined);
     };
     const onUpdated = (message: Message) => onCreated(message);
     const onDeleted = ({ id, streamId, deletedAt }: { id: Id; streamId: Id; deletedAt: number }) => {
+      const kind = streamKindById.current.get(streamId);
+      if (!kind) return;
+      const key = `${kind}:${streamId}`;
       setMessagesByStream((current) => {
-        const entries = Object.entries(current).map(([key, list]) => [
-          key,
-          key.endsWith(`:${streamId}`) ? list.map((message) => message.id === id ? { ...message, deletedAt, text: "", attachments: [] } : message) : list,
-        ] as const);
-        return Object.fromEntries(entries);
+        const loaded = current[key];
+        if (!loaded) {
+          void loadCachedMessages(key).then((cached) => {
+            const next = cached.map((message) => message.id === id ? { ...message, deletedAt, text: "", attachments: [] } : message);
+            if (next.some((message, index) => message !== cached[index])) void cacheMessages(key, next);
+          });
+          return current;
+        }
+        const next = loaded.map((message) => message.id === id ? { ...message, deletedAt, text: "", attachments: [] } : message);
+        if (!next.some((message, index) => message !== loaded[index])) return current;
+        void cacheMessages(key, next);
+        return { ...current, [key]: next };
       });
     };
     const onConversation = (conversation: BootstrapPayload["conversations"][number]) => {
@@ -273,9 +385,22 @@ export function AppProvider({ children }: PropsWithChildren) {
         return { ...current, [streamId]: [...users] };
       });
     };
+    const onSyncReady = ({ cursor }: { cursor: number }) => {
+      if (cursor <= eventCursorRef.current) return;
+      eventCursorRef.current = cursor;
+      setBootstrap((current) => {
+        if (!current || cursor <= current.eventCursor) return current;
+        const next = { ...current, eventCursor: cursor };
+        writeCache(BOOTSTRAP_CACHE, next);
+        return next;
+      });
+    };
+    const onCallUpdated = (payload: CallUpdatePayload) => {
+      window.dispatchEvent(new CustomEvent("snezhok:call-updated", { detail: payload }));
+    };
     const onConnect = () => {
       setSocketConnected(true);
-      socket.emit("sync:resume", { cursor: bootstrap.eventCursor }, (accepted) => {
+      socket.emit("sync:resume", { cursor: eventCursorRef.current }, (accepted) => {
         if (!accepted) void refreshBootstrap();
       });
       const active = selectionRef.current;
@@ -293,6 +418,8 @@ export function AppProvider({ children }: PropsWithChildren) {
     socket.on("friend:updated", onFriend);
     socket.on("presence:updated", onPresence);
     socket.on("typing:updated", onTyping);
+    socket.on("sync:ready", onSyncReady);
+    socket.on("call:updated", onCallUpdated);
     socket.connect();
 
     return () => {
@@ -306,17 +433,25 @@ export function AppProvider({ children }: PropsWithChildren) {
       socket.off("friend:updated", onFriend);
       socket.off("presence:updated", onPresence);
       socket.off("typing:updated", onTyping);
+      socket.off("sync:ready", onSyncReady);
+      socket.off("call:updated", onCallUpdated);
       closeRealtimeSocket();
       setSocketConnected(false);
     };
   }, [bootstrap?.me.id, refreshBootstrap, status]);
 
   const authenticate = useCallback(async (mode: "login" | "register", credentials: AuthCredentials) => {
+    invalidateSession();
+    const generation = sessionGeneration.current;
     setAuthError(null);
     try {
+      await offlineClear.current.catch(() => undefined);
       if (mode === "login") await api.login(credentials);
       else await api.register(credentials);
       const payload = await api.bootstrap();
+      if (generation !== sessionGeneration.current) return;
+      await prepareOfflineOwner(payload);
+      if (generation !== sessionGeneration.current) return;
       applyBootstrap(payload);
       setStatus("ready");
     } catch (error) {
@@ -324,43 +459,60 @@ export function AppProvider({ children }: PropsWithChildren) {
       setAuthError(message);
       throw error;
     }
-  }, [applyBootstrap]);
+  }, [applyBootstrap, invalidateSession, prepareOfflineOwner]);
 
   const logout = useCallback(async () => {
+    invalidateSession();
+    const lifecycle: Promise<unknown>[] = [];
+    window.dispatchEvent(new CustomEvent("snezhok:before-logout", {
+      detail: { waitUntil: (promise: Promise<unknown>) => lifecycle.push(promise) },
+    }));
+    await Promise.allSettled(lifecycle);
     try { await api.logout(); } finally {
       closeRealtimeSocket();
       setBootstrap(null);
       setSelection(null);
+      selectionRef.current = null;
       setMessagesByStream({});
+      setCursors({});
       localStorage.removeItem(BOOTSTRAP_CACHE);
+      localStorage.removeItem(SELECTION_CACHE);
+      localStorage.removeItem(OWNER_CACHE);
+      offlineClear.current = clearOfflineData();
+      await offlineClear.current.catch(() => undefined);
       setStatus("guest");
     }
-  }, []);
+  }, [invalidateSession]);
 
   const loadMessages = useCallback(async (target: StreamSelection, cursor?: string) => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
     const key = selectionKey(target);
     setLoadingMessages(true);
     try {
       const page = await api.messages(target.kind, target.id, cursor);
+      if (!sessionIsActive(generation, ownerId)) return;
       setMessagesByStream((current) => {
         const existing = current[key] || [];
-        const combined = cursor ? [...page.items, ...existing] : [...page.items, ...existing.filter((item) => item.pending || item.failed)];
-        const unique = Array.from(new Map(combined.map((item) => [item.id, item])).values()).sort((a, b) => a.sequence - b.sequence);
-        writeCache(cacheKey(target), unique.slice(-100));
+        // Server pages are reduced last so an acknowledged message replaces
+        // its optimistic row by clientId instead of the stale row winning.
+        const combined = cursor ? [...existing, ...page.items] : [...existing.filter((item) => item.pending || item.failed), ...page.items];
+        const unique = combined.reduce<Message[]>((list, item) => mergeMessage(list, item), []);
+        void cacheMessages(key, unique);
         return { ...current, [key]: unique };
       });
       setCursors((current) => ({ ...current, [key]: page.nextCursor }));
       const latest = page.items.at(-1);
       if (latest) {
         await api.markRead(target.kind, target.id, latest.sequence).catch(() => undefined);
-        getRealtimeSocket().emit("read:set", { streamId: target.id, sequence: latest.sequence });
+        if (sessionIsActive(generation, ownerId)) getRealtimeSocket().emit("read:set", { streamId: target.id, sequence: latest.sequence });
       }
     } catch (error) {
-      if (!(messagesByStream[key]?.length)) announce(userMessage(error));
+      if (sessionIsActive(generation, ownerId) && !(messagesByStream[key]?.length)) announce(userMessage(error));
     } finally {
-      setLoadingMessages(false);
+      if (sessionIsActive(generation, ownerId)) setLoadingMessages(false);
     }
-  }, [announce, messagesByStream]);
+  }, [announce, messagesByStream, sessionIsActive]);
 
   const selectStream = useCallback((next: StreamSelection) => {
     const previous = selectionRef.current;
@@ -379,19 +531,21 @@ export function AppProvider({ children }: PropsWithChildren) {
     setEditing(null);
     setDrawerOpen(false);
     setInfoOpen(false);
-    const cached = parseCache<Message[]>(cacheKey(next));
-    if (cached) setMessagesByStream((current) => ({ ...current, [selectionKey(next)]: cached }));
     socket.emit("stream:join", { streamId: next.id }, () => undefined);
-    void loadMessages(next);
-  }, [loadMessages]);
+  }, []);
 
   useEffect(() => {
     if (!selection || status !== "ready") return;
     selectionRef.current = selection;
     const key = selectionKey(selection);
-    const cached = parseCache<Message[]>(cacheKey(selection));
-    if (cached && !(messagesByStream[key]?.length)) setMessagesByStream((current) => ({ ...current, [key]: cached }));
-    void loadMessages(selection);
+    let active = true;
+    void loadCachedMessages(key).then((cached) => {
+      if (active && cached.length) setMessagesByStream((current) => ({
+        ...current,
+        [key]: (current[key] || []).reduce((list, message) => mergeMessage(list, message), cached),
+      }));
+    }).finally(() => { if (active) void loadMessages(selection); });
+    return () => { active = false; };
     // The active stream changes explicitly through selectStream.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, selection?.id, selection?.kind]);
@@ -404,6 +558,8 @@ export function AppProvider({ children }: PropsWithChildren) {
 
   const sendMessage = useCallback(async ({ text, kind, attachments }: { text: string; kind: MessageKind; attachments: Attachment[] }) => {
     if (!selection || !bootstrap?.me) return;
+    const generation = sessionGeneration.current;
+    const ownerId = bootstrap.me.id;
     const clientId = crypto.randomUUID();
     const key = selectionKey(selection);
     const optimistic: Message = {
@@ -425,101 +581,274 @@ export function AppProvider({ children }: PropsWithChildren) {
       pinnedAt: null,
       pending: true,
     };
-    setMessagesByStream((current) => ({ ...current, [key]: mergeMessage(current[key] || [], optimistic) }));
-    setReplyingTo(null);
+    const outbox: OutboxEntry = {
+      clientId, streamId: selection.id, streamKind: selection.kind, text, kind,
+      replyToId: replyingTo?.id || null,
+      attachmentIds: attachments.map((attachment) => attachment.id),
+      optimistic, createdAt: Date.now(),
+    };
     try {
-      const result = await api.sendMessage(selection.kind, selection.id, {
+      await enqueueOutbox(outbox);
+    } catch (error) {
+      if (sessionIsActive(generation, ownerId)) announce(`Message was not queued: ${userMessage(error)}`);
+      throw error;
+    }
+    if (!sessionIsActive(generation, ownerId)) {
+      await removeOutbox(clientId).catch(() => undefined);
+      return;
+    }
+    setMessagesByStream((current) => {
+      const next = mergeMessage(current[key] || [], optimistic);
+      void cacheMessages(key, next);
+      return { ...current, [key]: next };
+    });
+    setReplyingTo(null);
+    let result: { message: Message };
+    try {
+      result = await api.sendMessage(selection.kind, selection.id, {
         clientId,
         text,
         kind,
         replyToId: replyingTo?.id || null,
         attachmentIds: attachments.map((attachment) => attachment.id),
       });
-      setMessagesByStream((current) => ({
-        ...current,
-        [key]: mergeMessage(current[key] || [], result.message),
-      }));
     } catch (error) {
-      setMessagesByStream((current) => ({
-        ...current,
-        [key]: (current[key] || []).map((message) => message.id === clientId ? { ...message, pending: false, failed: true } : message),
-      }));
-      announce(userMessage(error));
+      if (!sessionIsActive(generation, ownerId)) {
+        await removeOutbox(clientId).catch(() => undefined);
+        return;
+      }
+      setMessagesByStream((current) => {
+        const next = (current[key] || []).map((message) => message.id === clientId ? { ...message, pending: false, failed: true } : message);
+        void cacheMessages(key, next);
+        return { ...current, [key]: next };
+      });
+      if (navigator.onLine) announce(userMessage(error));
+      return;
     }
-  }, [announce, bootstrap?.me, replyingTo, selection]);
+    if (!sessionIsActive(generation, ownerId)) {
+      await removeOutbox(clientId).catch(() => undefined);
+      return;
+    }
+    setMessagesByStream((current) => {
+      const next = mergeMessage(current[key] || [], result.message);
+      void cacheMessages(key, next);
+      return { ...current, [key]: next };
+    });
+    await removeOutbox(clientId).catch((error) => announce(`Message sent, but offline queue cleanup failed: ${userMessage(error)}`));
+  }, [announce, bootstrap?.me, replyingTo, selection, sessionIsActive]);
 
   const editMessage = useCallback(async (message: Message, text: string) => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
     try {
       const result = await api.editMessage(message.id, text);
+      if (!sessionIsActive(generation, ownerId)) return;
       const key = `${message.streamKind}:${message.streamId}`;
       setMessagesByStream((current) => ({ ...current, [key]: mergeMessage(current[key] || [], result.message) }));
       setEditing(null);
-    } catch (error) { announce(userMessage(error)); }
-  }, [announce]);
+    } catch (error) { if (sessionIsActive(generation, ownerId)) announce(userMessage(error)); }
+  }, [announce, sessionIsActive]);
 
   const retryMessage = useCallback(async (message: Message) => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
+    if (!ownerId) return;
     const key = `${message.streamKind}:${message.streamId}`;
+    const clientId = message.clientId ?? message.id;
+    try { await enqueueOutbox({
+      clientId, streamId: message.streamId, streamKind: message.streamKind, text: message.text, kind: message.kind,
+      replyToId: message.replyTo?.id || null, attachmentIds: message.attachments.map((attachment) => attachment.id),
+      optimistic: { ...message, clientId, pending: true, failed: false }, createdAt: message.createdAt,
+    }); } catch (error) {
+      if (sessionIsActive(generation, ownerId)) announce(`Message was not queued: ${userMessage(error)}`);
+      return;
+    }
+    if (!sessionIsActive(generation, ownerId)) {
+      await removeOutbox(clientId).catch(() => undefined);
+      return;
+    }
     setMessagesByStream((current) => ({ ...current, [key]: (current[key] || []).map((item) => item.id === message.id ? { ...item, failed: false, pending: true } : item) }));
     try {
       const result = await api.sendMessage(message.streamKind, message.streamId, {
-        clientId: message.clientId ?? message.id,
+        clientId,
         text: message.text,
         kind: message.kind,
         replyToId: message.replyTo?.id || null,
         attachmentIds: message.attachments.map((attachment) => attachment.id),
       });
+      if (!sessionIsActive(generation, ownerId)) {
+        await removeOutbox(clientId).catch(() => undefined);
+        return;
+      }
       setMessagesByStream((current) => ({ ...current, [key]: mergeMessage(current[key] || [], result.message) }));
+      await removeOutbox(clientId).catch((error) => announce(`Message sent, but offline queue cleanup failed: ${userMessage(error)}`));
     } catch (error) {
+      if (!sessionIsActive(generation, ownerId)) {
+        await removeOutbox(clientId).catch(() => undefined);
+        return;
+      }
       setMessagesByStream((current) => ({ ...current, [key]: (current[key] || []).map((item) => item.id === message.id ? { ...item, pending: false, failed: true } : item) }));
       announce(userMessage(error));
     }
-  }, [announce]);
+  }, [announce, sessionIsActive]);
+
+  const flushOutbox = useCallback(async () => {
+    if (!navigator.onLine) return;
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
+    if (!ownerId) return;
+    let entries: OutboxEntry[];
+    try { entries = await loadOutbox(); }
+    catch (error) {
+      if (sessionIsActive(generation, ownerId)) announce(`Offline queue unavailable: ${userMessage(error)}`);
+      return;
+    }
+    if (!sessionIsActive(generation, ownerId)) return;
+    for (const entry of entries) {
+      if (!sessionIsActive(generation, ownerId)) return;
+      if ((entry.nextAttemptAt ?? 0) > Date.now()) continue;
+      if (flushingOutbox.current.has(entry.clientId)) continue;
+      flushingOutbox.current.add(entry.clientId);
+      const key = `${entry.streamKind}:${entry.streamId}`;
+      setMessagesByStream((current) => {
+        const next = mergeMessage(current[key] || [], { ...entry.optimistic, pending: true, failed: false });
+        return { ...current, [key]: next };
+      });
+      try {
+        const result = await api.sendMessage(entry.streamKind, entry.streamId, {
+          clientId: entry.clientId, text: entry.text, kind: entry.kind,
+          replyToId: entry.replyToId, attachmentIds: entry.attachmentIds,
+        });
+        if (!sessionIsActive(generation, ownerId)) return;
+        setMessagesByStream((current) => {
+          const next = mergeMessage(current[key] || [], result.message);
+          void cacheMessages(key, next);
+          return { ...current, [key]: next };
+        });
+        await removeOutbox(entry.clientId).catch((error) => announce(`Message sent, but offline queue cleanup failed: ${userMessage(error)}`));
+      } catch (error) {
+        if (!sessionIsActive(generation, ownerId)) return;
+        setMessagesByStream((current) => ({ ...current, [key]: (current[key] || []).map((item) => item.clientId === entry.clientId ? { ...item, pending: false, failed: true } : item) }));
+        if (isPermanentOutboxFailure(error)) {
+          await removeOutbox(entry.clientId).catch((storageError) => announce(`Offline queue cleanup failed: ${userMessage(storageError)}`));
+        } else {
+          const attempts = (entry.attempts ?? 0) + 1;
+          await updateOutbox({ ...entry, attempts, nextAttemptAt: Date.now() + outboxDelay(attempts) })
+            .catch((storageError) => announce(`Offline queue update failed: ${userMessage(storageError)}`));
+        }
+      } finally {
+        flushingOutbox.current.delete(entry.clientId);
+      }
+    }
+  }, [announce, sessionIsActive]);
+
+  useEffect(() => {
+    if (status !== "ready") return;
+    let active = true;
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
+    void loadOutbox().then((entries) => {
+      if (!active || !sessionIsActive(generation, ownerId)) return;
+      setMessagesByStream((current) => {
+        const next = { ...current };
+        for (const entry of entries) {
+          const key = `${entry.streamKind}:${entry.streamId}`;
+          next[key] = mergeMessage(next[key] || [], { ...entry.optimistic, pending: navigator.onLine, failed: !navigator.onLine });
+        }
+        return next;
+      });
+    }).catch((error) => { if (active && sessionIsActive(generation, ownerId)) announce(`Offline queue unavailable: ${userMessage(error)}`); });
+    return () => { active = false; };
+  }, [announce, sessionIsActive, status]);
+
+  useEffect(() => {
+    if (status === "ready" && online) void flushOutbox();
+  }, [flushOutbox, online, socketConnected, status]);
+
+  useEffect(() => {
+    if (status !== "ready" || !online) return;
+    const timer = window.setInterval(() => { void flushOutbox(); }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [flushOutbox, online, status]);
 
   const deleteMessage = useCallback(async (message: Message) => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
     try {
       await api.deleteMessage(message.id);
+      if (!sessionIsActive(generation, ownerId)) return;
       const key = `${message.streamKind}:${message.streamId}`;
-      setMessagesByStream((current) => ({ ...current, [key]: (current[key] || []).map((item) => item.id === message.id ? { ...item, deletedAt: Date.now(), text: "", attachments: [] } : item) }));
-    } catch (error) { announce(userMessage(error)); }
-  }, [announce]);
+      setMessagesByStream((current) => {
+        const next = (current[key] || []).map((item) => item.id === message.id ? { ...item, deletedAt: Date.now(), text: "", attachments: [] } : item);
+        void cacheMessages(key, next);
+        return { ...current, [key]: next };
+      });
+    } catch (error) { if (sessionIsActive(generation, ownerId)) announce(userMessage(error)); }
+  }, [announce, sessionIsActive]);
 
   const reactToMessage = useCallback(async (message: Message, emoji: string) => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
     const reacted = message.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
     try {
       const result = await api.react(message.id, emoji, reacted);
+      if (!sessionIsActive(generation, ownerId)) return;
       const key = `${message.streamKind}:${message.streamId}`;
       setMessagesByStream((current) => ({ ...current, [key]: mergeMessage(current[key] || [], result.message) }));
-    } catch (error) { announce(userMessage(error)); }
-  }, [announce]);
+    } catch (error) { if (sessionIsActive(generation, ownerId)) announce(userMessage(error)); }
+  }, [announce, sessionIsActive]);
 
   const togglePin = useCallback(async (message: Message) => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
     try {
       const result = await api.pin(message.id, Boolean(message.pinnedAt));
+      if (!sessionIsActive(generation, ownerId)) return;
       const key = `${message.streamKind}:${message.streamId}`;
       setMessagesByStream((current) => ({ ...current, [key]: mergeMessage(current[key] || [], result.message) }));
       announce(message.pinnedAt ? "Message unpinned." : "Message pinned.");
-    } catch (error) { announce(userMessage(error)); }
-  }, [announce]);
+    } catch (error) { if (sessionIsActive(generation, ownerId)) announce(userMessage(error)); }
+  }, [announce, sessionIsActive]);
 
   const updateSettings = useCallback(async (patch: Partial<AppSettings>) => {
-    if (!bootstrap) return;
-    const previous = bootstrap.settings;
-    setBootstrap({ ...bootstrap, settings: { ...previous, ...patch } });
-    try {
-      const result = await api.settings.update(patch);
-      setBootstrap((current) => current ? { ...current, settings: result.settings } : current);
-    } catch (error) {
-      setBootstrap((current) => current ? { ...current, settings: previous } : current);
-      announce(userMessage(error));
-    }
-  }, [announce, bootstrap]);
+    const session = sessionGeneration.current;
+    const ownerId = ownerRef.current;
+    const generation = ++settingsGeneration.current;
+    setBootstrap((current) => current ? { ...current, settings: { ...current.settings, ...patch } } : current);
+    settingsQueue.current = settingsQueue.current.catch(() => undefined).then(async () => {
+      try {
+        const result = await api.settings.update(patch);
+        if (sessionIsActive(session, ownerId) && generation === settingsGeneration.current) setBootstrap((current) => current ? { ...current, settings: result.settings } : current);
+      } catch (error) {
+        if (!sessionIsActive(session, ownerId)) return;
+        announce(userMessage(error));
+        if (generation === settingsGeneration.current) await refreshBootstrap().catch(() => undefined);
+      }
+    });
+    await settingsQueue.current;
+  }, [announce, refreshBootstrap, sessionIsActive]);
 
   const updateProfile = useCallback(async (patch: Partial<Pick<UserSummary, "displayName" | "bio" | "statusText">>) => {
+    const generation = sessionGeneration.current;
+    const ownerId = ownerRef.current;
     try {
       const result = await api.profile(patch);
-      setBootstrap((current) => current ? { ...current, me: result.me } : current);
+      if (!sessionIsActive(generation, ownerId)) return;
+      setBootstrap((current) => current ? { ...current, me: { ...current.me, ...result.me } } : current);
       announce("Profile saved.");
-    } catch (error) { announce(userMessage(error)); }
+    } catch (error) { if (sessionIsActive(generation, ownerId)) announce(userMessage(error)); }
+  }, [announce, sessionIsActive]);
+
+  const clearOfflineCache = useCallback(async () => {
+    try {
+      await clearOfflineData();
+      flushingOutbox.current.clear();
+      setMessagesByStream({});
+      setCursors({});
+      announce("Offline data cleared.");
+    } catch (error) {
+      announce(`Offline data could not be cleared: ${userMessage(error)}`);
+    }
   }, [announce]);
 
   const replaceFriend = useCallback((entry: FriendEntry) => {
@@ -579,12 +908,13 @@ export function AppProvider({ children }: PropsWithChildren) {
     replaceFriend,
     removeFriendEntry,
     announce,
+    clearOfflineCache,
   }), [
     announce, authError, authenticate, bootstrap, deleteMessage, drawerOpen, editMessage, editing,
     hasOlderMessages, infoOpen, loadOlder, loadingMessages, logout, messages, online, pinsOpen,
     reactToMessage, refreshBootstrap, replyingTo, retryMessage, searchOpen, selectStream, selection, sendMessage,
     settingsOpen, socketConnected, status, toast, togglePin, typingByStream, updateProfile, updateSettings, view,
-    replaceFriend, removeFriendEntry,
+    replaceFriend, removeFriendEntry, clearOfflineCache,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

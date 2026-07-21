@@ -8,7 +8,12 @@ x-logging: &default-logging
 
 services:
   postgres:
-    image: postgres:17-alpine
+    build:
+      context: .
+      dockerfile: apps/postgres/Dockerfile
+      args:
+        SOURCE_REVISION: ${IMAGE_TAG:?Set IMAGE_TAG}
+    image: snezhok-v3-postgres:${IMAGE_TAG:?Set IMAGE_TAG to the exact 40-character public source revision}
     restart: unless-stopped
     environment:
       POSTGRES_DB: snezhok
@@ -26,8 +31,16 @@ services:
       - maintenance_work_mem=32MB
       - -c
       - max_connections=40
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=300
+      - -c
+      - archive_command=/usr/local/bin/snezhok-archive-wal %p %f
     volumes:
       - snezhok_v3_postgres:/var/lib/postgresql/data
+      - /var/backups/snezhok/wal:/var/lib/postgresql/wal-archive
+      - /etc/snezhok/backup-age-recipient.txt:/run/secrets/backup_age_recipient:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U snezhok -d snezhok"]
       interval: 5s
@@ -41,29 +54,98 @@ services:
       - backend
     logging: *default-logging
 
+  migrate:
+    image: snezhok-v3-app:${IMAGE_TAG:?Set IMAGE_TAG to the exact 40-character public source revision}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PUBLIC_BASE_PATH: /chat/
+        SOURCE_REVISION: ${IMAGE_TAG:?Set IMAGE_TAG}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: snezhok
+      DATABASE_USER: snezhok
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    command: ["node", "apps/api/dist/commands/migrate.js"]
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - backend
+    logging: *default-logging
+
+  db-provision:
+    image: snezhok-v3-postgres:${IMAGE_TAG:?Set IMAGE_TAG to the exact 40-character public source revision}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      API_DATABASE_PASSWORD: ${API_DATABASE_PASSWORD:?Set API_DATABASE_PASSWORD}
+      WORKER_DATABASE_PASSWORD: ${WORKER_DATABASE_PASSWORD:?Set WORKER_DATABASE_PASSWORD}
+    entrypoint: ["/usr/local/bin/snezhok-provision-roles"]
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+    logging: *default-logging
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         PUBLIC_BASE_PATH: /chat/
-    image: snezhok-v3-app:latest
+        SOURCE_REVISION: ${IMAGE_TAG:?Set IMAGE_TAG}
+    image: snezhok-v3-app:${IMAGE_TAG:?Set IMAGE_TAG to the exact 40-character public source revision}
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
-    env_file: .env
+      db-provision:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3000
       PUBLIC_API_PREFIX: /api/v1
       APP_ORIGINS: https://merchedits.xyz
-      DATABASE_URL: postgresql://snezhok:${POSTGRES_PASSWORD}@postgres:5432/snezhok
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: snezhok
+      DATABASE_USER: snezhok_api
+      DATABASE_PASSWORD: ${API_DATABASE_PASSWORD:?Set API_DATABASE_PASSWORD}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-5}
+      RUN_MIGRATIONS: "false"
+      SOURCE_REVISION: ${IMAGE_TAG:?Set IMAGE_TAG}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-365}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-2147483648}
+      UPLOAD_CHUNK_BYTES: ${UPLOAD_CHUNK_BYTES:-4194304}
+      EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-30}
+      ORPHAN_MEDIA_RETENTION_DAYS: ${ORPHAN_MEDIA_RETENTION_DAYS:-7}
+      RELIABILITY_CLEANUP_INTERVAL_MINUTES: ${RELIABILITY_CLEANUP_INTERVAL_MINUTES:-15}
+      PUSH_DELIVERY_RETENTION_DAYS: ${PUSH_DELIVERY_RETENTION_DAYS:-7}
       STORAGE_ROOT: /app/data
       INTERNAL_MEDIA_PREFIX: /chat/_media/
       USE_X_ACCEL: "true"
       LIVEKIT_URL: wss://merchedits.xyz/chat/livekit
+      LIVEKIT_CONTROL_URL: http://host.docker.internal:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}
+      CALL_STALE_HOURS: ${CALL_STALE_HOURS:-12}
+      CALL_PHANTOM_TIMEOUT_SECONDS: ${CALL_PHANTOM_TIMEOUT_SECONDS:-120}
       ANDROID_APK_PATH: /app/releases/snezhok-current.apk
       ANDROID_RELEASE_MANIFEST_PATH: /app/releases/android-current.json
     volumes:
@@ -71,6 +153,8 @@ services:
       - ./releases:/app/releases:ro
     ports:
       - 127.0.0.1:3003:3000
+    extra_hosts:
+      - host.docker.internal:host-gateway
     tmpfs:
       - /tmp:size=128m,mode=1777
     read_only: true
@@ -95,17 +179,23 @@ services:
     build:
       context: .
       dockerfile: apps/media-worker/Dockerfile
-    image: snezhok-v3-media-worker:latest
+      args:
+        SOURCE_REVISION: ${IMAGE_TAG:?Set IMAGE_TAG}
+    image: snezhok-v3-media-worker:${IMAGE_TAG:?Set IMAGE_TAG to the exact 40-character public source revision}
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       app:
         condition: service_healthy
-    env_file: .env
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://snezhok:${POSTGRES_PASSWORD}@postgres:5432/snezhok
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: snezhok
+      DATABASE_USER: snezhok_worker
+      DATABASE_PASSWORD: ${WORKER_DATABASE_PASSWORD:?Set WORKER_DATABASE_PASSWORD}
+      SOURCE_REVISION: ${IMAGE_TAG:?Set IMAGE_TAG}
       STORAGE_ROOT: /app/data
       WORKER_ID: production-media-1
       FFMPEG_THREADS: 2
@@ -113,6 +203,11 @@ services:
       PAUSE_DURING_CALLS: "true"
       MIN_FREE_MEMORY_MB: 512
       MAX_LOAD_PER_CPU: 0.75
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-1500}
+      STALE_JOB_SECONDS: ${STALE_JOB_SECONDS:-300}
+      MEDIA_COMMAND_TIMEOUT_MS: ${MEDIA_COMMAND_TIMEOUT_MS:-1800000}
+      MAX_MEDIA_OUTPUT_BYTES: ${MAX_MEDIA_OUTPUT_BYTES:-2147483648}
+      CALL_STALE_HOURS: ${CALL_STALE_HOURS:-12}
     volumes:
       - ./data-v3/storage:/app/data
     tmpfs:
@@ -121,6 +216,12 @@ services:
     mem_limit: 768m
     cpus: 1.25
     stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:fs').stat('/tmp/snezhok-media-worker-heartbeat',(e,s)=>process.exit(e||Date.now()-s.mtimeMs>30000?1:0))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -130,12 +231,13 @@ services:
     logging: *default-logging
 
   livekit:
-    image: livekit/livekit-server:v1.13.3
+    image: livekit/livekit-server:v1.13.3@sha256:483b8b7b5b0654f91f1e8bdc7b46fcd37fd9911612ecf627f97e3185a89825bd
     restart: unless-stopped
     network_mode: host
     command: ["--config", "/etc/livekit.yaml"]
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}"
+      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}
     volumes:
       - ./infra/livekit.yaml:/etc/livekit.yaml:ro
     mem_limit: 512m

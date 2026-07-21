@@ -1,7 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import * as Application from "expo-application";
-import * as Crypto from "expo-crypto";
 import { File, Paths } from "expo-file-system";
 import * as IntentLauncher from "expo-intent-launcher";
 import type { ReactNode } from "react";
@@ -13,7 +12,8 @@ import { api, resolveApiResource } from "../lib/api";
 import { userFacingError } from "../lib/userFacingError";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
-import { arrayBufferToHex, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
+import { isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
+import { sha256UpdateFile } from "./nativeUpdateIntegrity";
 
 const AUTO_UPDATE_KEY = "snezhok.android.auto-update.v1";
 const CHECK_INTERVAL_MS = 15 * 60 * 1_000;
@@ -109,8 +109,8 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
         const file = await task.downloadAsync();
         if (!file || file.size !== manifest.bytes) throw new LocalizedUpdateError(t("updateBadSize"));
         setState((current) => ({ ...current, message: t("updateVerifying"), progress: 1 }));
-        const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, await file.bytes());
-        if (arrayBufferToHex(digest) !== manifest.sha256.toLowerCase()) throw new LocalizedUpdateError(t("updateVerificationFailed"));
+        const digest = await sha256UpdateFile(file.uri);
+        if (digest !== manifest.sha256.toLowerCase()) throw new LocalizedUpdateError(t("updateVerificationFailed"));
 
         const previousFile = downloadedFile.current;
         if (previousFile?.exists && previousFile.uri !== file.uri) previousFile.delete();

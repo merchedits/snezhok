@@ -4,7 +4,13 @@ import { config } from "../config.js";
 const { Pool } = pg;
 
 export const pool = new Pool({
-  connectionString: config.DATABASE_URL,
+  ...(config.DATABASE_HOST ? {
+    host: config.DATABASE_HOST,
+    port: config.DATABASE_PORT,
+    database: config.DATABASE_NAME,
+    user: config.DATABASE_USER,
+    password: config.DATABASE_PASSWORD,
+  } : { connectionString: config.DATABASE_URL }),
   max: config.DATABASE_POOL_MAX,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,

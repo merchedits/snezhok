@@ -31,29 +31,88 @@ export class RequestError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, refreshed = false): Promise<T> {
+const REQUEST_TIMEOUT_MS = 20_000;
+const UPLOAD_TIMEOUT_MS = 120_000;
+let refreshInFlight: Promise<boolean> | null = null;
+let authGeneration = 0;
+let sessionController = new AbortController();
+
+function resetSessionBoundary(): void {
+  authGeneration += 1;
+  sessionController.abort(new DOMException("Authentication session changed", "AbortError"));
+  sessionController = new AbortController();
+  refreshInFlight = null;
+}
+
+function terminalAuthFailure(): void {
+  window.dispatchEvent(new Event("snezhok:auth-expired"));
+}
+
+async function fetchBounded(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(init.signal?.reason);
+  if (init.signal) {
+    if (init.signal.aborted) controller.abort(init.signal.reason);
+    else init.signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = window.setTimeout(() => controller.abort(new DOMException("Request timed out", "TimeoutError")), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+    init.signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+function refreshSession(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  const generation = authGeneration;
+  refreshInFlight = fetchBounded(`${API_BASE}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    credentials: "include",
+    body: "{}",
+    signal: sessionController.signal,
+  }, REQUEST_TIMEOUT_MS)
+    .then((response) => generation === authGeneration && response.ok)
+    .catch(() => false)
+    .finally(() => {
+      if (generation === authGeneration) refreshInFlight = null;
+    });
+  return refreshInFlight;
+}
+
+async function request<T>(path: string, init: RequestInit = {}, refreshed = false, sessionBound = true): Promise<T> {
+  const generation = authGeneration;
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   headers.set("Accept", "application/json");
 
-  const response = await fetch(`${API_BASE}${path}`, {
+  const requestInit: RequestInit = {
     ...init,
     headers,
     credentials: "include",
-  });
+    ...(sessionBound ? {
+      signal: init.signal
+        ? AbortSignal.any([init.signal, sessionController.signal])
+        : sessionController.signal,
+    } : {}),
+  };
+  const response = await fetchBounded(`${API_BASE}${path}`, requestInit, path.includes("/uploads/") ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+  if (sessionBound && generation !== authGeneration) throw new DOMException("Authentication session changed", "AbortError");
 
-  const refreshEligible = !["/auth/login", "/auth/register", "/auth/refresh"].includes(path);
+  const refreshEligible = !["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"].includes(path);
   if (response.status === 401 && !refreshed && refreshEligible) {
-    const refreshResponse = await fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      credentials: "include",
-      body: "{}",
-    });
-    if (refreshResponse.ok) return request<T>(path, init, true);
+    if (await refreshSession()) {
+      if (generation !== authGeneration) throw new DOMException("Authentication session changed", "AbortError");
+      return request<T>(path, init, true);
+    }
+    if (generation !== authGeneration) throw new DOMException("Authentication session changed", "AbortError");
+    terminalAuthFailure();
   }
+  if (response.status === 401 && refreshed && refreshEligible) terminalAuthFailure();
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ message: response.statusText })) as Partial<ApiError>;
@@ -118,6 +177,7 @@ interface AuthResponse {
 
 export const api = {
   login(input: AuthCredentials) {
+    resetSessionBoundary();
     return request<AuthResponse>("/auth/login", {
       method: "POST",
       body: json({
@@ -130,6 +190,7 @@ export const api = {
   },
 
   register(input: AuthCredentials) {
+    resetSessionBoundary();
     return request<AuthResponse>("/auth/register", {
       method: "POST",
       body: json({
@@ -143,7 +204,10 @@ export const api = {
   },
 
   me: () => request<{ user: UserSummary }>("/auth/me"),
-  logout: () => request<void>("/auth/logout", { method: "POST" }),
+  logout: () => {
+    resetSessionBoundary();
+    return request<void>("/auth/logout", { method: "POST" }, false, false);
+  },
   bootstrap: () => request<BootstrapPayload>("/bootstrap"),
 
   messages(streamKind: "conversation" | "channel", streamId: Id, cursor?: string) {
@@ -268,6 +332,10 @@ export const api = {
     return request<{ entry: FriendEntry }>(`/friends/${encodeURIComponent(userId)}/block`, { method: "POST" });
   },
 
+  unblockUser(userId: Id) {
+    return request<void>(`/friends/${encodeURIComponent(userId)}/block`, { method: "DELETE" });
+  },
+
   settings: {
     update(patch: Partial<AppSettings>) {
       return request<{ settings: AppSettings }>("/settings", { method: "PATCH", body: json(patch) });
@@ -278,6 +346,18 @@ export const api = {
 
   profile(patch: Partial<Pick<UserSummary, "displayName" | "bio" | "statusText">>) {
     return request<{ user: UserSummary }>("/users/me", { method: "PATCH", body: json(patch) }).then((result) => ({ me: result.user }));
+  },
+
+  deleteAccount(password: string) {
+    return request<void>("/users/me", { method: "DELETE", body: json({ password }) });
+  },
+
+  serverMembers(serverId: Id) {
+    return request<{ members: Array<{ user: UserSummary; role: "owner" | "admin" | "moderator" | "member"; roleIds: Id[]; joinedAt: number }> }>(`/servers/${encodeURIComponent(serverId)}/members`);
+  },
+
+  removeServerMember(serverId: Id, userId: Id) {
+    return request<void>(`/servers/${encodeURIComponent(serverId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
   },
 
   async upload({ file, kind, quality, stripLocation, onProgress, signal }: UploadInput): Promise<Attachment> {
@@ -317,6 +397,14 @@ export const api = {
       method: "POST",
       body: json({ roomId, streamId: roomId, video: options.video }),
     }).then((result) => ({ ...result, roomId }));
+  },
+
+  leaveCall(callId: Id) {
+    return request<void>(`/calls/${encodeURIComponent(callId)}/leave`, { method: "POST" });
+  },
+
+  endCall(callId: Id) {
+    return request<void>(`/calls/${encodeURIComponent(callId)}/end`, { method: "POST" });
   },
 };
 

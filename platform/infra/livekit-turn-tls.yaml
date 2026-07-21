@@ -33,11 +33,15 @@ turn:
 room:
   empty_timeout: 300
   departure_timeout: 20
-  auto_create: true
+  auto_create: false
   enabled_codecs:
     - mime: audio/opus
     - mime: video/VP8
     - mime: video/H264
+
+webhook:
+  urls:
+    - http://127.0.0.1:3003/api/v1/livekit/webhook
 
 audio:
   active_level: 30

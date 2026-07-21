@@ -3,12 +3,17 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "https://merchedits.xyz/chat/api/v1";
 const easProjectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
 const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
+const sourceRevision = process.env.SNEZHOK_SOURCE_REVISION ?? process.env.EAS_BUILD_GIT_COMMIT_HASH ?? "development";
+
+if (process.env.SNEZHOK_RELEASE_BUILD === "1" && !/^[0-9a-f]{7,40}$/i.test(sourceRevision)) {
+  throw new Error("SNEZHOK_SOURCE_REVISION must identify the public Git commit used for a release build");
+}
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "3.7.3",
+  version: "3.8.0",
   description: "Private messages, files, servers and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -18,6 +23,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   runtimeVersion: { policy: "appVersion" },
   plugins: [
     "./plugins/withReleaseSigning.cjs",
+    "./plugins/withLegalAssets.cjs",
     "./plugins/withAndroidPerformance.cjs",
     "expo-image",
     [
@@ -34,7 +40,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-build-properties",
       {
         android: {
-          buildArchs: ["arm64-v8a"],
+          buildArchs: ["arm64-v8a", "armeabi-v7a"],
           enableMinifyInReleaseBuilds: true,
           enableShrinkResourcesInReleaseBuilds: true,
         },
@@ -62,7 +68,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 24,
+    versionCode: 25,
+    // Messages, drafts and the durable outbox are private local data. They
+    // must never leave the app sandbox through Android cloud/ADB backup.
+    allowBackup: false,
     ...(googleServicesFile ? { googleServicesFile } : {}),
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
@@ -100,6 +109,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   extra: {
     apiUrl,
+    sourceRevision,
     ...(easProjectId ? { eas: { projectId: easProjectId } } : {}),
   },
 });

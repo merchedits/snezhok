@@ -1,13 +1,18 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import Constants from "expo-constants";
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { AppSettings } from "@snezhok/contracts";
 
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useAppDialog } from "../components/AppDialogProvider";
+import { AccountPrivacyModal, type AccountPrivacyPage } from "../components/management/AccountPrivacyModal";
+import { MentionsModal } from "../components/management/MentionsModal";
+import { GlobalAdminModal } from "../components/management/GlobalAdminModal";
+import { NotificationPreferencesModal } from "../components/management/NotificationPreferencesModal";
 import {
   SettingsCard,
   SettingsChoiceSheet,
@@ -20,6 +25,7 @@ import { usePalette } from "../hooks/usePalette";
 import { optionLabel, useTranslation } from "../i18n";
 import { clearMediaCache, currentMediaCacheBytes, formatStorageBytes, mediaCacheLimit, MEDIA_CACHE_LIMITS_MB, setMediaCacheLimit, type MediaCacheLimitMb } from "../lib/mediaCache";
 import { userFacingError } from "../lib/userFacingError";
+import { productCopy } from "../lib/productCopy";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 import { useAndroidUpdate } from "../updates/UpdateProvider";
@@ -48,12 +54,18 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const showDialog = useAppDialog();
   const settings = useAppStore((state) => state.settings);
+  const isAdmin = useAppStore((state) => state.me?.isAdmin === true);
   const update = useAppStore((state) => state.updateSettings);
   const signOut = useAppStore((state) => state.signOut);
   const appUpdate = useAndroidUpdate();
   const [choice, setChoice] = useState<ChoiceRequest | null>(null);
   const [cacheLimit, setCacheLimitState] = useState<MediaCacheLimitMb>(256);
   const [cacheBytes, setCacheBytes] = useState(0);
+  const [accountPage, setAccountPage] = useState<AccountPrivacyPage | null>(null);
+  const [notificationPreferences, setNotificationPreferences] = useState(false);
+  const [mentions, setMentions] = useState(false);
+  const [globalAdmin, setGlobalAdmin] = useState(false);
+  const pc = useCallback((key: Parameters<typeof productCopy>[1]) => productCopy(settings.language, key), [settings.language]);
 
   useEffect(() => {
     void mediaCacheLimit().then(setCacheLimitState);
@@ -178,10 +190,22 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
 
         <SettingsSection title={t("privacy")}>
           <SettingsCard>
+            <SettingsRow icon="person-circle-outline" label={pc("accountSecurity")} onPress={() => setAccountPage("account")} />
+            <SettingsRow icon="shield-checkmark-outline" label={pc("privacyDetails")} onPress={() => setAccountPage("privacy")} />
             <SettingsSwitchRow icon="checkmark-done-outline" label={t("readReceipts")} value={settings.readReceipts} onChange={(readReceipts) => patch({ readReceipts })} />
             <SettingsSwitchRow icon="time-outline" label={t("showLastSeen")} value={settings.showLastSeen} onChange={(showLastSeen) => patch({ showLastSeen })} />
           </SettingsCard>
+          <SettingsCard>
+            <SettingsRow icon="notifications-outline" label={pc("notifications")} onPress={() => setNotificationPreferences(true)} />
+            <SettingsRow icon="at-outline" label={pc("mentions")} onPress={() => setMentions(true)} />
+          </SettingsCard>
         </SettingsSection>
+
+        {isAdmin ? <SettingsSection title={settings.language === "ru" ? "Администрирование" : "Administration"}>
+          <SettingsCard>
+            <SettingsRow icon="shield-checkmark-outline" label={settings.language === "ru" ? "Управление приложением" : "Application administration"} detail={settings.language === "ru" ? "Участники, разрешения, хранилище и сроки хранения" : "Members, permissions, storage and retention"} onPress={() => setGlobalAdmin(true)} />
+          </SettingsCard>
+        </SettingsSection> : null}
 
         <SettingsSection
           title={t("softwareUpdate")}
@@ -206,7 +230,8 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
 
         <SettingsSection title={t("support")}>
           <SettingsCard>
-            <SettingsRow icon="alert-circle" label={t("diagnostics")} detail={t("diagnosticsDescription")} onPress={() => navigation.navigate("Diagnostics")} />
+            {isAdmin ? <SettingsRow icon="alert-circle" label={t("diagnostics")} detail={t("diagnosticsDescription")} onPress={() => navigation.navigate("Diagnostics")} /> : null}
+            <SettingsRow icon="globe-outline" label={pc("openSource")} detail={`GPL-3.0-or-later · ${shortSourceRevision()}`} onPress={() => showDialog(pc("openSource"), `${pc("legalNotice")}\n\n${shortSourceRevision()}`, [{ text: t("cancel"), style: "cancel" }, { text: pc("sourceCode"), onPress: () => void Linking.openURL(sourceRevisionUrl()) }])} />
           </SettingsCard>
         </SettingsSection>
 
@@ -230,8 +255,27 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         onSelect={selectChoice}
         onClose={() => setChoice(null)}
       />
+      <AccountPrivacyModal visible={accountPage !== null} initialPage={accountPage ?? "account"} onClose={() => setAccountPage(null)} />
+      <NotificationPreferencesModal visible={notificationPreferences} onClose={() => setNotificationPreferences(false)} />
+      <MentionsModal visible={mentions} onClose={() => setMentions(false)} />
+      <GlobalAdminModal visible={globalAdmin} onClose={() => setGlobalAdmin(false)} />
     </View>
   );
+}
+
+function sourceRevision(): string {
+  const revision = Constants.expoConfig?.extra?.sourceRevision;
+  return typeof revision === "string" && /^[0-9a-f]{7,40}$/i.test(revision) ? revision.toLowerCase() : "development";
+}
+
+function shortSourceRevision(): string {
+  const revision = sourceRevision();
+  return revision === "development" ? revision : revision.slice(0, 12);
+}
+
+function sourceRevisionUrl(): string {
+  const revision = sourceRevision();
+  return revision === "development" ? "https://github.com/merchedits/snezhok" : `https://github.com/merchedits/snezhok/tree/${revision}`;
 }
 
 function microphoneLabel(mode: AppSettings["microphoneMode"], t: ReturnType<typeof useTranslation>["t"]): string {

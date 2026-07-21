@@ -3,6 +3,7 @@ import { z } from "zod";
 import { pool } from "../../db/pool.js";
 import { metricsSnapshot } from "../../lib/metrics.js";
 import { requireAuth } from "../auth/middleware.js";
+import { requireGlobalAdmin } from "../admin/middleware.js";
 
 const eventSchema = z.object({
   at: z.number().int().nonnegative(),
@@ -26,7 +27,7 @@ const reportSchema = z.object({
 });
 
 export async function diagnosticRoutes(app: FastifyInstance) {
-  app.get("/diagnostics/health", { preHandler: requireAuth }, async (request) => {
+  app.get("/diagnostics/health", { preHandler: requireGlobalAdmin }, async (request) => {
     const databaseStarted = performance.now();
     await pool.query("SELECT 1");
     const memory = process.memoryUsage();

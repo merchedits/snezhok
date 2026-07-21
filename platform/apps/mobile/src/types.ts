@@ -30,6 +30,8 @@ export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
+  /** Stable cache/outbox ownership. Older sessions derive it from JWT `sub`. */
+  ownerId?: string;
 }
 
 export interface AuthResponse {

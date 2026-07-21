@@ -24,6 +24,7 @@ test("maintenance advances replay watermarks and collects generation-owned immut
 
     assert.equal(result.prunedUserEvents, 1);
     assert.equal(result.prunedEvents, 1);
+    assert.equal(result.expiredCallSessions, 1);
     assert.equal(result.expiredUploads, 1);
     assert.equal(result.detachedDeletedMessageFiles, 1);
     assert.equal(result.deletedAttachments, 2, "unattached and deleted-message-only attachments are collectible");
@@ -39,6 +40,13 @@ test("maintenance advances replay watermarks and collects generation-owned immut
     assert.deepEqual(attachmentIds.rows.map((row) => row.id), ["30000000-0000-4000-8000-000000000002"], "an active message reference must preserve its attachment");
     const blobIds = await db.query<{ id: string }>("SELECT id FROM blobs ORDER BY id");
     assert.deepEqual(blobIds.rows.map((row) => row.id), ["40000000-0000-4000-8000-000000000002"]);
+
+    await db.query("UPDATE messages SET created_at=now()-interval '2 days' WHERE id='60000000-0000-4000-8000-000000000001'");
+    const retained = await cleanupReliabilityData(db as unknown as Pick<DbClient, "query">, {
+      eventRetentionDays: 30, orphanMediaRetentionDays: 1, pushRetentionDays: 7, messageRetentionDays: 1, batchSize: 100,
+    });
+    assert.equal(retained.expiredMessages, 1, "configured message retention is enforced in bounded maintenance");
+    assert.equal(retained.deletedAttachments, 1, "media becomes collectible after its retained message expires");
   } finally {
     await db.close();
   }
@@ -84,6 +92,15 @@ async function seed(db: PGlite): Promise<void> {
   const conversationId = "50000000-0000-4000-8000-000000000001";
   await db.query("INSERT INTO conversations(id,kind,title,owner_id) VALUES ($1,'direct','',$2)", [conversationId, userId]);
   await db.query("INSERT INTO conversation_members(conversation_id,user_id,role) VALUES ($1,$2,'owner')", [conversationId, userId]);
+  await db.query(
+    `INSERT INTO call_sessions(id,stream_kind,stream_id,livekit_room,started_by,ended_at)
+     VALUES ('90000000-0000-4000-8000-000000000001','conversation',$1,'expired-room',$2,now()-interval '40 days')`,
+    [conversationId, userId],
+  );
+  await db.query(
+    `INSERT INTO call_media_commands(call_session_id,action,livekit_room,reason,status,completed_at)
+     VALUES ('90000000-0000-4000-8000-000000000001','delete_room','expired-room','test','completed',now()-interval '40 days')`,
+  );
   await db.query(
     `INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text,deleted_at) VALUES
       ('60000000-0000-4000-8000-000000000001','conversation',$1,1,$2,'80000000-0000-4000-8000-000000000001','media','',NULL),

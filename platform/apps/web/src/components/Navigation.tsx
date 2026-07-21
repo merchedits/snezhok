@@ -177,7 +177,7 @@ function CompactCallBar() {
     <div className="compact-call-bar">
       <button className="call-identity" onClick={() => call.setSurfaceOpen(true)}><strong>{call.status === "reconnecting" ? "Reconnecting..." : call.title}</strong><small>{call.status}</small></button>
       <IconButton label={call.muted ? "Unmute" : "Mute"} active={call.muted} onClick={() => void call.toggleMute()}><Volume2 /></IconButton>
-      <IconButton label="Disconnect" className="danger-icon" onClick={call.leave}><LogOut /></IconButton>
+      <IconButton label="Disconnect" className="danger-icon" onClick={() => { void call.leave(); }}><LogOut /></IconButton>
     </div>
   );
 }

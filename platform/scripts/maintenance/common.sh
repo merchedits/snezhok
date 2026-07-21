@@ -20,7 +20,23 @@ require_absolute_safe_directory() {
   local value=$1
   local label=$2
   [[ "$value" == /* ]] || die "$label must be an absolute path"
-  [[ "$value" != "/" ]] || die "$label must not be the filesystem root"
+  command -v realpath >/dev/null 2>&1 || die "realpath is required to validate $label"
+  local canonical
+  canonical=$(realpath -m -- "$value")
+  [[ "$canonical" != "/" ]] || die "$label must not resolve to the filesystem root"
+  [[ "$canonical" == "$value" ]] || die "$label must be canonical and contain no traversal or symbolic-link components (resolved: $canonical)"
+}
+
+require_matching_age_identity() {
+  local recipient_file=$1
+  local identity_file=$2
+  require_recipient_file_permissions "$recipient_file"
+  require_private_key_permissions "$identity_file"
+  local configured derived
+  configured=$(tr -d '[:space:]' <"$recipient_file")
+  derived=$(age-keygen -y "$identity_file" | tr -d '[:space:]')
+  [[ "$configured" == age1* && "$configured" == "$derived" ]] \
+    || die "age recipient does not match the configured recovery identity"
 }
 
 require_private_key_permissions() {

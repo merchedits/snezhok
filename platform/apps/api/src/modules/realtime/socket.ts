@@ -79,8 +79,13 @@ export async function setupRealtime(server: HttpServer) {
 
   const listener = await pool.connect();
   await listener.query("LISTEN snezhok_events");
+  await listener.query("LISTEN snezhok_admin");
   listener.on("notification", (notification) => {
     if (!notification.payload) return;
+    if (notification.channel === "snezhok_admin") {
+      io.in(`user:${notification.payload}`).disconnectSockets(true);
+      return;
+    }
     void eventDelivery(notification.payload).then((deliveries) => {
       for (const delivery of deliveries) {
         io.to(`user:${delivery.userId}`).emit(delivery.name as keyof ServerToClientEvents, delivery.payload as never);
@@ -88,7 +93,7 @@ export async function setupRealtime(server: HttpServer) {
       }
     });
   });
-  server.once("close", () => { void listener.query("UNLISTEN snezhok_events").finally(() => listener.release()); });
+  server.once("close", () => { void listener.query("UNLISTEN *").finally(() => listener.release()); });
   return io;
 }
 
@@ -100,9 +105,8 @@ export async function presenceRecipients(userId: string) {
 }
 
 export const presenceRecipientsSql = `SELECT DISTINCT peers.user_id FROM (
-       SELECT CASE WHEN user_low_id=$1 THEN user_high_id ELSE user_low_id END user_id FROM friendships WHERE user_low_id=$1 OR user_high_id=$1
-       UNION SELECT cm2.user_id FROM conversation_members cm1 JOIN conversation_members cm2 ON cm2.conversation_id=cm1.conversation_id WHERE cm1.user_id=$1 AND cm2.user_id<>$1
-       UNION SELECT sm2.user_id FROM server_members sm1 JOIN server_members sm2 ON sm2.server_id=sm1.server_id WHERE sm1.user_id=$1 AND sm2.user_id<>$1
+       SELECT CASE WHEN user_low_id=$1 THEN user_high_id ELSE user_low_id END user_id
+       FROM friendships WHERE user_low_id=$1 OR user_high_id=$1
      ) peers JOIN users recipient ON recipient.id=peers.user_id AND recipient.deleted_at IS NULL
      WHERE NOT EXISTS(SELECT 1 FROM user_blocks block
        WHERE (block.blocker_id=$1 AND block.blocked_id=peers.user_id)

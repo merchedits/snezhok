@@ -3,6 +3,7 @@ import { FileText, Image, Loader2, Paperclip, RefreshCw, Send, Smile, X } from "
 import type { Attachment, MessageKind, UploadQuality } from "@snezhok/contracts";
 import { api } from "../lib/api.js";
 import { attachmentKind, createObjectUrl, formatBytes, prepareMedia } from "../lib/media.js";
+import { loadDraft, saveDraft } from "../lib/offlineStore.js";
 import { getRealtimeSocket } from "../lib/realtime.js";
 import { useApp } from "../state/AppContext.js";
 import { IconButton } from "./ui.js";
@@ -31,6 +32,10 @@ export function Composer() {
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const typingTimer = useRef<number | null>(null);
+  const draftKey = useRef<string | null>(null);
+  const draftGeneration = useRef(0);
+  const draftDirty = useRef(false);
+  const draftReady = useRef(false);
   const selection = app.selection;
 
   useEffect(() => {
@@ -40,12 +45,28 @@ export function Composer() {
   }, [app.editing]);
 
   useEffect(() => {
+    let active = true;
+    const generation = ++draftGeneration.current;
+    const key = selection ? `${selection.kind}:${selection.id}` : null;
+    draftKey.current = key;
+    draftDirty.current = false;
+    draftReady.current = false;
     setText("");
+    if (key) void loadDraft(key).then((value) => {
+      if (!active || generation !== draftGeneration.current || draftDirty.current) return;
+      setText(value);
+      draftReady.current = true;
+    }); else draftReady.current = true;
     setDrafts((current) => {
       current.forEach((draft) => { if (draft.preview) URL.revokeObjectURL(draft.preview); });
       return [];
     });
-  }, [selection?.id]);
+    return () => { active = false; };
+  }, [selection?.id, selection?.kind]);
+
+  useEffect(() => {
+    if (!app.editing && draftKey.current && draftReady.current) void saveDraft(draftKey.current, text);
+  }, [app.editing, text]);
 
   useEffect(() => () => {
     if (typingTimer.current) window.clearTimeout(typingTimer.current);
@@ -106,11 +127,22 @@ export function Composer() {
     }
   };
 
+  const restoreDraft = async () => {
+    const key = draftKey.current;
+    const generation = ++draftGeneration.current;
+    draftDirty.current = false;
+    draftReady.current = false;
+    const value = key ? await loadDraft(key) : "";
+    if (generation !== draftGeneration.current || draftDirty.current || draftKey.current !== key) return;
+    setText(value);
+    draftReady.current = true;
+  };
+
   const submit = async () => {
     if (!canSend) return;
     if (app.editing) {
       if (text.trim()) await app.editMessage(app.editing, text.trim());
-      setText("");
+      await restoreDraft();
       return;
     }
     setSending(true);
@@ -122,6 +154,7 @@ export function Composer() {
       drafts.forEach((draft) => { if (draft.preview) URL.revokeObjectURL(draft.preview); });
       setDrafts([]);
       setText("");
+      if (draftKey.current) void saveDraft(draftKey.current, "");
       setEmojiOpen(false);
       textarea.current?.focus();
     } catch {
@@ -132,6 +165,8 @@ export function Composer() {
   };
 
   const onText = (value: string) => {
+    draftDirty.current = true;
+    draftReady.current = true;
     setText(value);
     if (!selection) return;
     const socket = getRealtimeSocket();
@@ -142,9 +177,13 @@ export function Composer() {
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Escape" && (app.editing || app.replyingTo)) {
+      const wasEditing = Boolean(app.editing);
       app.setEditing(null);
       app.setReplyingTo(null);
-      setText("");
+      setText(wasEditing && draftKey.current ? "" : text);
+      if (wasEditing && draftKey.current) {
+        void restoreDraft();
+      }
       return;
     }
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -181,7 +220,7 @@ export function Composer() {
     <div className="composer" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); addFiles(Array.from(event.dataTransfer.files)); }}>
       {(app.replyingTo || app.editing) && <div className="composer-context">
         <span><strong>{app.editing ? "Editing message" : `Replying to ${app.replyingTo?.sender.displayName}`}</strong><small>{app.editing?.text || app.replyingTo?.text}</small></span>
-        <IconButton label="Cancel" onClick={() => { app.setEditing(null); app.setReplyingTo(null); if (app.editing) setText(""); }}><X /></IconButton>
+        <IconButton label="Cancel" onClick={() => { const wasEditing = Boolean(app.editing); app.setEditing(null); app.setReplyingTo(null); if (wasEditing) void restoreDraft(); }}><X /></IconButton>
       </div>}
 
       {drafts.length > 0 && <div className="attachment-tray">
@@ -206,7 +245,7 @@ export function Composer() {
         <textarea ref={textarea} rows={1} value={text} onChange={(event) => onText(event.target.value)} onKeyDown={onKeyDown} placeholder="Message" aria-label="Message" maxLength={16_000} />
         <div className="emoji-anchor">
           <IconButton label="Emoji" active={emojiOpen} onClick={() => setEmojiOpen(!emojiOpen)}><Smile /></IconButton>
-          {emojiOpen && <div className="emoji-picker" role="dialog" aria-label="Emoji"><header><strong>Recent</strong></header><div>{EMOJI.map((emoji) => <button key={emoji} onClick={() => { setText((current) => current + emoji); textarea.current?.focus(); }}>{emoji}</button>)}</div></div>}
+          {emojiOpen && <div className="emoji-picker" role="dialog" aria-label="Emoji"><header><strong>Recent</strong></header><div>{EMOJI.map((emoji) => <button key={emoji} onClick={() => { onText(text + emoji); textarea.current?.focus(); }}>{emoji}</button>)}</div></div>}
         </div>
         {canSend ? <IconButton label="Send message" className="send-button" disabled={sending} onClick={() => void submit()}>{sending ? <Loader2 className="spin" /> : <Send />}</IconButton> : <RecordControl disabled={sending} onRecorded={recorded} />}
       </div>

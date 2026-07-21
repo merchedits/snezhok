@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - "platform/**"
+      - "LICENSE"
+      - "THIRD_PARTY_NOTICES.md"
       - ".github/workflows/platform-ci.yml"
   push:
     branches: [main]
     paths:
       - "platform/**"
+      - "LICENSE"
+      - "THIRD_PARTY_NOTICES.md"
       - ".github/workflows/platform-ci.yml"
 
 concurrency:
@@ -34,6 +38,28 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: platform/package-lock.json
+      - name: Verify dependency licenses and committed-secret hygiene
+        run: npm run compliance:check
+      - name: Scan complete Git history for leaked credentials
+        run: |
+          curl --fail --location --silent --show-error \
+            --output /tmp/gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" | sha256sum --check
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks git --redact --no-banner --source .. --log-opts=--all
+      - name: Generate all-dependency license inventory and CycloneDX SBOM
+        run: >-
+          npm run compliance:artifacts --
+          --revision "${{ github.sha }}"
+          --output-directory build/compliance/all
+      - name: Upload supply-chain evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: snezhok-supply-chain-${{ github.sha }}
+          path: platform/build/compliance/all/
+          if-no-files-found: error
+          retention-days: 30
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
@@ -43,14 +69,17 @@ jobs:
       - run: npm run doctor --workspace=@snezhok/mobile
       - name: Validate host scripts and deployment composition
         env:
+          IMAGE_TAG: ${{ github.sha }}
           POSTGRES_PASSWORD: ci-not-a-production-secret
+          API_DATABASE_PASSWORD: ci-api-database-password-long-enough
+          WORKER_DATABASE_PASSWORD: ci-worker-database-password-long-enough
           JWT_SECRET: ci-only-value-that-is-at-least-32-random-bytes
           LIVEKIT_API_KEY: ci-livekit-key
-          LIVEKIT_API_SECRET: ci-livekit-secret
+          LIVEKIT_API_SECRET: ci-livekit-secret-value-long-enough
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends shellcheck
-          shellcheck scripts/**/*.sh
+          find scripts apps/postgres -type f -name '*.sh' -print0 | xargs -0 shellcheck
           python3 -m py_compile scripts/livekit/connectivity-smoke.py
           curl --fail --location --silent --show-error \
             --output /tmp/actionlint.tar.gz \
@@ -62,7 +91,9 @@ jobs:
           cp .env.example .env
           docker compose --file docker-compose.production.yml config --quiet
           docker compose --file docker-compose.production.yml --file infra/docker-compose.turn-tls.yml config --quiet
-          docker compose --file docker-compose.production.yml build app media-worker
+          docker compose --file docker-compose.production.yml build app media-worker postgres
+          bash scripts/deploy/verify-production-images.sh "${{ github.sha }}"
+          bash scripts/ci/verify-database-roles.sh
           rm .env
 
   release-apk:
@@ -106,6 +137,7 @@ jobs:
           SNEZHOK_KEYSTORE_PASSWORD: ci-release-password
           SNEZHOK_KEY_ALIAS: snezhok-ci
           SNEZHOK_KEY_PASSWORD: ci-release-password
+          SNEZHOK_SOURCE_REVISION: ${{ github.sha }}
         run: npx expo prebuild --platform android --clean --no-install
         working-directory: platform/apps/mobile
       - name: Assemble minimized release APK
@@ -115,11 +147,131 @@ jobs:
           SNEZHOK_KEYSTORE_PASSWORD: ci-release-password
           SNEZHOK_KEY_ALIAS: snezhok-ci
           SNEZHOK_KEY_PASSWORD: ci-release-password
+          SNEZHOK_SOURCE_REVISION: ${{ github.sha }}
         run: ./gradlew --no-daemon :app:assembleRelease
         working-directory: platform/apps/mobile/android
+      - name: Verify resolved Android runtime dependency evidence
+        run: >-
+          npm run compliance:verify-android --
+          --directory apps/mobile/android/app/src/main/assets/legal/android
+          --revision "${{ github.sha }}"
       - name: Reject development launchers and unexpected ABIs
         run: >-
           node scripts/android/verify-release-artifact.mjs
           --apk apps/mobile/android/app/build/outputs/apk/release/app-release.apk
           --package xyz.merchedits.snezhok
-          --architectures arm64-v8a
+          --architectures arm64-v8a,armeabi-v7a
+      - name: Generate production dependency inventory and CycloneDX SBOM
+        run: >-
+          npm run compliance:artifacts --
+          --omit-dev
+          --revision "${{ github.sha }}"
+          --output-directory build/compliance/release
+      - name: Prove the corresponding source revision is public
+        if: github.event_name == 'push'
+        run: >-
+          npm run release:verify-source --
+          --revision "${{ github.sha }}"
+          --repository https://github.com/merchedits/snezhok
+      - name: Upload inspected APK and release supply-chain evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: snezhok-android-ci-${{ github.sha }}
+          path: |
+            platform/apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+            platform/build/compliance/release/dependency-licenses.json
+            platform/build/compliance/release/snezhok.cdx.json
+            platform/apps/mobile/android/app/src/main/assets/legal/android/android-dependencies.json
+            platform/apps/mobile/android/app/src/main/assets/legal/android/snezhok-android.cdx.json
+            platform/apps/mobile/android/app/src/main/assets/legal/android/ANDROID_THIRD_PARTY_NOTICES.txt
+            platform/apps/mobile/android/app/src/main/assets/legal/android/texts/
+          if-no-files-found: error
+          retention-days: 14
+
+  container-security:
+    name: Container vulnerability gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Prepare container evidence directory
+        run: mkdir -p build/compliance/containers
+      - name: Build API image from reviewed source
+        run: docker build --tag snezhok-api:${{ github.sha }} --file Dockerfile .
+      - name: Generate API container CycloneDX SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: snezhok-api:${{ github.sha }}
+          format: cyclonedx
+          output: platform/build/compliance/containers/snezhok-api.cdx.json
+          scanners: vuln
+      - name: Reject fixable high and critical API image vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: snezhok-api:${{ github.sha }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Build media-worker image from reviewed source
+        run: docker build --tag snezhok-media-worker:${{ github.sha }} --file apps/media-worker/Dockerfile .
+      - name: Generate media-worker container CycloneDX SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: snezhok-media-worker:${{ github.sha }}
+          format: cyclonedx
+          output: platform/build/compliance/containers/snezhok-media-worker.cdx.json
+          scanners: vuln
+      - name: Reject fixable high and critical media-worker image vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: snezhok-media-worker:${{ github.sha }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Build PostgreSQL archive image from reviewed source
+        run: docker build --tag snezhok-postgres:${{ github.sha }} --file apps/postgres/Dockerfile .
+      - name: Generate PostgreSQL archive image CycloneDX SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: snezhok-postgres:${{ github.sha }}
+          format: cyclonedx
+          output: platform/build/compliance/containers/snezhok-postgres.cdx.json
+          scanners: vuln
+      - name: Reject fixable high and critical PostgreSQL image vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: snezhok-postgres:${{ github.sha }}
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Generate pinned LiveKit image CycloneDX SBOM
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: livekit/livekit-server:v1.13.3@sha256:483b8b7b5b0654f91f1e8bdc7b46fcd37fd9911612ecf627f97e3185a89825bd
+          format: cyclonedx
+          output: platform/build/compliance/containers/livekit.cdx.json
+          scanners: vuln
+      - name: Reject fixable high and critical LiveKit image vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
+        with:
+          image-ref: livekit/livekit-server:v1.13.3@sha256:483b8b7b5b0654f91f1e8bdc7b46fcd37fd9911612ecf627f97e3185a89825bd
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Upload container SBOMs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: snezhok-container-sboms-${{ github.sha }}
+          path: platform/build/compliance/containers/
+          if-no-files-found: error
+          retention-days: 30

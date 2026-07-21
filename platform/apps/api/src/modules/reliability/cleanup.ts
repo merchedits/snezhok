@@ -16,11 +16,14 @@ export interface CleanupOptions {
   orphanMediaRetentionDays: number;
   pushRetentionDays: number;
   batchSize: number;
+  messageRetentionDays?: number | null;
 }
 
 export interface CleanupResult {
   prunedUserEvents: number;
   prunedEvents: number;
+  expiredCallSessions: number;
+  expiredMessages: number;
   expiredUploads: number;
   detachedDeletedMessageFiles: number;
   deletedAttachments: number;
@@ -45,12 +48,21 @@ export function startReliabilityMaintenance(log: MaintenanceLog): () => void {
     try {
       const result = await transaction(async (client) => {
         const lock = await client.query<{ locked: boolean }>("SELECT pg_try_advisory_xact_lock($1) locked", [734_927_302]);
-        return lock.rows[0]?.locked ? cleanupReliabilityData(client) : null;
+        if (!lock.rows[0]?.locked) return null;
+        const settings = (await client.query<{ event_retention_days: number; orphan_media_retention_days: number; message_retention_days: number | null }>(
+          "SELECT event_retention_days,orphan_media_retention_days,message_retention_days FROM global_admin_settings WHERE singleton=true",
+        )).rows[0];
+        return cleanupReliabilityData(client, {
+          ...defaults,
+          eventRetentionDays: settings?.message_retention_days ? Math.min(settings.event_retention_days, settings.message_retention_days) : settings?.event_retention_days ?? defaults.eventRetentionDays,
+          orphanMediaRetentionDays: settings?.orphan_media_retention_days ?? defaults.orphanMediaRetentionDays,
+          messageRetentionDays: settings?.message_retention_days ?? null,
+        });
       });
       if (!result) return;
       await cleanupPhysicalFiles(result, log);
       const active = await pool.query<{ temp_key: string }>(
-        "SELECT temp_key FROM upload_sessions WHERE status IN ('uploading','finalizing') AND expires_at>now()",
+        "SELECT temp_key FROM upload_sessions WHERE status IN ('uploading','receiving','finalizing') AND expires_at>now()",
       );
       const untrackedTemporaryFiles = await removeUntrackedTemporaryFiles(
         new Set(active.rows.map((row) => row.temp_key)),
@@ -106,6 +118,19 @@ export async function cleanupReliabilityData(
     [options.eventRetentionDays, options.batchSize],
   );
 
+  const expiredCalls = await client.query<{ id: string }>(
+    `WITH doomed AS (
+       SELECT call.id FROM call_sessions call
+       WHERE call.ended_at<now()-($1::text||' days')::interval
+         AND NOT EXISTS (
+           SELECT 1 FROM call_media_commands command
+           WHERE command.call_session_id=call.id AND command.status IN ('pending','processing','failed')
+         )
+       ORDER BY call.ended_at,call.id LIMIT $2
+     ) DELETE FROM call_sessions call USING doomed WHERE call.id=doomed.id RETURNING call.id`,
+    [options.eventRetentionDays, options.batchSize],
+  );
+
   const expiredUploads = await client.query<{ id: string; temp_key: string }>(
     `WITH doomed AS (
        SELECT id FROM upload_sessions
@@ -120,6 +145,16 @@ export async function cleanupReliabilityData(
      WHERE status='complete' AND updated_at<now()-($1::text||' days')::interval`,
     [options.orphanMediaRetentionDays],
   );
+
+  const expiredMessages = options.messageRetentionDays === null || options.messageRetentionDays === undefined
+    ? { rows: [] as Array<{ id: string }> }
+    : await client.query<{ id: string }>(
+      `WITH doomed AS (
+         SELECT id FROM messages WHERE created_at<now()-($1::text||' days')::interval
+         ORDER BY created_at,id LIMIT $2
+       ) DELETE FROM messages message USING doomed WHERE message.id=doomed.id RETURNING message.id`,
+      [options.messageRetentionDays, options.batchSize],
+    );
 
   const detached = await client.query<{ attachment_id: string }>(
     `WITH doomed_messages AS (
@@ -173,6 +208,8 @@ export async function cleanupReliabilityData(
   return {
     prunedUserEvents: oldUserEvents.rows.length,
     prunedEvents: prunedEvents.rows.length,
+    expiredCallSessions: expiredCalls.rows.length,
+    expiredMessages: expiredMessages.rows.length,
     expiredUploads: expiredUploads.rows.length,
     detachedDeletedMessageFiles: detached.rows.length,
     deletedAttachments: deletedAttachments.rows.length,

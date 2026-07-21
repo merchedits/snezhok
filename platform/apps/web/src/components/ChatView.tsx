@@ -27,7 +27,7 @@ import { useApp } from "../state/AppContext.js";
 import { useCall } from "../state/CallContext.js";
 import { formatBytes } from "../lib/media.js";
 import { api } from "../lib/api.js";
-import { Avatar, EmptyState, IconButton, Spinner, formatDay, formatTime } from "./ui.js";
+import { Avatar, ConfirmDialog, EmptyState, IconButton, Spinner, formatDay, formatTime } from "./ui.js";
 import { Dialog } from "./ui.js";
 import { Composer } from "./Composer.js";
 import { SearchDialog } from "./SearchDialog.js";
@@ -159,6 +159,7 @@ function MessageActions({ message, mine, visible, onClose }: { message: Message;
   const app = useApp();
   const [more, setMore] = useState(false);
   const [forwardOpen, setForwardOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <div className={`message-actions ${visible ? "is-open" : ""}`}>
       <IconButton label="Reply" onClick={() => { app.setReplyingTo(message); onClose(); }}><MessageCircleReply /></IconButton>
@@ -169,9 +170,10 @@ function MessageActions({ message, mine, visible, onClose }: { message: Message;
       <IconButton label="Forward" onClick={() => setForwardOpen(true)}><Forward /></IconButton>
       <IconButton label="More" onClick={() => setMore(!more)}><MoreHorizontal /></IconButton>
       {more && <div className="action-menu">
-        {mine && <button className="danger-text" onClick={() => { if (window.confirm("Delete this message for everyone?")) void app.deleteMessage(message); onClose(); }}><Trash2 /> Delete message</button>}
+        {mine && <button className="danger-text" onClick={() => setConfirmDelete(true)}><Trash2 /> Delete message</button>}
       </div>}
       {forwardOpen && <ForwardDialog message={message} onClose={() => { setForwardOpen(false); onClose(); }} />}
+      {confirmDelete && <ConfirmDialog title="Delete message" body="Delete this message for everyone?" confirmLabel="Delete" destructive onCancel={() => setConfirmDelete(false)} onConfirm={() => { setConfirmDelete(false); void app.deleteMessage(message); onClose(); }} />}
     </div>
   );
 }

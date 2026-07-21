@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { writeFile } from "node:fs/promises";
 import { config } from "./config.js";
 import { callsAreActive, cancellationRequested, claimJob, completeJob, failJob, heartbeat, recoverInterruptedJobs } from "./database.js";
 import { processMedia } from "./processors.js";
@@ -9,10 +10,12 @@ export async function runWorker(signal: AbortSignal) {
   while (!signal.aborted) {
     let job;
     try {
-      if (!hostHasCapacity() || await callsAreActive()) { await delay(config.POLL_INTERVAL_MS, undefined, { signal }).catch(() => undefined); continue; }
+      if (!hostHasCapacity()) { await markWorkerHealthy(); await delay(config.POLL_INTERVAL_MS, undefined, { signal }).catch(() => undefined); continue; }
+      if (await callsAreActive()) { await markWorkerHealthy(); await delay(config.POLL_INTERVAL_MS, undefined, { signal }).catch(() => undefined); continue; }
       job = await claimJob();
+      await markWorkerHealthy();
     } catch (error) {
-      console.error("Media worker polling failed", error);
+      console.error(JSON.stringify({ event: "media_worker_poll_failed", errorName: error instanceof Error ? error.name : "UnknownError" }));
       await delay(config.POLL_INTERVAL_MS, undefined, { signal }).catch(() => undefined); continue;
     }
     if (!job) { await delay(config.POLL_INTERVAL_MS, undefined, { signal }).catch(() => undefined); continue; }
@@ -33,10 +36,18 @@ export async function runWorker(signal: AbortSignal) {
       await Promise.allSettled(unusedStorageKeys.map(removeCommittedOutput));
       console.info(JSON.stringify({ event: "media_job_complete", jobId: job.id, kind: job.kind, purpose: job.purpose, profile: job.profile, inputBytes: job.originalBytes, outputBytes: committed.reduce((sum, output) => sum + output.bytes, 0), durationMs: Math.round(performance.now() - startedAt), attempts: job.attempts }));
     } catch (error) {
-      console.warn(JSON.stringify({ event: "media_job_failed", jobId: job.id, kind: job.kind, purpose: job.purpose, profile: job.profile, inputBytes: job.originalBytes, durationMs: Math.round(performance.now() - startedAt), attempts: job.attempts, error: error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 500) : String(error).slice(0, 500) }));
+      console.warn(JSON.stringify({ event: "media_job_failed", jobId: job.id, kind: job.kind, purpose: job.purpose, profile: job.profile, inputBytes: job.originalBytes, durationMs: Math.round(performance.now() - startedAt), attempts: job.attempts, errorName: error instanceof Error ? error.name : "UnknownError" }));
       await failJob(job, error);
     } finally {
       clearInterval(cancellationPoll); signal.removeEventListener("abort", stop); if (directory) await removeJobDirectory(directory);
     }
   }
+}
+
+const processHeartbeatPath = process.env.WORKER_HEARTBEAT_PATH ?? "/tmp/snezhok-media-worker-heartbeat";
+let lastProcessHeartbeat = 0;
+async function markWorkerHealthy() {
+  if (Date.now() - lastProcessHeartbeat < 5_000) return;
+  lastProcessHeartbeat = Date.now();
+  await writeFile(processHeartbeatPath, String(lastProcessHeartbeat), { mode: 0o600 }).catch(() => undefined);
 }

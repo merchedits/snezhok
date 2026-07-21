@@ -4,6 +4,7 @@ import { pool, readSnapshot, transaction } from "../../db/pool.js";
 import { conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { allocateMessageSequence, canManageMessages, resolveStreamAccess, streamRecipients } from "../streams/access.js";
+import { mayDeleteForEveryone } from "./deletePolicy.js";
 import { publishStoredEvent, storeEvent } from "../realtime/events.js";
 import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
 
@@ -202,8 +203,18 @@ export async function editMessage(userId: string, messageId: string, text: strin
 export async function deleteMessage(userId: string, messageId: string) {
   return mutateMessage(userId, messageId, async (client, row, access) => {
     // Telegram-style private conversations allow either participant to remove
-    // a message for both sides. Server channels keep their moderation boundary.
-    if (access.streamKind === "channel" && row.sender_id !== userId && !canManageMessages(access)) throw forbidden("You cannot delete this message");
+    // a message for both sides. Private groups and server channels retain their
+    // administrator/moderator boundary.
+    const conversationKind = access.streamKind === "conversation"
+      ? (await client.query<{ kind: "direct" | "group" }>("SELECT kind FROM conversations WHERE id=$1", [row.stream_id])).rows[0]?.kind ?? null
+      : null;
+    if (!mayDeleteForEveryone({
+      streamKind: access.streamKind,
+      conversationKind,
+      actorIsAuthor: row.sender_id === userId,
+      actorRole: access.memberRole,
+      managesChannelMessages: canManageMessages(access),
+    })) throw forbidden("You cannot delete this message");
     if (row.deleted_at) return null;
     await client.query("DELETE FROM message_attachments WHERE message_id=$1", [messageId]);
     await client.query("DELETE FROM message_reactions WHERE message_id=$1", [messageId]);
@@ -438,7 +449,7 @@ function mapMessage(row: MessageRow, viewerId?: string): Message {
   return {
     id: row.id, clientId: row.client_id, streamId: row.stream_id, streamKind: row.stream_kind, sequence: Number(row.sequence),
     sender: { id: row.sender_id, username: row.username, displayName: row.display_name, avatarUrl: row.avatar_attachment_id ? `/api/v1/files/${row.avatar_attachment_id}` : null, avatarColor: row.avatar_color,
-      bio: row.bio, statusText: row.status_text, presence: "offline", lastSeenAt: row.show_last_seen ? Number(row.last_seen_at_ms) : 0 },
+      bio: row.bio, statusText: row.status_text, presence: "offline", lastSeenAt: 0 },
     kind: row.kind, text: row.text,
     replyTo: row.reply_id ? { id: row.reply_id, senderId: row.reply_sender_id!, senderName: row.reply_sender_name!, text: row.reply_text ?? "", kind: row.reply_kind!, createdAt: Number(row.reply_created_at_ms) } : null,
     forwardedFrom: row.forwarded_id ? { id: row.forwarded_id, senderId: row.forwarded_sender_id!, senderName: row.forwarded_sender_name!, text: row.forwarded_text ?? "", kind: row.forwarded_kind!, createdAt: Number(row.forwarded_created_at_ms) } : null,

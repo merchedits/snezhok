@@ -4,7 +4,7 @@ import { pool, readSnapshot } from "../../db/pool.js";
 import { currentCursor } from "../realtime/events.js";
 import { listFriends } from "../friends/service.js";
 import { defaultSettings } from "../settings/defaults.js";
-import { findUser, mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
+import { findUser, mapContactUser, mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
 import { visibleChannelIdsForUser } from "../servers/permissions.js";
 
 export async function bootstrap(userId: string): Promise<BootstrapPayload> {
@@ -17,9 +17,15 @@ export async function bootstrap(userId: string): Promise<BootstrapPayload> {
     const serverData = await serverSummaries(userId, client);
     const friends = await listFriends(userId, client);
     const settingsResult = await client.query<{ settings: typeof defaultSettings }>("SELECT settings FROM user_settings WHERE user_id=$1", [userId]);
+    const isAdmin = (await client.query<{ is_admin: boolean }>("SELECT is_admin FROM users WHERE id=$1", [userId])).rows[0]?.is_admin ?? false;
     const eventCursor = await currentCursor(userId, client);
+    const contacts = new Map(friends.filter((entry) => entry.relationship === "friend").map((entry) => [entry.user.id, entry.user]));
+    const privateConversations = conversations.map((conversation) => ({
+      ...conversation,
+      participants: conversation.participants.map((participant) => participant.id === userId ? mapContactUser(me) : contacts.get(participant.id) ?? participant),
+    }));
     return {
-      me: mapUser(me), conversations, servers: serverData.servers, categories: serverData.categories,
+      me: { ...mapContactUser(me), isAdmin }, conversations: privateConversations, servers: serverData.servers, categories: serverData.categories,
       channels: serverData.channels, friends, settings: { ...defaultSettings, ...(settingsResult.rows[0]?.settings ?? {}) }, eventCursor,
     };
   });

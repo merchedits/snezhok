@@ -10,6 +10,7 @@ import { pool, transaction } from "../../db/pool.js";
 import { AppError, conflict, forbidden, notFound, unauthorized } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { getBearerOrCookie, requireAuth } from "../auth/middleware.js";
+import { requireGlobalPermission } from "../admin/policy.js";
 import { authenticateAccessToken, hashOpaqueToken } from "../auth/service.js";
 import { appendChunk, detectTemporaryMimeType, ensureStorage, initializeTemporary, objectPath, removeObject, removeTemporary, stageObject, tempPath, writeWholeUpload } from "./storage.js";
 import { stat } from "node:fs/promises";
@@ -167,13 +168,23 @@ export async function uploadRoutes(app: FastifyInstance) {
 
   app.post("/uploads/init", { preHandler: requireAuth }, async (request, reply) => {
     const body = initSchema.parse(request.body); const bytes = body.bytes ?? body.totalSize!;
-    validateUploadDeclaration({ kind: body.kind, purpose: body.purpose, mimeType: body.mimeType, bytes, filename: body.filename ?? body.originalName! }, config.MAX_UPLOAD_BYTES);
     const id = newId(); const tempKey = `${id}.upload`;
     const capability = randomBytes(32).toString("base64url");
-    await initializeTemporary(tempKey);
+    const policy = await requireGlobalPermission(request.auth.id, "uploadFiles");
+    validateUploadDeclaration({ kind: body.kind, purpose: body.purpose, mimeType: body.mimeType, bytes, filename: body.filename ?? body.originalName! }, Math.min(config.MAX_UPLOAD_BYTES, policy.maxUploadBytes));
     let result: { rows: Array<{ expires_at_ms: number }> };
     try {
-      result = await pool.query<{ expires_at_ms: number }>(
+      await initializeTemporary(tempKey);
+      result = await transaction(async (client) => {
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`upload-quota:${request.auth.id}`]);
+        const effective = await requireGlobalPermission(request.auth.id, "uploadFiles", client);
+        const usage = (await client.query<{ used: string | number }>(
+          `SELECT coalesce((SELECT sum(bytes) FROM attachments WHERE owner_id=$1),0)+
+                  coalesce((SELECT sum(declared_bytes) FROM upload_sessions WHERE owner_id=$1 AND status IN ('uploading','receiving','finalizing')),0) used`,
+          [request.auth.id],
+        )).rows[0];
+        if (Number(usage?.used ?? 0) + bytes > effective.storageQuotaBytes) throw forbidden("Account storage quota exceeded");
+        return client.query<{ expires_at_ms: number }>(
         `INSERT INTO upload_sessions(
            id,owner_id,filename,declared_mime_type,declared_bytes,quality,kind,strip_location,temp_key,media_purpose,
            expires_at,device_session_id,capability_hash
@@ -183,6 +194,7 @@ export async function uploadRoutes(app: FastifyInstance) {
          WHERE session.id=$11 AND session.user_id=$2 AND session.revoked_at IS NULL AND session.expires_at>now()
          RETURNING (extract(epoch from expires_at)*1000)::bigint::float8 expires_at_ms`,
         [id, request.auth.id, body.filename ?? body.originalName, body.mimeType, bytes, body.quality, body.kind, body.stripLocation, tempKey, body.purpose, request.auth.sessionId, hashOpaqueToken(capability)]);
+      });
     } catch (error) {
       await removeTemporary(tempKey).catch(() => undefined);
       throw error;
@@ -201,7 +213,7 @@ export async function uploadRoutes(app: FastifyInstance) {
     const id = idParams.parse(request.params).id;
     const principal = await resolveUploadPrincipal(request);
     const upload = await authorizedUpload(principal, id);
-    if (!["uploading", "finalizing", "complete"].includes(upload.status)) throw conflict("Upload session is no longer active");
+    if (!["uploading", "receiving", "finalizing", "complete"].includes(upload.status)) throw conflict("Upload session is no longer active");
     return reply.headers({
       "upload-offset": upload.received_bytes,
       "upload-length": upload.declared_bytes,
@@ -232,24 +244,33 @@ export async function uploadRoutes(app: FastifyInstance) {
   app.put("/uploads/:id/content", { bodyLimit: config.MAX_UPLOAD_BYTES + 1024 }, async (request, reply) => {
     const { id } = idParams.parse(request.params);
     const principal = await resolveUploadPrincipal(request);
-    const upload = await authorizedUpload(principal, id);
-    if (upload.status !== "uploading" || Number(upload.received_bytes) !== 0) throw conflict("Upload no longer accepts a complete file");
-    const declaredBytes = Number(upload.declared_bytes);
+    const metadata = await authorizedUpload(principal, id);
+    if (metadata.status !== "uploading" || Number(metadata.received_bytes) !== 0) throw conflict("Upload no longer accepts a complete file");
+    const declaredBytes = Number(metadata.declared_bytes);
     const contentLength = Number(request.headers["content-length"]);
     if (!Number.isSafeInteger(contentLength) || contentLength !== declaredBytes) throw conflict(`Expected content length ${declaredBytes}`);
     const body = request.body;
     if (!body || typeof (body as Readable).pipe !== "function") throw conflict("File body must be application/octet-stream");
+    const upload = await transaction(async (client) => {
+      const locked = await authorizedUpload(principal, id, client, true);
+      if (locked.status !== "uploading" || Number(locked.received_bytes) !== 0) throw conflict("Upload no longer accepts a complete file");
+      const claimed = await client.query("UPDATE upload_sessions SET status='receiving',updated_at=now() WHERE id=$1 AND status='uploading' AND received_bytes=0", [id]);
+      if (!claimed.rowCount) throw conflict("Upload changed before receiving the file");
+      return locked;
+    });
     try {
       await writeWholeUpload(upload.temp_key, body as Readable, declaredBytes);
     } catch (error) {
       await initializeTemporary(upload.temp_key).catch(() => undefined);
+      const restored = await pool.query("UPDATE upload_sessions SET status='uploading',updated_at=now() WHERE id=$1 AND status='receiving'", [id]);
+      if (!restored.rowCount) await removeTemporary(upload.temp_key).catch(() => undefined);
       throw conflict(error instanceof Error ? error.message : "Upload body could not be stored");
     }
-    await transaction(async (client) => {
-      const locked = await authorizedUpload(principal, id, client, true);
-      if (locked.status !== "uploading" || Number(locked.received_bytes) !== 0) throw conflict("Upload changed while receiving the file");
-      await client.query("UPDATE upload_sessions SET received_bytes=declared_bytes,updated_at=now() WHERE id=$1", [id]);
-    });
+    const finalized = await pool.query("UPDATE upload_sessions SET status='uploading',received_bytes=declared_bytes,updated_at=now() WHERE id=$1 AND status='receiving' AND received_bytes=0", [id]);
+    if (!finalized.rowCount) {
+      await removeTemporary(upload.temp_key).catch(() => undefined);
+      throw conflict("Upload changed while receiving the file");
+    }
     return reply.header("upload-offset", declaredBytes).status(204).send();
   });
 
@@ -264,7 +285,7 @@ export async function uploadRoutes(app: FastifyInstance) {
     const upload = await transaction(async (client) => {
       const locked = await authorizedUpload(principal, id, client, true);
       if (locked.status === "cancelled") return locked;
-      if (locked.status !== "uploading") throw conflict("Only an active upload can be cancelled");
+      if (locked.status !== "uploading" && locked.status !== "receiving") throw conflict("Only an active upload can be cancelled");
       await client.query("UPDATE upload_sessions SET status='cancelled',updated_at=now() WHERE id=$1", [locked.id]); return locked;
     });
     await removeTemporary(upload.temp_key);

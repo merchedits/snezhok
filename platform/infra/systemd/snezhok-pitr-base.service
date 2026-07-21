@@ -1,0 +1,18 @@
+[Unit]
+Description=Create encrypted Snezhok PostgreSQL PITR base backup
+RequiresMountsFor=/var/backups/snezhok
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=merchedits
+Group=merchedits
+EnvironmentFile=-/etc/snezhok/maintenance.env
+ExecStart=/usr/bin/bash /home/merchedits/sites/snezhok-v3/platform/scripts/maintenance/create-pitr-base-backup.sh
+StateDirectory=snezhok-maintenance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/backups/snezhok /var/lib/snezhok-maintenance
+TimeoutStartSec=6h

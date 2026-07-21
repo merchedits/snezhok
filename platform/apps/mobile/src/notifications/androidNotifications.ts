@@ -7,6 +7,8 @@ import { AppState, Platform } from "react-native";
 
 import type { CallUpdatePayload, Message } from "@snezhok/contracts";
 
+import { receiveCallEnded, receiveCallUpdate } from "../calls/callSessionBridge";
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { api } from "../lib/api";
 import { navigationRef } from "../navigation/navigationRef";
 import { useAppStore } from "../store/useAppStore";
@@ -24,7 +26,7 @@ let lastHandledNotificationId: string | null = null;
 
 type NotificationTarget =
   | { type: "message"; streamId: string; streamKind: "conversation" | "channel"; title: string }
-  | { type: "call"; streamId: string; title: string };
+  | { type: "call"; streamId: string; title: string; startWithVideo: boolean };
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
@@ -40,7 +42,8 @@ Notifications.setNotificationHandler({
       && typeof data.streamId === "string"
       && route?.name === "Call"
       && route.params.streamId === data.streamId;
-    const visible = !focusedMessage && !focusedCall;
+    const incomingCallSurface = AppState.currentState === "active" && data?.notificationType === "call";
+    const visible = !focusedMessage && !focusedCall && !incomingCallSurface;
     return { shouldPlaySound: visible, shouldSetBadge: false, shouldShowBanner: visible, shouldShowList: visible };
   },
 });
@@ -49,25 +52,27 @@ export async function initializeAndroidNotifications(): Promise<boolean> {
   if (Platform.OS !== "android") return false;
   if (configured) return configured;
   configured = (async () => {
+    const english = useAppStore.getState().settings.language === "en";
     await Notifications.setNotificationChannelAsync(MESSAGE_CHANNEL, {
-      name: "Сообщения", description: "Новые сообщения Snezhok", importance: Notifications.AndroidImportance.HIGH,
+      name: english ? "Messages" : "Сообщения", description: english ? "New Snezhok messages" : "Новые сообщения Snezhok", importance: Notifications.AndroidImportance.HIGH,
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE, sound: "default", vibrationPattern: [0, 180], enableVibrate: true, showBadge: true,
       audioAttributes: { usage: Notifications.AndroidAudioUsage.NOTIFICATION_COMMUNICATION_INSTANT, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
     });
     await Notifications.setNotificationChannelAsync(CALL_CHANNEL, {
-      name: "Звонки", description: "Входящие и пропущенные звонки Snezhok", importance: Notifications.AndroidImportance.MAX,
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC, sound: "default", vibrationPattern: [0, 400, 180, 400, 180, 700], enableVibrate: true, showBadge: true,
+      name: english ? "Calls" : "Звонки", description: english ? "Incoming and missed Snezhok calls" : "Входящие и пропущенные звонки Snezhok", importance: Notifications.AndroidImportance.MAX,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE, sound: "default", vibrationPattern: [0, 400, 180, 400, 180, 700], enableVibrate: true, showBadge: true,
       audioAttributes: { usage: Notifications.AndroidAudioUsage.NOTIFICATION_COMMUNICATION_REQUEST, contentType: Notifications.AndroidAudioContentType.SONIFICATION },
     });
     await Notifications.setNotificationCategoryAsync(CALL_CATEGORY, [
-      { identifier: "answer", buttonTitle: "Ответить", options: { opensAppToForeground: true } },
-      { identifier: "decline", buttonTitle: "Отклонить", options: { opensAppToForeground: false, isDestructive: true } },
+      { identifier: "answer", buttonTitle: english ? "Answer" : "Ответить", options: { opensAppToForeground: true } },
+      { identifier: "answer-video", buttonTitle: english ? "Video" : "С видео", options: { opensAppToForeground: true } },
+      { identifier: "decline", buttonTitle: english ? "Decline" : "Отклонить", options: { opensAppToForeground: false, isDestructive: true } },
     ]);
     let permission = await Notifications.getPermissionsAsync();
     if (!permission.granted && permission.canAskAgain) permission = await Notifications.requestPermissionsAsync();
     if (permission.granted) await Notifications.registerTaskAsync(BACKGROUND_NOTIFICATION_TASK).catch(() => undefined);
     return permission.granted;
-  })().catch((error) => { console.warn("Android notifications could not be initialized", error); configured = null; return false; });
+  })().catch((error: unknown) => { recordDiagnostic("warn", "notifications", "Android notifications could not be initialized", { errorName: diagnosticErrorName(error) }); configured = null; return false; });
   return configured;
 }
 
@@ -89,9 +94,9 @@ export async function registerRemotePushDevice(): Promise<boolean> {
     await api.registerPushDevice(token, installationId, Application.nativeApplicationVersion ?? "unknown");
     remotePushRegistered = true;
     return true;
-  } catch (error) {
+  } catch (error: unknown) {
     remotePushRegistered = false;
-    console.warn("Remote push registration failed", error);
+    recordDiagnostic("warn", "notifications", "Remote push registration failed", { errorName: diagnosticErrorName(error) });
     return false;
   }
 }
@@ -123,8 +128,9 @@ export async function dismissCallNotification(roomId: string, showMissed = false
   await Promise.all(matching.map(({ request }) => Notifications.dismissNotificationAsync(request.identifier).catch(() => undefined)));
   if (showMissed && matching[0]) {
     const content = matching[0].request.content;
+    const english = useAppStore.getState().settings.language === "en";
     await Notifications.scheduleNotificationAsync({
-      content: { title: "Пропущенный звонок", body: content.title ?? "Snezhok", sound: "default", priority: Notifications.AndroidNotificationPriority.HIGH, color: "#35b9ef", ...(content.data ? { data: content.data } : {}) },
+      content: { title: english ? "Missed call" : "Пропущенный звонок", body: content.title ?? "Snezhok", sound: "default", priority: Notifications.AndroidNotificationPriority.HIGH, color: "#35b9ef", ...(content.data ? { data: content.data } : {}) },
       trigger: { channelId: CALL_CHANNEL },
     });
   }
@@ -132,23 +138,46 @@ export async function dismissCallNotification(roomId: string, showMissed = false
 
 export async function handleRemoteNotification(notification: Notifications.Notification): Promise<void> {
   const data = notification.request.content.data;
-  if (data?.notificationType === "call-ended" && typeof data.roomId === "string") await dismissCallNotification(data.roomId, data.answered !== true);
+  if (data?.notificationType === "call" && typeof data.roomId === "string" && typeof data.streamId === "string") {
+    receiveCallUpdate({
+      roomId: data.roomId,
+      state: "started",
+      participantIds: [],
+      streamId: data.streamId,
+      streamKind: data.streamKind === "channel" ? "channel" : "conversation",
+      callerId: typeof data.callerId === "string" ? data.callerId : "remote-push",
+      callerName: typeof data.callerName === "string" ? data.callerName : "Snezhok",
+      title: typeof data.title === "string" ? data.title : "Snezhok",
+      startedAt: typeof data.startedAt === "number" ? data.startedAt : Date.now(),
+    });
+  }
+  if (data?.notificationType === "call-ended" && typeof data.roomId === "string") {
+    receiveCallEnded(data.roomId);
+    await dismissCallNotification(data.roomId, data.answered !== true);
+  }
 }
 
 export async function handleCallUpdate(payload: CallUpdatePayload): Promise<void> {
   if (payload.state === "ended") {
+    receiveCallUpdate(payload);
     const me = useAppStore.getState().me?.id;
     await dismissCallNotification(payload.roomId, Boolean(me && !payload.answeredByIds?.includes(me)));
     return;
   }
   const state = useAppStore.getState();
+  if (payload.streamKind === "channel") return;
+  if (state.settings.callNotifications === false || state.conversations.find((item) => item.id === payload.streamId)?.muted) return;
   if (remotePushRegistered || !shouldNotifyCall(payload, state.me?.id) || !(await initializeAndroidNotifications())) return;
   const route = navigationRef.isReady() ? navigationRef.getCurrentRoute() : undefined;
   if (AppState.currentState === "active" && route?.name === "Call" && route.params.streamId === payload.streamId) return;
   const caller = payload.callerName ?? "Snezhok";
   const title = payload.title ?? caller;
+  const english = state.settings.language === "en";
+  const notificationTitle = state.settings.notificationPreviews === false
+    ? (english ? "Incoming call" : "Входящий звонок")
+    : `${english ? "Incoming call" : "Входящий звонок"} · ${caller}`;
   await Notifications.scheduleNotificationAsync({
-    content: { title: `Входящий звонок · ${caller}`, body: "Нажмите, чтобы ответить", sound: "default", priority: Notifications.AndroidNotificationPriority.MAX, color: "#35b9ef", categoryIdentifier: CALL_CATEGORY, autoDismiss: true, data: { notificationType: "call", roomId: payload.roomId, streamId: payload.streamId, title } },
+    content: { title: notificationTitle, body: english ? "Tap to answer" : "Нажмите, чтобы ответить", sound: "default", priority: Notifications.AndroidNotificationPriority.MAX, color: "#35b9ef", categoryIdentifier: CALL_CATEGORY, autoDismiss: true, data: { notificationType: "call", roomId: payload.roomId, streamId: payload.streamId, title } },
     trigger: { channelId: CALL_CHANNEL },
   });
 }
@@ -162,7 +191,7 @@ export function handleNotificationResponse(response: Notifications.NotificationR
     if (typeof data?.roomId === "string") { void api.declineCall(data.roomId).catch(() => undefined); void dismissCallNotification(data.roomId); }
     return;
   }
-  const target = notificationTarget(data);
+  const target = notificationTarget(data, response.actionIdentifier);
   if (target) navigateToNotificationTarget(target);
 }
 
@@ -173,13 +202,13 @@ export function flushPendingNotificationNavigation(): void {
 
 function navigateToNotificationTarget(target: NotificationTarget) {
   if (!navigationRef.isReady()) { pendingNavigation = target; return; }
-  if (target.type === "call") navigationRef.navigate("Call", { streamId: target.streamId, title: target.title });
+  if (target.type === "call") navigationRef.navigate("Call", { streamId: target.streamId, title: target.title, startWithVideo: target.startWithVideo });
   else navigationRef.navigate("Chat", { streamId: target.streamId, streamKind: target.streamKind, title: target.title });
 }
 
-function notificationTarget(data: Record<string, unknown> | undefined): NotificationTarget | null {
+function notificationTarget(data: Record<string, unknown> | undefined, actionIdentifier = Notifications.DEFAULT_ACTION_IDENTIFIER): NotificationTarget | null {
   if (!data) return null;
-  if (data.notificationType === "call" && typeof data.streamId === "string" && typeof data.title === "string") return { type: "call", streamId: data.streamId, title: data.title };
+  if (data.notificationType === "call" && typeof data.streamId === "string" && typeof data.title === "string") return { type: "call", streamId: data.streamId, title: data.title, startWithVideo: actionIdentifier === "answer-video" };
   if (data.notificationType === "message" && typeof data.streamId === "string" && (data.streamKind === "conversation" || data.streamKind === "channel") && typeof data.title === "string") return { type: "message", streamId: data.streamId, streamKind: data.streamKind, title: data.title };
   return null;
 }
@@ -188,4 +217,8 @@ function notificationMessageBody(message: Message, language: "ru" | "en") {
   if (message.text.trim()) return message.text.trim();
   const labels: Record<Message["kind"], [string, string]> = { text: ["Новое сообщение", "New message"], system: ["Системное сообщение", "System message"], voice: ["Голосовое сообщение", "Voice message"], "video-note": ["Видеосообщение", "Video message"], media: ["Фото или видео", "Photo or video"], file: ["Файл", "File"] };
   return labels[message.kind][language === "ru" ? 0 : 1];
+}
+
+function diagnosticErrorName(error: unknown): string {
+  return error instanceof Error && error.name ? error.name.slice(0, 80) : "UnknownError";
 }

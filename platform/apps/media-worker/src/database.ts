@@ -3,7 +3,18 @@ import { config } from "./config.js";
 import type { MediaJob, OutputVariant } from "./types.js";
 
 const { Pool } = pg;
-export const pool = new Pool({ connectionString: config.DATABASE_URL, max: 2, application_name: "snezhok-media-worker", connectionTimeoutMillis: 5_000 });
+export const pool = new Pool({
+  ...(config.DATABASE_HOST ? {
+    host: config.DATABASE_HOST,
+    port: config.DATABASE_PORT,
+    database: config.DATABASE_NAME,
+    user: config.DATABASE_USER,
+    password: config.DATABASE_PASSWORD,
+  } : { connectionString: config.DATABASE_URL }),
+  max: 2,
+  application_name: "snezhok-media-worker",
+  connectionTimeoutMillis: 5_000,
+});
 
 export const claimJobSql = `WITH candidate AS (
   SELECT j.id FROM media_jobs j

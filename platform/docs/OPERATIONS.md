@@ -28,12 +28,12 @@ Copy the private identity to offline encrypted custody and verify that it can de
 Mount the backup target at `/var/backups/snezhok`, owned by `merchedits`, then install the environment and unit templates:
 
 ```bash
-sudo install -m 0644 infra/systemd/snezhok-{backup,restore-verify,retention}.{service,timer} /etc/systemd/system/
+sudo install -m 0644 infra/systemd/snezhok-{backup,restore-verify,retention,monitor,pitr-base,pitr-restore-verify,media-mirror}.{service,timer} /etc/systemd/system/
 sudo install -m 0644 infra/systemd/maintenance.env.example /etc/snezhok/maintenance.env
 sudo chmod 0755 scripts/maintenance/*.sh scripts/livekit/*.sh
 sudo systemctl daemon-reload
-sudo systemd-analyze verify /etc/systemd/system/snezhok-{backup,restore-verify,retention}.{service,timer}
-sudo systemctl enable --now snezhok-backup.timer snezhok-restore-verify.timer snezhok-retention.timer
+sudo systemd-analyze verify /etc/systemd/system/snezhok-{backup,restore-verify,retention,monitor,pitr-base,pitr-restore-verify,media-mirror}.{service,timer}
+sudo systemctl enable --now snezhok-backup.timer snezhok-restore-verify.timer snezhok-retention.timer snezhok-monitor.timer snezhok-pitr-base.timer snezhok-pitr-restore-verify.timer snezhok-media-mirror.timer
 ```
 
 Adjust paths in copied unit files if the checkout or backup mount differs. `RequiresMountsFor` plus the script's explicit mountpoint check prevents silently writing backups to the underlying system disk when a backup mount is absent. Systemd creates `/var/lib/snezhok-maintenance` as the shared persistent lock directory, so concurrent backup, restore-verification, and retention jobs cannot race on a first install.
@@ -63,6 +63,27 @@ sudo journalctl -u snezhok-restore-verify.service --since today
 
 The restore verifier refuses plaintext payloads, validates the encrypted-file hashes, authenticates both age streams, restores PostgreSQL into a network-isolated disposable PostgreSQL 17 container, checks table/index health, and proves that every `blobs.storage_key` exists in the authenticated media archive. `.verified` binds the successful drill to the checksum manifest.
 
+## Point-in-time recovery
+
+The production PostgreSQL image continuously archives completed WAL segments
+with `age` to the recovery disk and forces a segment switch at least every five
+minutes. `snezhok-pitr-base.timer` creates and decrypt-verifies a weekly physical
+base backup. `snezhok-pitr-restore-verify.timer` forces a deterministic WAL
+boundary, authenticates every archived file required after the selected base,
+performs an isolated networkless recovery through that target LSN, promotes the
+database, checks tables/indexes, and erases plaintext before publishing its
+marker. `snezhok-media-mirror.timer` independently encrypts every immutable
+media object to the recovery disk within ten minutes. Encrypted bases, WAL, and
+removed media objects are retained for 45 days. This reduces the practical RPO
+to approximately ten minutes when the recovery disk is healthy.
+
+For PITR, copy the selected encrypted base and WAL range to an isolated recovery
+host, decrypt with the offline identity, and configure PostgreSQL
+`restore_command` to decrypt `%f.age` into `%p`. Set `recovery_target_time` (or
+LSN), start the isolated database, and validate application counts and media
+references before any production switch. Never mount the age private identity
+inside the live PostgreSQL container; it receives only the public recipient.
+
 ## Production recovery
 
 Never improvise a partial restore. A database and media archive from different backup directories are inconsistent.
@@ -75,7 +96,7 @@ Never improvise a partial restore. A database and media archive from different b
 6. Check counts, log in through an isolated application instance, open several old attachments, and run migrations against the restored copy.
 7. Atomically switch both recovery units during one maintenance window. Retain the former database volume and object directory until the restored system has passed acceptance tests.
 
-Temporary, incomplete upload chunks are intentionally excluded: they are not user-visible durable data and copying a multi-gigabyte partial upload would extend the write outage. Before starting an application against a restored database, invalidate those resumable sessions with `UPDATE upload_sessions SET status='failed', updated_at=now() WHERE status IN ('uploading','finalizing');`. Clients can restart the affected upload; finalized attachment objects remain protected.
+Temporary, incomplete upload chunks are intentionally excluded: they are not user-visible durable data and copying a multi-gigabyte partial upload would extend the write outage. Before starting an application against a restored database, invalidate those resumable sessions with `UPDATE upload_sessions SET status='failed', updated_at=now() WHERE status IN ('uploading','receiving','finalizing');`. Clients can restart the affected upload; finalized attachment objects remain protected.
 
 The repository intentionally does not include a one-command destructive production restore. The verified preparation is automated; changing live recovery units remains an explicit operator action with a preserved rollback point.
 
@@ -89,3 +110,19 @@ The repository intentionally does not include a one-command destructive producti
 Unexpected paths and symbolic layouts are skipped. `prune-releases.mjs` preserves `snezhok-current.apk`, its manifest's version, the five newest versioned APK/manifest pairs, and every artifact newer than 30 days. Incomplete pairs are retained for manual inspection.
 
 Run both without `--apply` after every schema or storage-layout change. Alert on timer failure with the host's existing monitoring; systemd logs alone are not an alerting system.
+
+## External health alerting
+
+`snezhok-monitor.timer` checks API/database readiness, all writer containers,
+LiveKit signaling, public ICE/TURN listeners, application-disk pressure, the
+off-host backup mount, and the age of the newest restore-verified recovery
+point. Production acceptance also requires an off-host encrypted recovery copy,
+an offline age identity, and a test alert delivered independently of this host.
+Configure `SNEZHOK_ALERT_WEBHOOK_URL` in `/etc/snezhok/maintenance.env`
+to deliver failures to an operator-controlled alert receiver. The check writes
+only a compact non-secret status to `/var/lib/snezhok-maintenance`; it never
+includes credentials, message content, account identifiers, or request logs.
+
+The public listener smoke test cannot prove authenticated TURN allocation or
+media flow. Keep the documented two-device, different-network and UDP-blocked
+call acceptance run as a release gate.

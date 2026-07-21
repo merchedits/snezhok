@@ -289,6 +289,8 @@ img, video { display: block; max-width: 100%; }
 .member-row { display: flex; align-items: center; gap: 10px; padding: 6px; }
 .member-row > span { display: flex; min-width: 0; flex-direction: column; }
 .member-row small { color: var(--text-muted); }
+.quiet-days { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 10px 0; }
+.quiet-days label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-secondary); font-size: 0.8rem; }
 .pins-list { padding: 8px; }
 .pin-row { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 8px; width: 100%; padding: 8px; border-radius: 6px; background: transparent; text-align: left; }
 .pin-row:hover { background: var(--hover); }
@@ -346,6 +348,9 @@ img, video { display: block; max-width: 100%; }
 .dialog { width: min(640px, 100%); max-height: min(760px, 90vh); overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--elevated); box-shadow: 0 8px 24px rgba(0,0,0,.22); }
 .dialog-header { display: flex; height: 56px; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border); }
 .dialog-header h2 { margin: 0; font-size: 1.1rem; }
+.confirm-dialog { max-width: 420px; height: auto; }
+.confirm-dialog > p { margin: 0; padding: 18px 20px; color: var(--text-muted); line-height: 1.5; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 0 20px 20px; }
 .create-dialog-body { display: grid; gap: 16px; padding: 16px; }
 .create-dialog-body > label { display: grid; gap: 6px; color: var(--text-secondary); font-size: .8rem; }
 .create-dialog-body input { width: 100%; padding: 9px 10px; }

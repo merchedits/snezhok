@@ -11,6 +11,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { OfflineBar } from "./src/components/OfflineBar";
 import { AppDialogProvider } from "./src/components/AppDialogProvider";
+import { CallSessionProvider } from "./src/calls/CallSessionProvider";
 import { initializeDiagnostics, installGlobalErrorCapture, recordDiagnostic } from "./src/diagnostics/diagnostics";
 import { ingestNativeDiagnostics, installNativeDiagnostics } from "./src/diagnostics/nativeDiagnostics";
 import { usePalette } from "./src/hooks/usePalette";
@@ -21,6 +22,7 @@ import { flushPendingNotificationNavigation } from "./src/notifications/androidN
 import { initializeMediaCache } from "./src/lib/mediaCache";
 import { CallScreen } from "./src/screens/CallScreen";
 import { ChatScreen } from "./src/screens/ChatScreen";
+import { ContactsScreen } from "./src/screens/ContactsScreen";
 import { DiagnosticsScreen } from "./src/screens/DiagnosticsScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { MainScreen } from "./src/screens/MainScreen";
@@ -43,7 +45,7 @@ export default function App() {
       <KeyboardProvider>
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <AndroidUpdateProvider>
-            <AppDialogProvider><AppRoot /></AppDialogProvider>
+            <AppDialogProvider><CallSessionProvider><AppRoot /></CallSessionProvider></AppDialogProvider>
           </AndroidUpdateProvider>
         </SafeAreaProvider>
       </KeyboardProvider>
@@ -109,6 +111,7 @@ function AppRoot() {
       <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right", freezeOnBlur: true }}>
         <Stack.Screen name="Main" component={MainScreen} />
         <Stack.Screen name="Chat" component={SafeChatScreen} />
+        <Stack.Screen name="Contacts" component={ContactsScreen} />
         <Stack.Screen name="Profile" component={PublicProfileScreen} />
         <Stack.Screen name="Diagnostics" component={DiagnosticsScreen} />
         <Stack.Screen name="Call" component={CallScreen} options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }} />

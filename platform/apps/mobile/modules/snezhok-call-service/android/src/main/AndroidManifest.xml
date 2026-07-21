@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+  <service
+    android:name="xyz.merchedits.snezhok.calls.SnezhokCallForegroundService"
+    android:exported="false"
+    android:stopWithTask="false"
+    android:foregroundServiceType="microphone|camera" />
+</manifest>

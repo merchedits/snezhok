@@ -59,6 +59,10 @@ export function Dialog({ title, onClose, children, className = "" }: PropsWithCh
   );
 }
 
+export function ConfirmDialog({ title, body, confirmLabel, destructive = false, onCancel, onConfirm }: { title: string; body: string; confirmLabel: string; destructive?: boolean; onCancel: () => void; onConfirm: () => void }) {
+  return <Dialog title={title} onClose={onCancel} className="confirm-dialog"><p>{body}</p><div className="dialog-actions"><button className="button button-secondary" onClick={onCancel}>Cancel</button><button className={`button ${destructive ? "button-danger" : "button-primary"}`} onClick={onConfirm}>{confirmLabel}</button></div></Dialog>;
+}
+
 export function EmptyState({ icon, text, action }: { icon: React.ReactNode; text: string; action?: React.ReactNode }) {
   return <div className="empty-state"><span aria-hidden="true">{icon}</span><p>{text}</p>{action}</div>;
 }

@@ -21,8 +21,8 @@ import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { boundedMessageWindow } from "../lib/cachePolicy";
 import { clearMediaCache } from "../lib/mediaCache";
 import { cachedHistoryCursor } from "../lib/offlineCachePolicy";
-import { clearLocalData, readCache, readCachedMessagePage, readDrafts, readOutbox, writeCacheDelta, writeDrafts, writeOutbox, type OfflineCacheDelta } from "../lib/offlineRepository";
-import { clearSession, readSession, writeSession } from "../lib/secureSession";
+import { clearLocalData, ensureOfflineOwner, readCache, readCachedMessagePage, readDirtyDraftIds, readDrafts, readOutbox, writeCacheDelta, writeDirtyDraftIds, writeDrafts, writeOutbox, type OfflineCacheDelta } from "../lib/offlineRepository";
+import { clearSession, getRuntimeSession, readSession, sessionOwnerId, subscribeToSession, writeSession } from "../lib/secureSession";
 import { mergeAcknowledgedPatch, rollbackRejectedPatch } from "../lib/settingsSync";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
 import type { ChatFolder, ScheduledMessage } from "../types";
@@ -134,7 +134,7 @@ export const defaultSettings: AppSettings = {
 function toBootstrap(state: AppState): BootstrapPayload | null {
   if (!state.me) return null;
   return {
-    me: state.me,
+    me: { ...state.me, isAdmin: state.me.isAdmin === true },
     conversations: state.conversations,
     servers: state.servers,
     categories: state.categories,
@@ -253,9 +253,54 @@ const pinnedMessageLoads = new Map<string, Promise<void>>();
 const latestPinnedMessageLoads = new Map<string, number>();
 const reactionSyncQueues = new Map<string, Promise<void>>();
 const remoteDraftTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const dirtyDraftIds = new Set<string>();
 let outboxRetry: Promise<void> | null = null;
 let activeBackgroundBatchId: string | null = null;
 let backgroundWakeListenerInstalled = false;
+let sessionListenerInstalled = false;
+let terminalDataClear: Promise<void> = Promise.resolve();
+let accountEpoch = 0;
+
+interface AccountOperationGuard {
+  epoch: number;
+  userId: string;
+}
+
+function captureAccountOperation(): AccountOperationGuard | null {
+  const userId = useAppStore.getState().me?.id ?? sessionOwnerId(getRuntimeSession());
+  return userId ? { epoch: accountEpoch, userId } : null;
+}
+
+function accountOperationIsCurrent(guard: AccountOperationGuard | null): guard is AccountOperationGuard {
+  return Boolean(guard
+    && guard.epoch === accountEpoch
+    && (!useAppStore.getState().me || useAppStore.getState().me?.id === guard.userId)
+    && sessionOwnerId(getRuntimeSession()) === guard.userId);
+}
+
+function invalidateAccountOperations(): number {
+  accountEpoch += 1;
+  return accountEpoch;
+}
+
+function ensureSessionLossListener(): void {
+  if (sessionListenerInstalled) return;
+  sessionListenerInstalled = true;
+  subscribeToSession(() => {
+    if (getRuntimeSession() || useAppStore.getState().phase === "signed-out") return;
+    invalidateAccountOperations();
+    cancelScheduledPersistence();
+    dirtyDraftIds.clear();
+    terminalDataClear = Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined)]).then(() => Promise.all([
+      clearLocalData(), clearMediaCache().catch(() => undefined), clearAllBackgroundTransfers().catch(() => undefined),
+    ])).then(() => undefined).finally(() => {
+      useAppStore.setState({
+        phase: "signed-out", me: null, conversations: [], servers: [], categories: [], channels: [], friends: [],
+        messages: {}, drafts: {}, outbox: [], messagePagination: {}, folders: [], scheduledMessages: [], eventCursor: 0,
+      });
+    });
+  });
+}
 
 function schedulePersistence(request: PersistenceRequest): void {
   markPersistence(request);
@@ -284,7 +329,8 @@ function scheduleDraftPersistence(): void {
   draftPersistenceTimer = setTimeout(() => {
     draftPersistenceTimer = null;
     const drafts = useAppStore.getState().drafts;
-    draftPersistenceQueue = draftPersistenceQueue.catch(() => undefined).then(() => writeDrafts(drafts));
+    const dirty = [...dirtyDraftIds];
+    draftPersistenceQueue = draftPersistenceQueue.catch(() => undefined).then(() => Promise.all([writeDrafts(drafts), writeDirtyDraftIds(dirty)]).then(() => undefined));
   }, 350);
 }
 
@@ -310,11 +356,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   uploadProgress: null,
 
   initialize: async () => {
-    const [session, cache, outbox, drafts] = await Promise.all([readSession(), readCache(), readOutbox(), readDrafts()]);
+    ensureSessionLossListener();
+    const session = await readSession();
     if (!session) {
       set({ phase: "signed-out", outbox: [] });
       return;
     }
+    const ownerId = sessionOwnerId(session);
+    if (!ownerId) {
+      await Promise.all([clearSession(), clearLocalData()]);
+      set({ phase: "signed-out", outbox: [] });
+      return;
+    }
+    await ensureOfflineOwner(ownerId);
+    const cache = await readCache();
+    const [outbox, drafts, dirtyDrafts] = cache.bootstrap ? await Promise.all([readOutbox(), readDrafts(), readDirtyDraftIds()]) : [[], {}, []];
+    dirtyDraftIds.clear();
+    for (const streamId of dirtyDrafts) dirtyDraftIds.add(streamId);
     ensureBackgroundWakeListener();
     const cached = cache.bootstrap;
     set({
@@ -343,39 +401,60 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   signIn: async (username, password) => {
+    await terminalDataClear;
+    const operationEpoch = invalidateAccountOperations();
     set({ error: null });
     try {
       const result = await api.login(username.trim(), password);
+      if (accountEpoch !== operationEpoch) throw new StaleAccountOperationError();
       await writeSession({
         accessToken: result.accessToken,
         refreshToken: result.refreshToken,
         expiresAt: Date.now() + result.expiresIn * 1_000,
+        ownerId: result.user.id,
       });
+      if (accountEpoch !== operationEpoch) {
+        throw new StaleAccountOperationError();
+      }
+      await ensureOfflineOwner(result.user.id);
+      if (accountEpoch !== operationEpoch || !getRuntimeSession()) throw new StaleAccountOperationError();
       set({ me: result.user });
       await get().refreshBootstrap({ force: true });
       await get().refreshProductivity().catch(() => undefined);
       ensureBackgroundWakeListener();
       await get().reconcileBackgroundTransfers().catch(() => undefined);
     } catch (error) {
-      await clearSession();
-      set({ phase: "signed-out", error: error instanceof Error ? error.message : "Sign in failed" });
+      if (accountEpoch === operationEpoch) {
+        await clearSession();
+        set({ phase: "signed-out", error: error instanceof Error ? error.message : "Sign in failed" });
+      }
       throw error;
     }
   },
 
   signUp: async (input) => {
+    await terminalDataClear;
+    const operationEpoch = invalidateAccountOperations();
     set({ error: null });
     try {
       const result = await api.register(input);
-      await writeSession({ accessToken: result.accessToken, refreshToken: result.refreshToken, expiresAt: Date.now() + result.expiresIn * 1_000 });
+      if (accountEpoch !== operationEpoch) throw new StaleAccountOperationError();
+      await writeSession({ accessToken: result.accessToken, refreshToken: result.refreshToken, expiresAt: Date.now() + result.expiresIn * 1_000, ownerId: result.user.id });
+      if (accountEpoch !== operationEpoch) {
+        throw new StaleAccountOperationError();
+      }
+      await ensureOfflineOwner(result.user.id);
+      if (accountEpoch !== operationEpoch || !getRuntimeSession()) throw new StaleAccountOperationError();
       set({ me: result.user });
       await get().refreshBootstrap({ force: true });
       await get().refreshProductivity().catch(() => undefined);
       ensureBackgroundWakeListener();
       await get().reconcileBackgroundTransfers().catch(() => undefined);
     } catch (error) {
-      await clearSession();
-      set({ phase: "signed-out", error: error instanceof Error ? error.message : "Registration failed" });
+      if (accountEpoch === operationEpoch) {
+        await clearSession();
+        set({ phase: "signed-out", error: error instanceof Error ? error.message : "Registration failed" });
+      }
       throw error;
     }
   },
@@ -383,6 +462,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   signOut: async () => {
+    invalidateAccountOperations();
     cancelScheduledPersistence();
     if (draftPersistenceTimer) clearTimeout(draftPersistenceTimer);
     draftPersistenceTimer = null;
@@ -393,6 +473,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     latestPinnedMessageLoads.clear();
     for (const timer of remoteDraftTimers.values()) clearTimeout(timer);
     remoteDraftTimers.clear();
+    dirtyDraftIds.clear();
     await Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined)]);
     const pushInstallationId = await AsyncStorage.getItem("@snezhok/push-installation/v1").catch(() => null);
     if (pushInstallationId) await api.unregisterPushDevice(pushInstallationId).catch(() => undefined);
@@ -436,9 +517,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (bootstrapRefresh) return bootstrapRefresh;
     if (!options.force && Date.now() - lastBootstrapCompletedAt < 30_000) return Promise.resolve();
     if (!options.silent) set({ syncing: true });
+    const guard = captureAccountOperation();
     bootstrapRefresh = (async () => {
       try {
         const payload = await api.bootstrap();
+        if (!accountOperationIsCurrent(guard)) return;
+        await ensureOfflineOwner(payload.me.id);
+        if (!accountOperationIsCurrent(guard)) return;
         set((state) => ({
           phase: "ready",
           error: null,
@@ -457,9 +542,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastBootstrapCompletedAt = Date.now();
         schedulePersistence({ bootstrap: true });
       } catch (error) {
+        if (!accountOperationIsCurrent(guard)) return;
         set({ syncing: false });
         const session = await readSession();
-        if (!session) set({ phase: "signed-out" });
+        if (!session) {
+          cancelScheduledPersistence();
+          await clearLocalData();
+          set({ phase: "signed-out", me: null, conversations: [], servers: [], categories: [], channels: [], friends: [], messages: {}, drafts: {}, outbox: [], messagePagination: {} });
+        }
         throw error;
       }
     })().finally(() => {
@@ -472,12 +562,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!get().online) return Promise.resolve();
     if (productivityRefresh) return productivityRefresh;
     if (Date.now() - lastProductivityCompletedAt < 30_000) return Promise.resolve();
+    const guard = captureAccountOperation();
     productivityRefresh = (async () => {
       const productivity = await api.productivity();
+      if (!accountOperationIsCurrent(guard)) return;
       const remoteDrafts = Object.fromEntries(productivity.drafts.map((draft) => [draft.streamId, draft.text]));
       const localDrafts = get().drafts;
-      const mergedDrafts = { ...remoteDrafts, ...localDrafts };
-      const dirtyLocalDrafts = Object.entries(localDrafts).filter(([streamId, text]) => (remoteDrafts[streamId] ?? "") !== text);
+      const dirtyLocalDrafts = Object.entries(localDrafts).filter(([streamId]) => dirtyDraftIds.has(streamId));
+      const mergedDrafts = { ...remoteDrafts, ...Object.fromEntries(dirtyLocalDrafts) };
       set({
         drafts: mergedDrafts,
         folders: productivity.folders,
@@ -487,12 +579,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       scheduleDraftPersistence();
       // Local values (including empty tombstones) win after offline use, then
       // are pushed back so a second device observes the same draft state.
-      await Promise.all(dirtyLocalDrafts.map(([streamId, text]) => api.saveDraft(streamId, text, null).catch(() => undefined)));
+      await Promise.all(dirtyLocalDrafts.map(async ([streamId, text]) => {
+        if (!accountOperationIsCurrent(guard)) return;
+        try {
+          await api.saveDraft(streamId, text, null);
+          if (accountOperationIsCurrent(guard)) dirtyDraftIds.delete(streamId);
+        }
+        catch { /* Retain the dirty marker for the next sync. */ }
+      }));
+      if (accountOperationIsCurrent(guard)) scheduleDraftPersistence();
     })().finally(() => { productivityRefresh = null; });
     return productivityRefresh;
   },
 
   loadMessages: (streamId, before) => {
+    const guard = captureAccountOperation();
     const key = `${streamId}:${before ?? "latest"}`;
     const active = messageLoads.get(key);
     if (active) return active;
@@ -500,14 +601,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const loading = (async () => {
       if (before === undefined) {
         const cached = await readCachedMessagePage(streamId, before, 40).catch(() => []);
-        if (cached.length) {
+        if (cached.length && accountOperationIsCurrent(guard)) {
           set((state) => ({
             messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], cached)) },
           }));
         }
       }
-      if (!get().online) return;
+      if (!accountOperationIsCurrent(guard) || !get().online) return;
       const page = await api.messages(streamId, before);
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({
         messages: {
           ...state.messages,
@@ -526,10 +628,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadOlderMessages: async (streamId) => {
+    const guard = captureAccountOperation();
     const current = get().messages[streamId] ?? [];
     const earliestSequence = cachedHistoryCursor(current);
     if (earliestSequence !== undefined) {
       const cached = await readCachedMessagePage(streamId, earliestSequence, 60).catch(() => []);
+      if (!accountOperationIsCurrent(guard)) return;
       if (cached.length) {
         set((state) => ({
           messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeUnboundedMessages(state.messages[streamId] ?? [], cached), 300, "older") },
@@ -547,14 +651,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadMessageContext: async (streamId, messageId) => {
+    const guard = captureAccountOperation();
     if ((get().messages[streamId] ?? []).some((message) => message.id === messageId) || !get().online) return;
     const context = await api.messageContext(messageId);
+    if (!accountOperationIsCurrent(guard)) return;
     if (context.streamId !== streamId) throw new Error("Reply target belongs to another chat");
     set((state) => ({ messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], context.items)) } }));
     schedulePersistence({ streamIds: [streamId] });
   },
 
   markStreamRead: async (streamId, sequence) => {
+    const guard = captureAccountOperation();
     if (sequence < 0) return;
     // Clear the badge immediately. The server write remains idempotent and is
     // retried whenever the focused chat receives another message.
@@ -574,9 +681,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const entry: OutboxEntry = { kind: "read", id: Crypto.randomUUID(), streamId, sequence, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
     schedulePersistence({ outbox: true });
-    if (!get().online) return;
+    if (!accountOperationIsCurrent(guard) || !get().online) return;
     try {
       const acknowledged = await api.markRead(streamId, sequence);
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({
         outbox: state.outbox.filter((item) => item.id !== entry.id),
         conversations: state.conversations.map((conversation) => conversation.id === streamId && acknowledged.sequence >= sequence
@@ -588,6 +696,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       schedulePersistence({ bootstrap: true, outbox: true });
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       if (!isRetryable(error)) {
         set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
         schedulePersistence({ outbox: true });
@@ -597,6 +706,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   markStreamUnread: async (streamId, sequence) => {
+    const guard = captureAccountOperation();
     const previousConversationCount = get().conversations.find((item) => item.id === streamId)?.unreadCount ?? 0;
     const previousChannelCount = get().channels.find((item) => item.id === streamId)?.unreadCount ?? 0;
     set((state) => ({
@@ -611,6 +721,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.markUnread(streamId, sequence);
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({
         conversations: state.conversations.map((conversation) => conversation.id === streamId && conversation.unreadCount === 1
           ? { ...conversation, unreadCount: previousConversationCount }
@@ -629,8 +740,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const active = pinnedMessageLoads.get(streamId);
     if (active) return active;
     if (Date.now() - (latestPinnedMessageLoads.get(streamId) ?? 0) < 30_000) return Promise.resolve();
+    const guard = captureAccountOperation();
     const loading = (async () => {
       const pinned = await api.pinnedMessages(streamId);
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({
         messages: { ...state.messages, [streamId]: boundedMessageWindow(reconcilePinnedMessages(state.messages[streamId] ?? [], pinned)) },
       }));
@@ -642,14 +755,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   uploadAttachment: async (input) => {
+    const guard = captureAccountOperation();
     set({ uploadProgress: 0 });
     try {
-      return await api.upload(
+      const attachment = await api.upload(
         { ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation },
-        (uploadProgress) => set({ uploadProgress }),
+        (uploadProgress) => { if (accountOperationIsCurrent(guard)) set({ uploadProgress }); },
       );
+      if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
+      return attachment;
     } catch (error) {
-      set({ uploadProgress: null });
+      if (accountOperationIsCurrent(guard)) set({ uploadProgress: null });
       throw error;
     }
   },
@@ -657,6 +773,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendAttachmentBatch: async (streamId, inputs, messageKind, replyToId) => {
     const me = get().me;
     if (!me) throw new Error("No active session");
+    const guard = captureAccountOperation();
     if (!get().online) throw new Error("Attachments require a network connection");
     if (activeBackgroundBatchId) throw new Error("Another attachment batch is already being prepared");
     const prepared = inputs.map((input) => ({
@@ -683,23 +800,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         ownerId: me.id,
         isOnline: () => get().online,
         dispatchGroup: dispatchBackgroundAttachmentGroup,
-        onProgress: (uploadProgress) => set({ uploadProgress }),
+        onProgress: (uploadProgress) => { if (accountOperationIsCurrent(guard)) set({ uploadProgress }); },
       });
     } finally {
       if (batchId && activeBackgroundBatchId === batchId) activeBackgroundBatchId = null;
-      set({ uploadProgress: null });
+      if (accountOperationIsCurrent(guard)) set({ uploadProgress: null });
     }
   },
 
   reconcileBackgroundTransfers: async () => {
     const state = get();
     if (!state.me || state.phase === "signed-out") return;
+    const guard = captureAccountOperation();
     await reconcileDurableTransfers({
       ownerId: state.me.id,
       online: state.online,
       dispatchGroup: dispatchBackgroundAttachmentGroup,
       onProgress: (batchId, uploadProgress) => {
-        if (batchId === activeBackgroundBatchId) set({ uploadProgress });
+        if (batchId === activeBackgroundBatchId && accountOperationIsCurrent(guard)) set({ uploadProgress });
       },
     });
   },
@@ -717,6 +835,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sendMessage: async (streamId, partial, optimisticAttachments = []) => {
     const me = get().me;
     if (!me) throw new Error("No active session");
+    const guard = captureAccountOperation();
     const clientId = Crypto.randomUUID();
     const input: MessageCreateInput = { ...partial, clientId, silent: partial.silent ?? false };
     const existing = get().messages[streamId] ?? [];
@@ -746,28 +865,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       conversations: applyConversationPreview(state.conversations, optimistic),
       messages: { ...state.messages, [streamId]: mergeMessages(state.messages[streamId] ?? [], [optimistic]) },
     }));
-
-    if (!get().online) {
-      const entry: OutboxEntry = { kind: "message", id: clientId, streamId, input, queuedAt: Date.now(), attempts: 0 };
-      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState({ bootstrap: true, outbox: true, streamIds: [streamId] });
-      return;
-    }
+    const entry: OutboxEntry = { kind: "message", id: clientId, streamId, input, queuedAt: Date.now(), attempts: 0 };
+    set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+    await persistState({ bootstrap: true, outbox: true, streamIds: [streamId] });
+    if (!accountOperationIsCurrent(guard) || !get().online) return;
 
     try {
       const saved = await api.createMessage(streamId, input);
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({
         conversations: applyConversationPreview(state.conversations, saved),
+        outbox: state.outbox.filter((item) => item.id !== clientId),
         messages: {
           ...state.messages,
           [streamId]: mergeMessages(state.messages[streamId] ?? [], [saved]),
         },
       }));
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       const retryable = isRetryable(error);
-      const entry: OutboxEntry = { kind: "message", id: clientId, streamId, input, queuedAt: Date.now(), attempts: 1 };
       set((state) => ({
-        outbox: retryable ? enqueueOutbox(state.outbox.filter((item) => item.id !== clientId), entry) : state.outbox.filter((item) => item.id !== clientId),
+        outbox: retryable ? state.outbox.map((item) => item.id === clientId ? { ...item, attempts: 1 } : item) : state.outbox.filter((item) => item.id !== clientId),
         messages: {
           ...state.messages,
           [streamId]: (state.messages[streamId] ?? []).map((message) =>
@@ -776,13 +894,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
       }));
     }
-    schedulePersistence({ bootstrap: true, outbox: true, streamIds: [streamId] });
+    if (accountOperationIsCurrent(guard)) schedulePersistence({ bootstrap: true, outbox: true, streamIds: [streamId] });
   },
 
   forwardMessage: async (messageId, targetStreamId) => {
     const me = get().me;
     const source = findMessage(get().messages, messageId);
     if (!me || !source) throw new Error("Message is no longer available");
+    const guard = captureAccountOperation();
     const clientId = Crypto.randomUUID();
     const existing = get().messages[targetStreamId] ?? [];
     const optimistic: Message = {
@@ -808,109 +927,112 @@ export const useAppStore = create<AppState>((set, get) => ({
       conversations: applyConversationPreview(state.conversations, optimistic),
       messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [optimistic]) },
     }));
-    schedulePersistence({ bootstrap: true, streamIds: [targetStreamId] });
+    schedulePersistence({ bootstrap: true, outbox: true, streamIds: [targetStreamId] });
     const entry: OutboxEntry = { kind: "forward", id: clientId, streamId: targetStreamId, sourceMessageId: messageId, clientId, queuedAt: Date.now(), attempts: 0 };
-    if (!get().online) {
-      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState({ bootstrap: true, outbox: true, streamIds: [targetStreamId] });
-      return optimistic;
-    }
+    set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
+    await persistState({ bootstrap: true, outbox: true, streamIds: [targetStreamId] });
+    if (!accountOperationIsCurrent(guard) || !get().online) return optimistic;
     let saved: Message;
     try {
       saved = await api.forwardMessage(messageId, targetStreamId, clientId);
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return optimistic;
       const retryable = isRetryable(error);
       set((state) => ({
-        outbox: retryable ? enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) : state.outbox,
+        outbox: retryable ? state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: 1 } : item) : state.outbox.filter((item) => item.id !== entry.id),
         messages: { ...state.messages, [targetStreamId]: (state.messages[targetStreamId] ?? []).map((message) => message.id === clientId ? { ...message, pending: false, failed: true } : message) },
       }));
       schedulePersistence({ outbox: true, streamIds: [targetStreamId] });
       if (!retryable) throw error;
       return optimistic;
     }
+    if (!accountOperationIsCurrent(guard)) return optimistic;
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, saved),
+      outbox: state.outbox.filter((item) => item.id !== entry.id),
       messages: { ...state.messages, [targetStreamId]: mergeMessages(state.messages[targetStreamId] ?? [], [saved]) },
     }));
-    schedulePersistence({ bootstrap: true, streamIds: [targetStreamId] });
+    schedulePersistence({ bootstrap: true, outbox: true, streamIds: [targetStreamId] });
     return saved;
   },
 
   editMessage: async (message, text) => {
     const value = text.trim();
     if (!value || value === message.text) return;
+    const guard = captureAccountOperation();
     const optimistic: Message = { ...message, text: value, editedAt: Date.now() };
     const entry: OutboxEntry = { kind: "edit", id: Crypto.randomUUID(), streamId: message.streamId, messageId: message.id, text: value, previous: message, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, optimistic),
       messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) },
+      outbox: enqueueOutbox(state.outbox, entry),
     }));
-    schedulePersistence({ bootstrap: true, streamIds: [message.streamId] });
-    if (!get().online) {
-      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState({ outbox: true, streamIds: [message.streamId] });
-      return;
-    }
+    await persistState({ bootstrap: true, outbox: true, streamIds: [message.streamId] });
+    if (!accountOperationIsCurrent(guard) || !get().online) return;
     try {
       const saved = await api.editMessage(message.id, value);
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => {
         const current = (state.messages[message.streamId] ?? []).find((item) => item.id === message.id);
-        if (!current || current.text !== value || current.deletedAt) return state;
+        if (!current || current.text !== value || current.deletedAt) return { outbox: state.outbox.filter((item) => item.id !== entry.id) };
         return {
           conversations: applyConversationPreview(state.conversations, saved),
           messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
+          outbox: state.outbox.filter((item) => item.id !== entry.id),
         };
       });
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       if (isRetryable(error)) {
-        set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+        set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: 1 } : item) }));
       } else {
         set((state) => ({
           conversations: applyConversationPreview(state.conversations, message),
           messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) },
+          outbox: state.outbox.filter((item) => item.id !== entry.id),
         }));
         throw error;
       }
     } finally {
-      schedulePersistence({ bootstrap: true, outbox: true, streamIds: [message.streamId] });
+      if (accountOperationIsCurrent(guard)) schedulePersistence({ bootstrap: true, outbox: true, streamIds: [message.streamId] });
     }
   },
 
   toggleReaction: async (message, emoji) => {
+    const guard = captureAccountOperation();
     const current = (get().messages[message.streamId] ?? []).find((candidate) => candidate.id === message.id) ?? message;
     const active = !current.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted);
     const optimistic = { ...current, reactions: updateOptimisticReaction(current.reactions, emoji, active, get().me?.id) };
     const entry: OutboxEntry = { kind: "reaction", id: Crypto.randomUUID(), streamId: current.streamId, messageId: current.id, emoji, active, previous: current, queuedAt: Date.now(), attempts: 0 };
-    set((state) => ({ messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [optimistic]) } }));
-    schedulePersistence({ streamIds: [current.streamId] });
-    if (!get().online) {
-      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState({ outbox: true, streamIds: [current.streamId] });
-      return;
-    }
+    set((state) => ({ messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [optimistic]) }, outbox: enqueueOutbox(state.outbox, entry) }));
+    await persistState({ outbox: true, streamIds: [current.streamId] });
+    if (!accountOperationIsCurrent(guard) || !get().online) return;
     const queueKey = `${current.id}\u0000${emoji}`;
     const previousOperation = reactionSyncQueues.get(queueKey) ?? Promise.resolve();
     const operation = previousOperation.then(async () => {
+      if (!accountOperationIsCurrent(guard)) return;
       try {
         const saved = await api.setReaction(current.id, emoji, active);
+        if (!accountOperationIsCurrent(guard)) return;
         set((state) => {
           const live = (state.messages[current.streamId] ?? []).find((candidate) => candidate.id === current.id);
-          if (!live || hasActiveReaction(live, emoji) !== active) return state;
-          return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [saved]) } };
+          if (!live || hasActiveReaction(live, emoji) !== active) return { outbox: state.outbox.filter((item) => item.id !== entry.id) };
+          return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [saved]) }, outbox: state.outbox.filter((item) => item.id !== entry.id) };
         });
-        schedulePersistence({ streamIds: [current.streamId] });
+        schedulePersistence({ outbox: true, streamIds: [current.streamId] });
       } catch (error) {
+        if (!accountOperationIsCurrent(guard)) return;
         if (isRetryable(error)) {
-          set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+          set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: 1 } : item) }));
           schedulePersistence({ outbox: true, streamIds: [current.streamId] });
           return;
         }
         set((state) => {
           const live = (state.messages[current.streamId] ?? []).find((candidate) => candidate.id === current.id);
-          if (!live || hasActiveReaction(live, emoji) !== active) return state;
-          return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [current]) } };
+          if (!live || hasActiveReaction(live, emoji) !== active) return { outbox: state.outbox.filter((item) => item.id !== entry.id) };
+          return { messages: { ...state.messages, [current.streamId]: mergeMessages(state.messages[current.streamId] ?? [], [current]) }, outbox: state.outbox.filter((item) => item.id !== entry.id) };
         });
-        schedulePersistence({ streamIds: [current.streamId] });
+        schedulePersistence({ outbox: true, streamIds: [current.streamId] });
         throw error;
       }
     });
@@ -919,8 +1041,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteMessage: async (message, scope) => {
+    const guard = captureAccountOperation();
     const entry: OutboxEntry = { kind: "delete", id: Crypto.randomUUID(), streamId: message.streamId, messageId: message.id, scope, previous: message, queuedAt: Date.now(), attempts: 0 };
     set((state) => ({
+      outbox: enqueueOutbox(state.outbox, entry),
       messages: {
         ...state.messages,
         [message.streamId]: scope === "me"
@@ -928,25 +1052,25 @@ export const useAppStore = create<AppState>((set, get) => ({
           : markMessageDeleted(state.messages[message.streamId] ?? [], message.id, Date.now(), true),
       },
     }));
-    schedulePersistence({ streamIds: [message.streamId], ...(scope === "me" ? { removedMessages: [{ streamId: message.streamId, messageId: message.id }] } : {}) });
-    if (!get().online) {
-      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState({ outbox: true, streamIds: [message.streamId] });
-      return;
-    }
+    await persistState({ outbox: true, streamIds: [message.streamId], ...(scope === "me" ? { removedMessages: [{ streamId: message.streamId, messageId: message.id }] } : {}) });
+    if (!accountOperationIsCurrent(guard) || !get().online) return;
     if (scope === "me") {
       try {
         await api.hideMessage(message.id);
       } catch (error) {
+        if (!accountOperationIsCurrent(guard)) return;
         if (isRetryable(error)) {
-          set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+          set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: 1 } : item) }));
           schedulePersistence({ outbox: true, streamIds: [message.streamId] });
           return;
         }
-        set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
-        schedulePersistence({ streamIds: [message.streamId] });
+        set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) }, outbox: state.outbox.filter((item) => item.id !== entry.id) }));
+        schedulePersistence({ outbox: true, streamIds: [message.streamId] });
         throw error;
       }
+      if (!accountOperationIsCurrent(guard)) return;
+      set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
+      schedulePersistence({ outbox: true });
       void get().refreshBootstrap({ force: true, silent: true });
       return;
     }
@@ -954,66 +1078,71 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       saved = await api.deleteMessage(message.id);
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       if (isRetryable(error)) {
-        set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+        set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: 1 } : item) }));
         schedulePersistence({ outbox: true, streamIds: [message.streamId] });
         return;
       }
-      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
-      schedulePersistence({ streamIds: [message.streamId] });
+      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) }, outbox: state.outbox.filter((item) => item.id !== entry.id) }));
+      schedulePersistence({ outbox: true, streamIds: [message.streamId] });
       throw error;
     }
+    if (!accountOperationIsCurrent(guard)) return;
     set((state) => ({
       conversations: applyConversationPreview(state.conversations, saved),
+      outbox: state.outbox.filter((item) => item.id !== entry.id),
       messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) },
     }));
-    schedulePersistence({ bootstrap: true, streamIds: [message.streamId] });
+    schedulePersistence({ bootstrap: true, outbox: true, streamIds: [message.streamId] });
     // The server may reveal the previous message as the new conversation
     // preview after deleting the latest one.
     void get().refreshBootstrap({ force: true, silent: true });
   },
 
   setMessagePinned: async (message, pinned) => {
+    const guard = captureAccountOperation();
     const optimistic = { ...message, pinnedAt: pinned ? Date.now() : null };
     const entry: OutboxEntry = { kind: "pin", id: Crypto.randomUUID(), streamId: message.streamId, messageId: message.id, pinned, previous: message, queuedAt: Date.now(), attempts: 0 };
-    set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) } }));
-    schedulePersistence({ streamIds: [message.streamId] });
-    if (!get().online) {
-      set((state) => ({ outbox: enqueueOutbox(state.outbox, entry) }));
-      await persistState({ outbox: true, streamIds: [message.streamId] });
-      return;
-    }
+    set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [optimistic]) }, outbox: enqueueOutbox(state.outbox, entry) }));
+    await persistState({ outbox: true, streamIds: [message.streamId] });
+    if (!accountOperationIsCurrent(guard) || !get().online) return;
     let saved: Message;
     try {
       saved = await api.setMessagePinned(message.id, pinned);
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       if (isRetryable(error)) {
-        set((state) => ({ outbox: enqueueOutbox(state.outbox, { ...entry, attempts: 1 }) }));
+        set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: 1 } : item) }));
         schedulePersistence({ outbox: true, streamIds: [message.streamId] });
         return;
       }
-      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) } }));
-      schedulePersistence({ streamIds: [message.streamId] });
+      set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [message]) }, outbox: state.outbox.filter((item) => item.id !== entry.id) }));
+      schedulePersistence({ outbox: true, streamIds: [message.streamId] });
       throw error;
     }
+    if (!accountOperationIsCurrent(guard)) return;
     set((state) => {
       const current = (state.messages[message.streamId] ?? []).find((item) => item.id === message.id);
-      if (!current || Boolean(current.pinnedAt) !== pinned || current.deletedAt) return state;
-      return { messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) } };
+      if (!current || Boolean(current.pinnedAt) !== pinned || current.deletedAt) return { outbox: state.outbox.filter((item) => item.id !== entry.id) };
+      return { messages: { ...state.messages, [message.streamId]: mergeMessages(state.messages[message.streamId] ?? [], [saved]) }, outbox: state.outbox.filter((item) => item.id !== entry.id) };
     });
-    schedulePersistence({ streamIds: [message.streamId] });
+    schedulePersistence({ outbox: true, streamIds: [message.streamId] });
   },
 
   retryOutbox: async () => {
     if (!get().online || get().outbox.length === 0) return;
     if (outboxRetry) return outboxRetry;
+    const guard = captureAccountOperation();
     outboxRetry = (async () => {
       const snapshot = [...get().outbox];
       const acknowledgedIds = new Map<string, string>();
       await replayOutbox(snapshot, async (entry) => {
+        if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
         try {
           if (entry.kind === "message") {
             const saved = await api.createMessage(entry.streamId, entry.input);
+            if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
             acknowledgedIds.set(entry.id, saved.id);
             acknowledgedIds.set(entry.input.clientId, saved.id);
             set((state) => ({ conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } }));
@@ -1021,6 +1150,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           if (entry.kind === "forward") {
             const saved = await api.forwardMessage(resolveOutboxMessageId(entry.sourceMessageId, acknowledgedIds), entry.streamId, entry.clientId);
+            if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
             acknowledgedIds.set(entry.id, saved.id);
             acknowledgedIds.set(entry.clientId, saved.id);
             set((state) => ({ conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } }));
@@ -1028,6 +1158,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           if (entry.kind === "read") {
             await api.markRead(entry.streamId, entry.sequence);
+            if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
             set((state) => ({
               conversations: state.conversations.map((conversation) => conversation.id === entry.streamId ? { ...conversation, unreadCount: 0, mentionCount: 0 } : conversation),
               channels: state.channels.map((channel) => channel.id === entry.streamId ? { ...channel, unreadCount: 0, mentionCount: 0 } : channel),
@@ -1037,6 +1168,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (entry.kind === "edit") {
             const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
             const saved = await api.editMessage(messageId, entry.text);
+            if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
             set((state) => {
               const live = (state.messages[entry.streamId] ?? []).find((message) => message.id === messageId);
               if (!live || live.text !== entry.text || live.deletedAt) return state;
@@ -1048,10 +1180,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
             if (entry.scope === "me") {
               await api.hideMessage(messageId);
+              if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
               set((state) => ({ messages: { ...state.messages, [entry.streamId]: (state.messages[entry.streamId] ?? []).filter((message) => message.id !== messageId) } }));
             }
             else {
               const saved = await api.deleteMessage(messageId);
+              if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
               set((state) => ({ conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } }));
             }
             return;
@@ -1059,6 +1193,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (entry.kind === "pin") {
             const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
             const saved = await api.setMessagePinned(messageId, entry.pinned);
+            if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
             set((state) => {
               const live = (state.messages[entry.streamId] ?? []).find((message) => message.id === messageId);
               if (!live || Boolean(live.pinnedAt) !== entry.pinned || live.deletedAt) return state;
@@ -1068,20 +1203,23 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           const messageId = resolveOutboxMessageId(entry.messageId, acknowledgedIds);
           const saved = await api.setReaction(messageId, entry.emoji, entry.active);
+          if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
           set((state) => {
             const live = (state.messages[entry.streamId] ?? []).find((message) => message.id === messageId);
             if (!live || hasActiveReaction(live, entry.emoji) !== entry.active || live.deletedAt) return state;
             return { messages: { ...state.messages, [entry.streamId]: mergeMessages(state.messages[entry.streamId] ?? [], [saved]) } };
           });
         } catch (error) {
+          if (error instanceof StaleAccountOperationError) throw error;
           if (isRetryable(error)) throw error;
           set((state) => restoreRejectedOutbox(state, entry));
         }
       }, (entry) => {
-        set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
+        if (accountOperationIsCurrent(guard)) set((state) => ({ outbox: state.outbox.filter((item) => item.id !== entry.id) }));
       }, (entry) => {
-        set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: item.attempts + 1 } : item) }));
+        if (accountOperationIsCurrent(guard)) set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: item.attempts + 1 } : item) }));
       });
+      if (!accountOperationIsCurrent(guard)) return;
       await persistState({
         bootstrap: true,
         outbox: true,
@@ -1104,10 +1242,11 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? { ...channel, unreadCount: channel.unreadCount + 1 }
           : channel),
         messages: { ...state.messages, [message.streamId]: mergeMessages(existing, [message]) },
+        outbox: message.clientId ? state.outbox.filter((entry) => entry.id !== message.clientId) : state.outbox,
       };
     });
     latestMessageLoads.set(message.streamId, Date.now());
-    schedulePersistence({ bootstrap: true, streamIds: [message.streamId] });
+    schedulePersistence({ bootstrap: true, ...(message.clientId ? { outbox: true } : {}), streamIds: [message.streamId] });
   },
 
   applyMessageDeleted: ({ id, streamId, deletedAt }) => {
@@ -1145,8 +1284,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteConversation: async (conversationId) => {
+    const guard = captureAccountOperation();
     if (!get().online) throw new Error("Deleting a chat requires a connection");
     await api.deleteConversation(conversationId);
+    if (!accountOperationIsCurrent(guard)) return;
     get().removeConversation(conversationId);
   },
 
@@ -1184,6 +1325,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setDraft: (streamId, text) => {
+    const guard = captureAccountOperation();
+    dirtyDraftIds.add(streamId);
     set((state) => {
       const drafts = { ...state.drafts };
       // Empty strings are intentional tombstones: they prevent an offline
@@ -1196,30 +1339,43 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (previous) clearTimeout(previous);
     if (get().online) remoteDraftTimers.set(streamId, setTimeout(() => {
       remoteDraftTimers.delete(streamId);
-      void api.saveDraft(streamId, useAppStore.getState().drafts[streamId] ?? "", null).catch(() => undefined);
+      if (!accountOperationIsCurrent(guard)) return;
+      const value = useAppStore.getState().drafts[streamId] ?? "";
+      void api.saveDraft(streamId, value, null).then(() => {
+        if (!accountOperationIsCurrent(guard)) return;
+        if ((useAppStore.getState().drafts[streamId] ?? "") === value) dirtyDraftIds.delete(streamId);
+        scheduleDraftPersistence();
+      }).catch(() => undefined);
     }, 600));
   },
 
   scheduleTextMessage: async (streamId, partial, scheduledFor) => {
+    const guard = captureAccountOperation();
     if (!get().online) throw new Error("Scheduling requires a connection");
     const input: MessageCreateInput = { ...partial, clientId: Crypto.randomUUID() };
     const scheduled = await api.scheduleMessage(streamId, input, scheduledFor);
+    if (!accountOperationIsCurrent(guard)) return;
     set((state) => ({ scheduledMessages: [...state.scheduledMessages.filter((item) => item.id !== scheduled.id), scheduled].sort((a, b) => a.scheduledFor - b.scheduledFor) }));
   },
 
   cancelScheduledMessage: async (scheduledMessageId) => {
+    const guard = captureAccountOperation();
     if (!get().online) throw new Error("Scheduling requires a connection");
     await api.cancelScheduledMessage(scheduledMessageId);
+    if (!accountOperationIsCurrent(guard)) return;
     set((state) => ({ scheduledMessages: state.scheduledMessages.filter((item) => item.id !== scheduledMessageId) }));
   },
 
   createFolder: async (name, streams = []) => {
+    const guard = captureAccountOperation();
     if (!get().online) throw new Error("Folder changes require a connection");
     const folder = await api.createFolder(name, streams);
+    if (!accountOperationIsCurrent(guard)) return;
     set((state) => ({ folders: [...state.folders.filter((item) => item.id !== folder.id), folder].sort((a, b) => a.position - b.position) }));
   },
 
   setFolderMembership: async (folder, stream, included) => {
+    const guard = captureAccountOperation();
     if (!get().online) throw new Error("Folder changes require a connection");
     const streams = included
       ? [...folder.streams.filter((item) => item.streamId !== stream.streamId || item.streamKind !== stream.streamKind), stream]
@@ -1228,20 +1384,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ folders: state.folders.map((item) => item.id === folder.id ? optimistic : item) }));
     try {
       const saved = await api.updateFolder(folder.id, { streams });
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({ folders: state.folders.map((item) => item.id === folder.id ? saved : item) }));
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({ folders: state.folders.map((item) => item.id === folder.id ? folder : item) }));
       throw error;
     }
   },
 
   deleteFolder: async (folderId) => {
+    const guard = captureAccountOperation();
     if (!get().online) throw new Error("Folder changes require a connection");
     await api.deleteFolder(folderId);
+    if (!accountOperationIsCurrent(guard)) return;
     set((state) => ({ folders: state.folders.filter((item) => item.id !== folderId) }));
   },
 
   setConversationPreference: async (conversation, patch) => {
+    const guard = captureAccountOperation();
     const optimistic: ConversationSummary = {
       ...conversation,
       pinned: patch.pinned ?? (patch.archived ? false : conversation.pinned),
@@ -1257,16 +1418,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       const saved = await api.updateConversationPreferences(conversation.id, patch);
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({ conversations: upsertConversation(state.conversations, saved) }));
     } catch (error) {
+      if (!accountOperationIsCurrent(guard)) return;
       set((state) => ({ conversations: upsertConversation(state.conversations, conversation) }));
       throw error;
     } finally {
-      schedulePersistence({ bootstrap: true });
+      if (accountOperationIsCurrent(guard)) schedulePersistence({ bootstrap: true });
     }
   },
 
   updateSettings: (patch) => {
+    const guard = captureAccountOperation();
     const previous = get().settings;
     const next = { ...previous, ...patch };
     set({ settings: next });
@@ -1274,11 +1438,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!get().online) return Promise.resolve();
 
     const operation = settingsSyncQueue.then(async () => {
+      if (!accountOperationIsCurrent(guard)) return;
       try {
         const saved = await api.updateSettings(patch);
+        if (!accountOperationIsCurrent(guard)) return;
         set((state) => ({ settings: mergeAcknowledgedPatch(state.settings, patch, saved) }));
         schedulePersistence({ bootstrap: true });
       } catch (error) {
+        if (!accountOperationIsCurrent(guard)) return;
         set((state) => ({ settings: rollbackRejectedPatch(state.settings, patch, previous) }));
         schedulePersistence({ bootstrap: true });
         throw error;
@@ -1311,8 +1478,17 @@ async function dispatchBackgroundAttachmentGroup({ batch, input }: BackgroundGro
   // process death returns the server's same idempotent message instead of
   // creating a duplicate attachment post.
   const message = await api.createMessage(batch.streamId, input);
-  useAppStore.getState().applyMessage(message, "created");
+  if (useAppStore.getState().me?.id === batch.ownerId && getRuntimeSession()) {
+    useAppStore.getState().applyMessage(message, "created");
+  }
   return message;
+}
+
+class StaleAccountOperationError extends Error {
+  constructor() {
+    super("Account changed while the operation was in progress");
+    this.name = "StaleAccountOperationError";
+  }
 }
 
 function restoreRejectedOutbox(state: AppState, entry: OutboxEntry): Partial<AppState> {

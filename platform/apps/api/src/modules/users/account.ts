@@ -1,8 +1,9 @@
 import type { DbClient } from "../../db/pool.js";
 import { transaction } from "../../db/pool.js";
-import { notFound, unauthorized } from "../../lib/errors.js";
+import { conflict, notFound, unauthorized } from "../../lib/errors.js";
 import { verifyCurrentPassword } from "../auth/service.js";
 import { publishStoredEvent, storeEvent } from "../realtime/events.js";
+import { terminateCallsForUser } from "../calls/mediaControl.js";
 
 export async function deleteAccount(userId: string, password: string) {
   const result = await transaction(async (client) => {
@@ -12,8 +13,10 @@ export async function deleteAccount(userId: string, password: string) {
     );
     if (!account.rows[0]) throw notFound("Account not found");
     if (!(await verifyCurrentPassword(userId, password, client))) throw unauthorized("Password is incorrect");
+    await assertMayDeleteAccount(client, userId);
 
     const recipients = await affectedUsers(userId, client);
+    const callEvents = await terminateCallsForUser(client, userId, "account-deleted");
     await transferOrDeleteOwnedServers(userId, client);
     await transferOrDeleteOwnedConversations(userId, client);
 
@@ -36,7 +39,7 @@ export async function deleteAccount(userId: string, password: string) {
     await client.query("DELETE FROM credentials WHERE user_id=$1", [userId]);
     await client.query("UPDATE device_sessions SET revoked_at=coalesce(revoked_at,now()),revoked_reason='account_deleted',label='Deleted session',ip_address=NULL,user_agent='' WHERE user_id=$1", [userId]);
     await client.query("DELETE FROM push_devices WHERE user_id=$1", [userId]);
-    await client.query("UPDATE upload_sessions SET status='cancelled',updated_at=now() WHERE owner_id=$1 AND status IN ('uploading','finalizing')", [userId]);
+    await client.query("UPDATE upload_sessions SET status='cancelled',updated_at=now() WHERE owner_id=$1 AND status IN ('uploading','receiving','finalizing')", [userId]);
     await client.query("DELETE FROM user_events WHERE user_id=$1", [userId]);
     await client.query("UPDATE server_audit_log SET actor_id=NULL WHERE actor_id=$1", [userId]);
     await client.query("UPDATE server_audit_log SET target_user_id=NULL WHERE target_user_id=$1", [userId]);
@@ -59,11 +62,25 @@ export async function deleteAccount(userId: string, password: string) {
       [userId, tombstone],
     );
 
-    return recipients.length
-      ? storeEvent(client, recipients, "user:deleted", { id: userId })
-      : null;
+    const deletedEvent = recipients.length ? await storeEvent(client, recipients, "user:deleted", { id: userId }) : null;
+    return { events: [...callEvents, ...(deletedEvent ? [deletedEvent] : [])], mediaChanged: callEvents.length > 0 };
   });
-  if (result) publishStoredEvent(result);
+  result.events.forEach(publishStoredEvent);
+  return { mediaChanged: result.mediaChanged };
+}
+
+export async function assertMayDeleteAccount(client: Pick<DbClient, "query">, userId: string): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock($1)", [492_001_732]);
+  const current = (await client.query<{ is_admin: boolean }>(
+    "SELECT is_admin FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+    [userId],
+  )).rows[0];
+  if (!current?.is_admin) return;
+  const replacement = await client.query(
+    "SELECT 1 FROM users WHERE is_admin=true AND suspended_at IS NULL AND deleted_at IS NULL AND id<>$1 LIMIT 1",
+    [userId],
+  );
+  if (!replacement.rowCount) throw conflict("Transfer administrator access before deleting the final active administrator");
 }
 
 async function affectedUsers(userId: string, client: DbClient) {
@@ -144,6 +161,5 @@ async function deleteStreams(kind: "conversation" | "channel", ids: string[], cl
   await client.query("DELETE FROM chat_drafts WHERE stream_kind=$1 AND stream_id=ANY($2::uuid[])", [kind, ids]);
   await client.query("DELETE FROM chat_folder_streams WHERE stream_kind=$1 AND stream_id=ANY($2::uuid[])", [kind, ids]);
   await client.query("DELETE FROM scheduled_messages WHERE stream_kind=$1 AND stream_id=ANY($2::uuid[])", [kind, ids]);
-  await client.query("DELETE FROM call_sessions WHERE stream_kind=$1 AND stream_id=ANY($2::uuid[])", [kind, ids]);
   await client.query("DELETE FROM stream_notification_settings WHERE stream_kind=$1 AND stream_id=ANY($2::uuid[])", [kind, ids]);
 }
