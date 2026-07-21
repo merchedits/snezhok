@@ -78,6 +78,7 @@ test("Android publication moves the channel manifest last", async () => {
 test("production deployment binds backup and image provenance to real commits", async () => {
   const script = await read("../deploy/deploy-production.sh");
   assert.match(script, /status --porcelain --untracked-files=normal/);
+  assert.match(script, /GIT_OPTIONAL_LOCKS=0 git/);
   assert.match(script, /verify-public-source\.mjs/);
   assert.match(script, /maintenance provenance does not match the currently running release/);
   assert.match(script, /configured_revision" == "\$current_revision/);

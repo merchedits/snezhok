@@ -24,7 +24,7 @@ docker compose version >/dev/null
 systemctl is-enabled --quiet snezhok-backup.timer || { echo "maintenance timers must be installed before deployment" >&2; exit 1; }
 checkout_revision=$(git -c safe.directory="$PLATFORM_ROOT" -C "$PLATFORM_ROOT" rev-parse --verify HEAD)
 [[ "$checkout_revision" == "$REVISION" ]] || { echo "production checkout does not match the requested revision" >&2; exit 1; }
-[[ -z "$(git -c safe.directory="$PLATFORM_ROOT" -C "$PLATFORM_ROOT" status --porcelain --untracked-files=normal)" ]] \
+[[ -z "$(GIT_OPTIONAL_LOCKS=0 git -c safe.directory="$PLATFORM_ROOT" -C "$PLATFORM_ROOT" status --porcelain --untracked-files=normal)" ]] \
   || { echo "production checkout has uncommitted or untracked inputs" >&2; exit 1; }
 node "$PLATFORM_ROOT/scripts/compliance/verify-public-source.mjs" \
   --revision "$REVISION" --repository https://github.com/merchedits/snezhok
