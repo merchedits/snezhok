@@ -299,13 +299,32 @@ function ensureSessionLossListener(): void {
     cancelScheduledPersistence();
     dirtyDraftIds.clear();
     pendingSettingsPatch = {};
-    terminalDataClear = Promise.all([persistenceQueue.catch(() => undefined), draftPersistenceQueue.catch(() => undefined), settingsPersistenceQueue.catch(() => undefined)]).then(() => Promise.all([
-      clearLocalData(), clearMediaCache().catch(() => undefined), clearAllBackgroundTransfers().catch(() => undefined),
-    ])).then(() => undefined).finally(() => {
-      useAppStore.setState({
-        phase: "signed-out", me: null, conversations: [], servers: [], categories: [], channels: [], friends: [],
-        messages: {}, drafts: {}, outbox: [], messagePagination: {}, folders: [], scheduledMessages: [], eventCursor: 0,
-      });
+    // Stop rendering the authenticated tree before touching SQLite, cached
+    // media, or WorkManager. An expired refresh token used to leave the cached
+    // inbox mounted while those stores were being cleared, allowing image
+    // requests and background reconciliation to race teardown on launch.
+    useAppStore.setState({
+      phase: "signed-out", error: null, me: null, conversations: [], servers: [], categories: [], channels: [], friends: [],
+      messages: {}, drafts: {}, outbox: [], messagePagination: {}, folders: [], scheduledMessages: [], eventCursor: 0,
+      uploadProgress: null,
+    });
+    terminalDataClear = Promise.allSettled([
+      persistenceQueue,
+      draftPersistenceQueue,
+      settingsPersistenceQueue,
+    ]).then(async () => {
+      const results = await Promise.allSettled([
+        clearLocalData(),
+        clearMediaCache(),
+        clearAllBackgroundTransfers(),
+      ]);
+      if (results.some((result) => result.status === "rejected")) {
+        recordDiagnostic("warn", "storage", "Expired session cleanup was incomplete");
+      }
+    }).catch(() => {
+      // This promise is awaited before the next sign-in. It must never become
+      // an unhandled rejection capable of terminating a production JS runtime.
+      recordDiagnostic("warn", "storage", "Expired session cleanup was incomplete");
     });
   });
 }
@@ -409,8 +428,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     for (const streamId of dirtyDrafts) dirtyDraftIds.add(streamId);
     ensureBackgroundWakeListener();
     const cached = cache.bootstrap;
+    // Never paint private cached screens behind credentials that already need
+    // refreshing. If refresh is rejected, those screens would otherwise mount
+    // media and tab effects for an account that is being torn down.
+    const cachedSessionIsFresh = Boolean(cached && session.expiresAt > Date.now());
     set({
-      phase: cached ? "ready" : "booting",
+      phase: cachedSessionIsFresh ? "ready" : "booting",
       me: cached?.me ?? null,
       conversations: cached?.conversations ?? [],
       servers: cached?.servers ?? [],

@@ -54,6 +54,16 @@ test("a late token refresh cannot recreate a logged-out or replaced session", ()
   assert.match(productApi, /clearSessionIfCurrent\(sessionGeneration\)/);
 });
 
+test("expired credentials unmount private UI before failure-contained cleanup", () => {
+  const listener = store.slice(store.indexOf("function ensureSessionLossListener"), store.indexOf("function schedulePersistence"));
+  const signedOut = listener.indexOf('phase: "signed-out"');
+  const cleanup = listener.indexOf("terminalDataClear =");
+  assert.ok(signedOut >= 0 && signedOut < cleanup, "the authenticated tree must unmount before durable cleanup starts");
+  assert.match(listener, /Promise\.allSettled\(\[/);
+  assert.match(listener, /Expired session cleanup was incomplete/);
+  assert.doesNotMatch(listener, /terminalDataClear = Promise\.all\(/);
+});
+
 test("asynchronous store completions are scoped to the account that started them", () => {
   assert.match(store, /function captureAccountOperation\(\)/);
   assert.match(store, /guard\.epoch === accountEpoch/);
@@ -72,6 +82,8 @@ test("private message state is excluded from Android backup", () => {
 test("startup binds durable data to the authenticated token before reading it", () => {
   const initialize = operation("initialize: async", "signIn: async");
   assert.ok(initialize.indexOf("await ensureOfflineOwner(ownerId)") < initialize.indexOf("const cache = await readCache()"));
+  assert.match(initialize, /session\.expiresAt > Date\.now\(\)/);
+  assert.match(initialize, /phase: cachedSessionIsFresh \? "ready" : "booting"/);
   assert.match(repository, /!row\?\.value && !storageOwner/);
   assert.match(repository, /bootstrapOwner && bootstrapOwner !== ownerId/);
 });
