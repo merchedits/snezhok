@@ -37,6 +37,8 @@ import {
   type BackgroundGroupDispatch,
 } from "../transfers/backgroundTransfers";
 import type { AttachmentMessageKind } from "../transfers/backgroundTransferModel";
+import { attachmentGroupSize } from "../transfers/backgroundTransferModel";
+import { backgroundTransferAvailable } from "../../modules/snezhok-background-transfer";
 import { applyConversationPreview } from "./conversationPreview";
 import { upsertConversation } from "./conversationIdentity";
 import { markMessageDeleted, mergeMessages as mergeUnboundedMessages, reconcilePinnedMessages } from "./messageReconciliation";
@@ -844,6 +846,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...input,
       stripLocation: input.stripLocation ?? get().settings.stripMediaLocation,
     }));
+    // Local Expo modules can be absent after an interrupted upgrade or an OEM
+    // restores an older native binary. Sending a message must never depend on
+    // the optional durable worker being present: use the same resumable HTTP
+    // protocol in-process until the next signed update restores the module.
+    if (!backgroundTransferAvailable) {
+      await sendForegroundAttachmentBatch(streamId, prepared, messageKind, replyToId, guard);
+      return;
+    }
     set({ uploadProgress: 0 });
     let batchId: string | null = null;
     try {
@@ -1531,6 +1541,48 @@ async function dispatchBackgroundAttachmentGroup({ batch, input }: BackgroundGro
     useAppStore.getState().applyMessage(message, "created");
   }
   return message;
+}
+
+/**
+ * Compatibility transport for a release whose optional WorkManager module is
+ * unavailable. It preserves message grouping and resumable uploads while
+ * keeping all UI state inside the normal store. This is intentionally a
+ * narrow fallback: healthy builds continue to use durable background work.
+ */
+async function sendForegroundAttachmentBatch(
+  streamId: string,
+  inputs: UploadInput[],
+  messageKind: AttachmentMessageKind,
+  replyToId: string | null,
+  guard: AccountOperationGuard | null,
+): Promise<void> {
+  const groupSize = attachmentGroupSize(messageKind);
+  let completed = 0;
+  try {
+    for (let start = 0; start < inputs.length; start += groupSize) {
+      const group = inputs.slice(start, start + groupSize);
+      const attachments: Attachment[] = [];
+      for (const input of group) {
+        const attachment = await api.upload(input, (progress) => {
+          if (!accountOperationIsCurrent(guard)) return;
+          const overall = Math.round(((completed + progress / 100) / inputs.length) * 100);
+          useAppStore.setState({ uploadProgress: Math.max(0, Math.min(100, overall)) });
+        });
+        if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
+        attachments.push(attachment);
+        completed += 1;
+      }
+      await useAppStore.getState().sendMessage(streamId, {
+        text: "",
+        kind: messageKind,
+        replyToId: start === 0 ? replyToId : null,
+        attachmentIds: attachments.map((attachment) => attachment.id),
+        silent: false,
+      }, attachments);
+    }
+  } finally {
+    if (accountOperationIsCurrent(guard)) useAppStore.setState({ uploadProgress: null });
+  }
 }
 
 class StaleAccountOperationError extends Error {

@@ -5,7 +5,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 
-import { attachmentAuthorizationSql } from "./routes.js";
+import { attachmentAuthorizationSql, fileLookupSql } from "./routes.js";
 
 const ownerId = "10000000-0000-4000-8000-000000000001";
 const viewerId = "10000000-0000-4000-8000-000000000002";
@@ -51,6 +51,10 @@ test("file authorization excludes deleted/hidden links and enforces profile-phot
     await db.query("INSERT INTO user_blocks(blocker_id,blocked_id) VALUES ($1,$2)", [ownerId, outsiderId]);
     assert.equal(await allowed(db, outsiderId, profileAttachmentId), false, "a bilateral block takes precedence over friendship and privacy audience");
     assert.equal(await allowed(db, ownerId, profileAttachmentId), true, "the attachment owner always retains access");
+
+    const file = await db.query<{ filename: string; allowed: boolean }>(fileLookupSql, [attachmentId, ownerId, null]);
+    assert.equal(file.rows[0]?.filename, "message.jpg");
+    assert.equal(file.rows[0]?.allowed, true, "the production file lookup must parse and preserve access decisions");
   } finally {
     await db.close();
   }

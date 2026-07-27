@@ -192,6 +192,14 @@ export const attachmentAuthorizationSql = `SELECT EXISTS(
   )
 ) allowed`;
 
+export const fileLookupSql = `SELECT a.owner_id,a.filename,coalesce(v.mime_type,a.mime_type) mime_type,coalesce(vb.storage_key,b.storage_key) storage_key,
+         coalesce(v.bytes,a.bytes)::text bytes,coalesce(v.checksum_sha256,b.checksum_sha256) checksum_sha256,v.id variant_id,
+         access_check.allowed
+       FROM attachments a JOIN blobs b ON b.id=a.blob_id
+       CROSS JOIN LATERAL (${attachmentAuthorizationSql}) access_check
+       LEFT JOIN media_variants v ON v.attachment_id=a.id AND v.id=$3
+       LEFT JOIN blobs vb ON vb.id=v.blob_id WHERE a.id=$1`;
+
 export async function uploadRoutes(app: FastifyInstance) {
   await ensureStorage();
 
@@ -486,13 +494,7 @@ export async function uploadRoutes(app: FastifyInstance) {
     const { id } = idParams.parse(request.params);
     const { variant } = fileQuery.parse(request.query);
     const result = await pool.query<{ owner_id: string; filename: string; mime_type: string; storage_key: string; bytes: string; checksum_sha256: string; variant_id: string | null; allowed: boolean }>(
-      `SELECT a.owner_id,a.filename,coalesce(v.mime_type,a.mime_type) mime_type,coalesce(vb.storage_key,b.storage_key) storage_key,
-         coalesce(v.bytes,a.bytes)::text bytes,coalesce(v.checksum_sha256,b.checksum_sha256) checksum_sha256,v.id variant_id,
-         authorization.allowed
-       FROM attachments a JOIN blobs b ON b.id=a.blob_id
-       CROSS JOIN LATERAL (${attachmentAuthorizationSql}) authorization
-       LEFT JOIN media_variants v ON v.attachment_id=a.id AND v.id=$3
-       LEFT JOIN blobs vb ON vb.id=v.blob_id WHERE a.id=$1`, [id, request.auth.id, variant ?? null]);
+      fileLookupSql, [id, request.auth.id, variant ?? null]);
     const file = result.rows[0]; if (!file) throw notFound("File not found");
     if (variant && !file.variant_id) throw notFound("Media variant not found");
     if (file.allowed !== true) throw forbidden("You cannot access this file");

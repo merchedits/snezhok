@@ -5,12 +5,11 @@ rtc:
   tcp_port: 7881
   udp_port: 7882
   use_external_ip: true
-  # Only advertise the host NIC. Advertising Docker bridge interfaces produces
-  # unreachable ICE candidates and delays/fails connection establishment.
-  ips:
-    includes:
-      - 192.168.2.0/24
-  advertise_internal_ip: true
+  # The host sits behind NAT. Do not pin private LAN candidates here: mobile
+  # peers outside 192.168.2.0/24 cannot reach them. LiveKit discovers and
+  # advertises the router's public address through STUN when use_external_ip
+  # is enabled; the router must forward the documented RTC and TURN ports.
+  advertise_internal_ip: false
   skip_external_ip_validation: true
   use_ice_lite: false
 

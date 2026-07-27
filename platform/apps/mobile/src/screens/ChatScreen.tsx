@@ -27,7 +27,7 @@ import { TypingIndicator } from "../components/TypingIndicator";
 import { usePalette } from "../hooks/usePalette";
 import { useUiPreferences } from "../hooks/useUiPreferences";
 import { useTranslation } from "../i18n";
-import { recordPerformance } from "../diagnostics/diagnostics";
+import { recordDiagnostic, recordPerformance } from "../diagnostics/diagnostics";
 import { composerBottomPadding } from "../lib/keyboardLayout";
 import { activeMentionQuery, insertMention, mentionSuggestions } from "../lib/mentionAutocomplete";
 import { selectedMessageText } from "../lib/messageSelection";
@@ -665,7 +665,20 @@ function VoiceRecorderControl({ command, quality, microphoneMode, onRecordingCha
           // Samsung and other OEMs for their communications microphone path.
           ...(shouldRouteThroughEarpiece !== undefined ? { shouldRouteThroughEarpiece } : {}),
         });
-        await recorder.prepareToRecordAsync();
+        try {
+          await recorder.prepareToRecordAsync();
+        } catch (error) {
+          // Some Android 12 vendor builds reject VOICE_COMMUNICATION even
+          // though they report it as available. Preserve the user's selected
+          // route, but retry recording through the standard microphone source
+          // rather than tearing down the chat.
+          if (microphoneMode !== "speakerphone") throw error;
+          recordDiagnostic("warn", "media", "Voice recorder source fallback", { source: "voice_communication" });
+          await recorder.prepareToRecordAsync({
+            ...recordingOptions,
+            android: { ...recordingOptions.android, audioSource: "default" },
+          });
+        }
         if (!mounted.current) {
           await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
           return;

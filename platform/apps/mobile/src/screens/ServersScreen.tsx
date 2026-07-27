@@ -9,22 +9,25 @@ import type { ChannelSummary } from "@snezhok/contracts";
 import { Avatar } from "../components/Avatar";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { TextEntryModal } from "../components/TextEntryModal";
+import { ServerAdminModal } from "../components/management/ServerAdminModal";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
+import { productCopy } from "../lib/productCopy";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 
 export function ServersScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const palette = usePalette();
-  const { t } = useTranslation();
+  const { language, t } = useTranslation();
   const servers = useAppStore((state) => state.servers);
   const channels = useAppStore((state) => state.channels);
   const refresh = useAppStore((state) => state.refreshBootstrap);
   const preloadCachedMessages = useAppStore((state) => state.preloadCachedMessages);
   const [selectedId, setSelectedId] = useState<string | null>(servers[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
+  const [management, setManagement] = useState<"overview" | "members" | null>(null);
   const selected = servers.find((server) => server.id === selectedId) ?? servers[0];
   const selectedChannels = useMemo(() => channels.filter((channel) => channel.serverId === selected?.id).sort((a, b) => a.position - b.position), [channels, selected?.id]);
 
@@ -45,7 +48,10 @@ export function ServersScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
-      <ScreenHeader title={t("servers")} right={[{ icon: "add", label: t("createServer"), onPress: () => setCreating(true) }]} />
+      <ScreenHeader title={t("servers")} right={[
+        ...(selected ? [{ icon: "person-add-outline" as const, label: productCopy(language, "addMember"), onPress: () => setManagement("members") }] : []),
+        { icon: "add" as const, label: t("createServer"), onPress: () => setCreating(true) },
+      ]} />
       {servers.length ? (
         <>
           <View style={[styles.serverStrip, { borderColor: palette.border }]}> 
@@ -56,11 +62,12 @@ export function ServersScreen() {
               })}
             </ScrollView>
           </View>
-          <View style={styles.heading}><View style={styles.headingCopy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{selected?.name}</Text><Text style={[styles.subtitle, { color: palette.secondaryText }]}>{t("channels", { count: selectedChannels.length })}</Text></View></View>
+          <View style={styles.heading}><View style={styles.headingCopy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{selected?.name}</Text><Text style={[styles.subtitle, { color: palette.secondaryText }]}>{t("channels", { count: selectedChannels.length })}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={t("settings")} onPress={() => setManagement("overview")} style={styles.manageButton}><AppIcon name="settings-outline" size={22} color={palette.accent} /></Pressable></View>
           <FlatList data={selectedChannels} keyExtractor={(item) => item.id} contentContainerStyle={styles.list} renderItem={({ item }) => <ChannelRow channel={item} onPress={() => open(item)} />} ListEmptyComponent={<Text style={[styles.empty, { color: palette.secondaryText }]}>{t("noChannels")}</Text>} />
         </>
       ) : <View style={styles.emptyWrap}><AppIcon name="albums-outline" size={38} color={palette.faintText} /><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noServers")}</Text><Pressable onPress={() => setCreating(true)} style={[styles.createButton, { backgroundColor: palette.accent }]}><Text style={styles.createText}>{t("createServer")}</Text></Pressable></View>}
       <TextEntryModal visible={creating} title={t("createServer")} placeholder={t("serverName")} submitLabel={t("create")} onClose={() => setCreating(false)} onSubmit={async (name) => { const server = await api.createServer(name); await refresh(); setSelectedId(server.id); }} />
+      <ServerAdminModal visible={management !== null} serverId={selected?.id ?? null} initialTab={management ?? "overview"} onClose={() => setManagement(null)} />
     </View>
   );
 }
@@ -78,8 +85,9 @@ const styles = StyleSheet.create({
   serverChoice: { width: 62, alignItems: "center", gap: 5 },
   serverIcon: { width: 52, height: 52, borderWidth: 2, borderRadius: 26, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   serverLabel: { width: 62, textAlign: "center", fontSize: 11, fontWeight: "600" },
-  heading: { minHeight: 62, flexDirection: "row", alignItems: "center", paddingHorizontal: 16 },
+  heading: { minHeight: 62, flexDirection: "row", alignItems: "center", paddingLeft: 16, paddingRight: 8 },
   headingCopy: { flex: 1 },
+  manageButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 20, fontWeight: "800" },
   subtitle: { fontSize: 12, marginTop: 2 },
   list: { paddingHorizontal: 10, paddingBottom: 16 },

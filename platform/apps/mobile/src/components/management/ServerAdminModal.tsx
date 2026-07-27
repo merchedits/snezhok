@@ -26,7 +26,7 @@ type Editor =
   | { type: "role" }
   | null;
 
-export function ServerAdminModal({ visible, serverId, onClose }: { visible: boolean; serverId: string | null; onClose: () => void }) {
+export function ServerAdminModal({ visible, serverId, initialTab = "overview", onClose }: { visible: boolean; serverId: string | null; initialTab?: Tab; onClose: () => void }) {
   const palette = usePalette(); const { language, t } = useTranslation(); const showDialog = useAppDialog(); const lock = useRef(false);
   const me = useAppStore((state) => state.me); const server = useAppStore((state) => state.servers.find((item) => item.id === serverId));
   const categories = useAppStore((state) => state.categories.filter((item) => item.serverId === serverId)); const channels = useAppStore((state) => state.channels.filter((item) => item.serverId === serverId));
@@ -37,7 +37,7 @@ export function ServerAdminModal({ visible, serverId, onClose }: { visible: bool
   const pc = useCallback((key: Parameters<typeof productCopy>[1]) => productCopy(language, key), [language]);
   const permissions = new Set(details?.authorization.permissions ?? []); const owner = details?.authorization.role === "owner";
   const load = useCallback(async () => { if (!serverId) return; setBusy(true); try { const [nextDetails, nextMembers, nextRoles] = await Promise.all([productApi.server(serverId), productApi.serverMembers(serverId), productApi.serverRoles(serverId)]); setDetails(nextDetails); setMembers(nextMembers); setRoles(nextRoles); } catch (error) { showDialog(pc("operationFailed"), userFacingError(error, t)); onClose(); } finally { setBusy(false); } }, [onClose, pc, serverId, showDialog, t]);
-  useEffect(() => { if (visible) { setTab("overview"); void load(); } else { setEditor(null); setPermissionRole(null); setOverrideChannelId(null); } }, [load, visible]);
+  useEffect(() => { if (visible) { setTab(initialTab); void load(); } else { setEditor(null); setPermissionRole(null); setOverrideChannelId(null); } }, [initialTab, load, visible]);
   useEffect(() => { if (!visible || !serverId) return; if (tab === "bans" && permissions.has("ban_members")) void productApi.serverBans(serverId).then(setBans).catch(() => setBans([])); if (tab === "audit" && permissions.has("view_audit_log")) void productApi.auditLog(serverId).then((value) => setAudit(value.items)).catch(() => setAudit([])); }, [serverId, tab, visible]);
   const run = async (action: () => Promise<unknown>, reload = true) => { if (lock.current) return; lock.current = true; setBusy(true); try { await action(); if (reload) await Promise.all([load(), refresh({ force: true })]); } catch (error) { showDialog(pc("operationFailed"), userFacingError(error, t)); } finally { lock.current = false; setBusy(false); } };
   const photo = async () => { if (!serverId) return; try { const permission = await ImagePicker.requestMediaLibraryPermissionsAsync(); if (!permission.granted) { showDialog(t("permissionPhotos"), t("allowPhotos")); return; } const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85, allowsEditing: true, aspect: [1, 1] }); const asset = result.assets?.[0]; if (!asset) return; await run(async () => { const attachment = await api.upload({ uri: asset.uri, filename: asset.fileName ?? `server-${Date.now()}.jpg`, mimeType: asset.mimeType ?? "image/jpeg", kind: "image", quality: "high" }); await productApi.updateServer(serverId, { iconAttachmentId: attachment.id }); }); } catch (error) { showDialog(pc("operationFailed"), userFacingError(error, t)); } };

@@ -237,7 +237,10 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
         if (Platform.OS === "android" && !startCallForegroundService(input.title, copy.active, false)) {
           throw new Error("CALL_FOREGROUND_SERVICE_UNAVAILABLE");
         }
-        await nextRoom.connect(credentials.url, credentials.token, { maxRetries: 5, websocketTimeout: 15_000, peerConnectionTimeout: 20_000, rtcConfig: { iceTransportPolicy: "all" } });
+        await withCallSetupTimeout(
+          nextRoom.connect(credentials.url, credentials.token, { maxRetries: 5, websocketTimeout: 15_000, peerConnectionTimeout: 20_000, rtcConfig: { iceTransportPolicy: "all" } }),
+          28_000,
+        );
         if (generation.current !== currentGeneration) return;
         if (canPublishSource(nextRoom, Track.Source.Microphone)) {
           await nextRoom.localParticipant.setMicrophoneEnabled(true, {
@@ -436,6 +439,19 @@ async function retryCallLifecycle(operation: () => Promise<void>): Promise<void>
       await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 250 : 1_000));
     }
   }
+}
+
+/** Prevent an unavailable signaling or ICE path from leaving the call screen
+ * indefinitely on "Connecting". Room cleanup in the caller remains the
+ * single authority for audio focus, foreground service and server lifecycle. */
+function withCallSetupTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("CALL_CONNECTION_TIMEOUT")), timeoutMs);
+    void operation.then(
+      (value) => { clearTimeout(timeout); resolve(value); },
+      (error) => { clearTimeout(timeout); reject(error); },
+    );
+  });
 }
 
 export function canPublishSource(room: Room, source: Track.Source): boolean {
