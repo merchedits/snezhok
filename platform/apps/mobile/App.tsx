@@ -63,7 +63,16 @@ function AppRoot() {
     void initializeDiagnostics().then(ingestNativeDiagnostics).catch(() => undefined);
     void initializeMediaCache().catch((error) => recordDiagnostic("warn", "media", "Could not configure media cache", { error }));
     const uninstallErrorCapture = installGlobalErrorCapture();
-    void initialize();
+    void initialize().catch((error) => {
+      // SecureStore, SQLite, and native transfer initialization all happen
+      // before the store's network recovery boundary. A rejected startup
+      // promise must unmount private UI and become a recoverable sign-in state,
+      // never an unhandled rejection that terminates Hermes.
+      recordDiagnostic("error", "lifecycle", "Application initialization failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+      useAppStore.setState({ phase: "error", error: null });
+    });
     const unsubscribe = NetInfo.addEventListener((state) => setOnline(Boolean(state.isConnected && state.isInternetReachable !== false)));
     return () => {
       unsubscribe();

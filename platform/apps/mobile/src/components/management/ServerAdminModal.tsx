@@ -1,5 +1,5 @@
 import * as ImagePicker from "expo-image-picker";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
 import type { ChannelPermissionOverride, MemberRole, ServerAuditEntry, ServerPermission, ServerRoleDefinition, UserSummary } from "@snezhok/contracts";
@@ -29,7 +29,15 @@ type Editor =
 export function ServerAdminModal({ visible, serverId, initialTab = "overview", onClose }: { visible: boolean; serverId: string | null; initialTab?: Tab; onClose: () => void }) {
   const palette = usePalette(); const { language, t } = useTranslation(); const showDialog = useAppDialog(); const lock = useRef(false);
   const me = useAppStore((state) => state.me); const server = useAppStore((state) => state.servers.find((item) => item.id === serverId));
-  const categories = useAppStore((state) => state.categories.filter((item) => item.serverId === serverId)); const channels = useAppStore((state) => state.channels.filter((item) => item.serverId === serverId));
+  // React 19 requires useSyncExternalStore snapshots to remain referentially
+  // stable until the store changes. Filtering inside a Zustand selector
+  // allocates a new array for every snapshot read and causes an infinite update
+  // loop. This modal is mounted by the hidden Servers tab during startup
+  // warm-up, so the loop used to terminate the app even when it was never
+  // opened.
+  const allCategories = useAppStore((state) => state.categories); const allChannels = useAppStore((state) => state.channels);
+  const categories = useMemo(() => allCategories.filter((item) => item.serverId === serverId), [allCategories, serverId]);
+  const channels = useMemo(() => allChannels.filter((item) => item.serverId === serverId), [allChannels, serverId]);
   const refresh = useAppStore((state) => state.refreshBootstrap);
   const [tab, setTab] = useState<Tab>("overview"); const [busy, setBusy] = useState(false); const [details, setDetails] = useState<ServerDetails | null>(null);
   const [members, setMembers] = useState<ServerMemberView[]>([]); const [roles, setRoles] = useState<ServerRoleDefinition[]>([]); const [bans, setBans] = useState<ServerBan[]>([]); const [audit, setAudit] = useState<ServerAuditEntry[]>([]); const [editor, setEditor] = useState<Editor>(null);

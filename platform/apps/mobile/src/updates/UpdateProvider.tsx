@@ -188,6 +188,10 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     void AsyncStorage.getItem(AUTO_UPDATE_KEY).then((value) => {
       setAutoUpdateState(value !== "false");
       setPreferencesLoaded(true);
+    }).catch(() => {
+      // Update preferences are optional. A damaged/unavailable AsyncStorage
+      // backend must not create an unhandled launch-time rejection.
+      setPreferencesLoaded(true);
     });
   }, []);
 
