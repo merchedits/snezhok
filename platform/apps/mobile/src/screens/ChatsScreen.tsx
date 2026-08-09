@@ -37,7 +37,6 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const { language, t } = useTranslation();
   const showDialog = useAppDialog();
   const conversations = useAppStore((state) => state.conversations);
-  const channels = useAppStore((state) => state.channels);
   const me = useAppStore((state) => state.me);
   const applyConversation = useAppStore((state) => state.applyConversation);
   const syncing = useAppStore((state) => state.syncing);
@@ -206,9 +205,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
       <MessageSearchModal visible={globalSearch} onClose={() => setGlobalSearch(false)} onOpenUser={(user) => { setGlobalSearch(false); navigation.navigate("Profile", { userId: user.id }); }} onOpenMessage={(message) => {
         setGlobalSearch(false);
         const conversation = conversations.find((item) => item.id === message.streamId);
-        const channel = channels.find((item) => item.id === message.streamId);
         if (conversation) navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversationTitle(conversation, language), targetMessageId: message.id, openedAt: performance.now() });
-        else if (channel) navigation.navigate("Chat", { streamId: channel.id, streamKind: "channel", title: channel.name, targetMessageId: message.id, openedAt: performance.now() });
       }} />
     </View>
   );

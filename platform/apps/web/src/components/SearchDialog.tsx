@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { FileText, MessageCircle, Search, UserRound } from "lucide-react";
 import type { Message } from "@snezhok/contracts";
+import { isUserVisibleStreamKind, productCapabilities } from "../config/productCapabilities.js";
 import { api, type MessageSearchResult } from "../lib/api.js";
 import { useApp } from "../state/AppContext.js";
 import { Avatar, Dialog, EmptyState, Spinner, formatTime } from "./ui.js";
@@ -19,7 +20,12 @@ export function SearchDialog() {
     setLoading(true);
     setError(null);
     try {
-      setResults(await api.search(query.trim(), scope ? { scope } : {}));
+      const result = await api.search(query.trim(), scope ? { scope } : {});
+      setResults({
+        ...result,
+        messages: result.messages.filter((message) => isUserVisibleStreamKind(message.streamKind)),
+        files: productCapabilities.servers ? result.files : [],
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Search failed. Retry.");
     } finally {

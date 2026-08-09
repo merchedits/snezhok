@@ -20,6 +20,8 @@ as an HTTP endpoint or put the target ID in the public registration path.
 
 ## Policies
 
+The current clients keep the server capability dormant. They therefore hide the create-server permission and server-member administration while preserving existing policy values. This UI decision does not weaken API authorization and does not delete server roles, overrides, memberships, or data.
+
 The singleton `global_admin_settings` row defines:
 
 - the default ability to create servers, create group chats, upload files, and start new calls;

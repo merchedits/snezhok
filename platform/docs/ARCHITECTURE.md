@@ -23,6 +23,8 @@ The durable model treats Chats and Servers as distinct concepts.
 - Users, credentials and device sessions are separate records.
 - Settings have account-level defaults with per-server, channel and chat overrides.
 
+Servers are currently a dormant product capability. Their API, contracts, PostgreSQL data, permissions, and client implementation remain preserved, while Android and web hide server navigation, search results, notifications, deep links, settings, and administrative controls through checked-in release capabilities in each client. This is a presentation/product gate, not a destructive schema migration. Re-enabling it requires reviewed client releases and renewed physical validation.
+
 There is no global-conversation special case. Legacy global messages migrate into `#general` in a default private server.
 
 ## Durable messaging

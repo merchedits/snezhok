@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Message, UserSummary } from "@snezhok/contracts";
 
+import { isUserVisibleStreamKind, productCapabilities } from "../config/productCapabilities";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
@@ -32,8 +33,8 @@ export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage, 
         if (cancelled) return;
         setRows([
           ...(streamId ? [] : result.users.map((user): ResultRow => ({ type: "user", user }))),
-          ...result.messages.map((message): ResultRow => ({ type: "message", message })),
-          ...result.files.map((file): ResultRow => ({ type: "file", id: file.id, filename: file.filename, kind: file.kind, bytes: file.bytes })),
+          ...result.messages.filter((message) => isUserVisibleStreamKind(message.streamKind)).map((message): ResultRow => ({ type: "message", message })),
+          ...(streamId || productCapabilities.servers ? result.files.map((file): ResultRow => ({ type: "file", id: file.id, filename: file.filename, kind: file.kind, bytes: file.bytes })) : []),
         ]);
       }).catch(() => { if (!cancelled) setRows([]); }).finally(() => { if (!cancelled) setLoading(false); });
     }, 280);

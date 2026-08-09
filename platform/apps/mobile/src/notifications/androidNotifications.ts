@@ -8,6 +8,7 @@ import { AppState, Platform } from "react-native";
 import type { CallUpdatePayload, Message } from "@snezhok/contracts";
 
 import { receiveCallEnded, receiveCallUpdate } from "../calls/callSessionBridge";
+import { isUserVisibleStreamKind, productCapabilities } from "../config/productCapabilities";
 import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { api } from "../lib/api";
 import { navigationRef } from "../navigation/navigationRef";
@@ -32,6 +33,7 @@ Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
     const data = notification.request.content.data;
     const route = navigationRef.isReady() ? navigationRef.getCurrentRoute() : undefined;
+    const hiddenServerNotification = data?.streamKind === "channel" && !productCapabilities.servers;
     const focusedMessage = AppState.currentState === "active"
       && data?.notificationType === "message"
       && typeof data.streamId === "string"
@@ -43,7 +45,7 @@ Notifications.setNotificationHandler({
       && route?.name === "Call"
       && route.params.streamId === data.streamId;
     const incomingCallSurface = AppState.currentState === "active" && data?.notificationType === "call";
-    const visible = !focusedMessage && !focusedCall && !incomingCallSurface;
+    const visible = !hiddenServerNotification && !focusedMessage && !focusedCall && !incomingCallSurface;
     return { shouldPlaySound: visible, shouldSetBadge: false, shouldShowBanner: visible, shouldShowList: visible };
   },
 });
@@ -103,7 +105,7 @@ export async function registerRemotePushDevice(): Promise<boolean> {
 
 export async function notifyIncomingMessage(message: Message): Promise<void> {
   const state = useAppStore.getState();
-  if (remotePushRegistered || !shouldNotifyMessage(message, state.me?.id) || !(await initializeAndroidNotifications())) return;
+  if (!isUserVisibleStreamKind(message.streamKind) || remotePushRegistered || !shouldNotifyMessage(message, state.me?.id) || !(await initializeAndroidNotifications())) return;
   const route = navigationRef.isReady() ? navigationRef.getCurrentRoute() : undefined;
   if (AppState.currentState === "active" && route?.name === "Chat" && route.params.streamId === message.streamId) return;
   const conversation = state.conversations.find((item) => item.id === message.streamId);
@@ -138,7 +140,7 @@ export async function dismissCallNotification(roomId: string, showMissed = false
 
 export async function handleRemoteNotification(notification: Notifications.Notification): Promise<void> {
   const data = notification.request.content.data;
-  if (data?.notificationType === "call" && typeof data.roomId === "string" && typeof data.streamId === "string") {
+  if (data?.notificationType === "call" && (data.streamKind !== "channel" || productCapabilities.servers) && typeof data.roomId === "string" && typeof data.streamId === "string") {
     receiveCallUpdate({
       roomId: data.roomId,
       state: "started",
@@ -208,8 +210,9 @@ function navigateToNotificationTarget(target: NotificationTarget) {
 
 function notificationTarget(data: Record<string, unknown> | undefined, actionIdentifier = Notifications.DEFAULT_ACTION_IDENTIFIER): NotificationTarget | null {
   if (!data) return null;
+  if (data.streamKind === "channel" && !productCapabilities.servers) return null;
   if (data.notificationType === "call" && typeof data.streamId === "string" && typeof data.title === "string") return { type: "call", streamId: data.streamId, title: data.title, startWithVideo: actionIdentifier === "answer-video" };
-  if (data.notificationType === "message" && typeof data.streamId === "string" && (data.streamKind === "conversation" || data.streamKind === "channel") && typeof data.title === "string") return { type: "message", streamId: data.streamId, streamKind: data.streamKind, title: data.title };
+  if (data.notificationType === "message" && typeof data.streamId === "string" && (data.streamKind === "conversation" || data.streamKind === "channel") && isUserVisibleStreamKind(data.streamKind) && typeof data.title === "string") return { type: "message", streamId: data.streamId, streamKind: data.streamKind, title: data.title };
   return null;
 }
 

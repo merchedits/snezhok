@@ -20,6 +20,7 @@ import type {
   MessagePreview,
   UserSummary,
 } from "@snezhok/contracts";
+import { productCapabilities } from "../config/productCapabilities.js";
 import { api, RequestError, type AuthCredentials } from "../lib/api.js";
 import {
   cacheMessages,
@@ -125,10 +126,10 @@ function cachedBootstrap(): BootstrapPayload | null {
 function initialSelection(payload: BootstrapPayload): StreamSelection | null {
   const cached = parseCache<StreamSelection>(SELECTION_CACHE);
   if (cached?.kind === "conversation" && payload.conversations.some((item) => item.id === cached.id)) return cached;
-  if (cached?.kind === "channel" && payload.channels.some((item) => item.id === cached.id)) return cached;
+  if (productCapabilities.servers && cached?.kind === "channel" && payload.channels.some((item) => item.id === cached.id)) return cached;
   const conversation = payload.conversations.find((item) => !item.archived) || payload.conversations[0];
   if (conversation) return { kind: "conversation", id: conversation.id };
-  const channel = payload.channels.find((item) => item.kind === "text");
+  const channel = productCapabilities.servers ? payload.channels.find((item) => item.kind === "text") : undefined;
   return channel ? { kind: "channel", id: channel.id } : null;
 }
 

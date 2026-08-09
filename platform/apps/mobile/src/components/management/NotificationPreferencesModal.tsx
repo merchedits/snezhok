@@ -4,6 +4,7 @@ import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-nativ
 
 import type { AppSettings, NotificationPolicy } from "@snezhok/contracts";
 
+import { notificationPreferenceTabs, productCapabilities } from "../../config/productCapabilities";
 import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
 import { productApi } from "../../lib/productApi";
@@ -30,7 +31,7 @@ export function NotificationPreferencesModal({ visible, onClose }: { visible: bo
   const [timeTarget, setTimeTarget] = useState<"start" | "end" | null>(null);
   const pc = useCallback((key: Parameters<typeof productCopy>[1]) => productCopy(language, key), [language]);
 
-  useEffect(() => { if (!visible) return; setBusy(true); void Promise.all([productApi.serverNotificationPolicies(), productApi.streamNotificationPolicies()]).then(([serverItems, streamItems]) => {
+  useEffect(() => { if (!visible) return; setBusy(true); void Promise.all([productCapabilities.servers ? productApi.serverNotificationPolicies() : Promise.resolve([]), productApi.streamNotificationPolicies()]).then(([serverItems, streamItems]) => {
     setServerPolicies(Object.fromEntries(serverItems.map(({ serverId, ...policy }) => [serverId, policy])));
     setStreamPolicies(Object.fromEntries(streamItems.map(({ streamId, streamKind: _kind, ...policy }) => [streamId, policy])));
   }).catch((error) => showDialog(pc("operationFailed"), userFacingError(error, t))).finally(() => setBusy(false)); }, [pc, showDialog, t, visible]);
@@ -70,10 +71,10 @@ export function NotificationPreferencesModal({ visible, onClose }: { visible: bo
 
   const streamTargets: Target[] = [
     ...conversations.filter((item) => !item.saved).map((item): Target => ({ kind: "stream", id: item.id, streamKind: "conversation", title: item.title })),
-    ...channels.map((item): Target => ({ kind: "stream", id: item.id, streamKind: "channel", title: `# ${item.name}` })),
+    ...(productCapabilities.servers ? channels.map((item): Target => ({ kind: "stream", id: item.id, streamKind: "channel", title: `# ${item.name}` })) : []),
   ];
   return <ManagementModal visible={visible} title={pc("notifications")} onClose={onClose} busy={busy}>
-    <View style={[styles.tabs, { backgroundColor: palette.surface }]}>{(["global", "servers", "streams"] as const).map((item) => <Pressable key={item} onPress={() => setTab(item)} style={[styles.tab, { backgroundColor: tab === item ? palette.elevated : "transparent" }]}><Text style={{ color: tab === item ? palette.text : palette.secondaryText, fontWeight: "700", fontSize: 12 }}>{item === "global" ? pc("notifications") : item === "servers" ? pc("serverOverrides") : pc("chatOverrides")}</Text></Pressable>)}</View>
+    <View style={[styles.tabs, { backgroundColor: palette.surface }]}>{notificationPreferenceTabs.map((item) => <Pressable key={item} onPress={() => setTab(item)} style={[styles.tab, { backgroundColor: tab === item ? palette.elevated : "transparent" }]}><Text style={{ color: tab === item ? palette.text : palette.secondaryText, fontWeight: "700", fontSize: 12 }}>{item === "global" ? pc("notifications") : item === "servers" ? pc("serverOverrides") : pc("chatOverrides")}</Text></Pressable>)}</View>
     {tab === "global" && quietHoursActive ? <View style={[styles.timeSummary, { borderColor: palette.border }]}><Pressable onPress={() => setTimeTarget("start")} style={styles.timeSummaryButton}><Text style={[styles.timeSummaryLabel, { color: palette.secondaryText }]}>{pc("quietHoursStart")}</Text><Text style={[styles.timeSummaryValue, { color: palette.accent }]}>{formatMinutes(settings.quietHoursStart ?? 22 * 60)}</Text></Pressable><Pressable onPress={() => setTimeTarget("end")} style={styles.timeSummaryButton}><Text style={[styles.timeSummaryLabel, { color: palette.secondaryText }]}>{pc("quietHoursEnd")}</Text><Text style={[styles.timeSummaryValue, { color: palette.accent }]}>{formatMinutes(settings.quietHoursEnd ?? 8 * 60)}</Text></Pressable></View> : null}
     {tab === "global" ? <ManagementScroll><ManagementSection>
       <ToggleRow label={pc("messages")} value={settings.messageNotifications !== false} onChange={(messageNotifications) => patchGlobal({ messageNotifications })} />

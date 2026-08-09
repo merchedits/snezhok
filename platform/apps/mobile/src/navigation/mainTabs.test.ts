@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MAIN_TABS, mainTabDirection, mainTabIndex, mainTabTransition, visitMainTab } from "./mainTabs";
+import { ALL_MAIN_TABS, MAIN_TABS, mainTabDirection, mainTabIndex, mainTabTransition, visitMainTab } from "./mainTabs";
 
-test("bottom tabs have a stable Telegram-style horizontal order", () => {
-  assert.deepEqual(MAIN_TABS, ["chats", "servers", "profile", "settings"]);
-  assert.equal(mainTabIndex("settings"), 3);
+test("the current product shell hides the dormant Servers destination", () => {
+  assert.deepEqual(ALL_MAIN_TABS, ["chats", "servers", "profile", "settings"]);
+  assert.deepEqual(MAIN_TABS, ["chats", "profile", "settings"]);
+  assert.equal(mainTabIndex("settings"), 2);
   assert.equal(mainTabDirection("chats", "settings"), 1);
-  assert.equal(mainTabDirection("settings", "servers"), -1);
+  assert.equal(mainTabDirection("settings", "profile"), -1);
   assert.equal(mainTabDirection("profile", "profile"), 0);
 });
 
@@ -17,9 +18,9 @@ test("a distant tab transition contains only its two endpoints", () => {
     to: "settings",
     direction: 1,
   });
-  assert.deepEqual(mainTabTransition("settings", "servers"), {
+  assert.deepEqual(mainTabTransition("settings", "profile"), {
     from: "settings",
-    to: "servers",
+    to: "profile",
     direction: -1,
   });
 });

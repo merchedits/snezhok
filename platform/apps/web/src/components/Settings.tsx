@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import type { AppSettings, SessionDevice, UserSummary } from "@snezhok/contracts";
+import { productCapabilities } from "../config/productCapabilities.js";
 import { api } from "../lib/api.js";
 import { useApp } from "../state/AppContext.js";
 import { Avatar, ConfirmDialog, IconButton, Toggle } from "./ui.js";
@@ -40,7 +41,7 @@ export function Settings() {
   const [section, setSection] = useState<Section | null>(() => window.matchMedia("(max-width: 767px)").matches ? null : "profile");
   const [query, setQuery] = useState("");
   const isAdmin = Boolean((app.me as UserSummary & { isAdmin?: boolean } | null)?.isAdmin);
-  const canAdmin = isAdmin || Boolean(app.me && app.bootstrap?.servers.some((server) => server.ownerId === app.me?.id));
+  const canAdmin = productCapabilities.servers && (isAdmin || Boolean(app.me && app.bootstrap?.servers.some((server) => server.ownerId === app.me?.id)));
   const sections = useMemo(() => [...SECTIONS, ...(canAdmin ? [{ id: "admin" as const, label: "Administration", icon: <ShieldCheck /> }] : [])].filter((item) => item.label.toLowerCase().includes(query.toLowerCase())), [canAdmin, query]);
 
   useEffect(() => {

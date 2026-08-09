@@ -8,17 +8,19 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePalette } from "../hooks/usePalette";
 import { useUiPreferences } from "../hooks/useUiPreferences";
 import { useTranslation } from "../i18n";
-import type { MainTab } from "../navigation/mainTabs";
+import { MAIN_TABS, type MainTab } from "../navigation/mainTabs";
 import { useAppStore } from "../store/useAppStore";
 
 export type { MainTab } from "../navigation/mainTabs";
 
-const tabs: Array<{ id: MainTab; icon: AppIconName; activeIcon: AppIconName }> = [
-  { id: "chats", icon: "chatbubbles-outline", activeIcon: "chatbubbles" },
-  { id: "servers", icon: "albums-outline", activeIcon: "albums" },
-  { id: "profile", icon: "person-circle-outline", activeIcon: "person-circle" },
-  { id: "settings", icon: "settings-outline", activeIcon: "settings" },
-];
+const tabDefinitions: Record<MainTab, { icon: AppIconName; activeIcon: AppIconName }> = {
+  chats: { icon: "chatbubbles-outline", activeIcon: "chatbubbles" },
+  servers: { icon: "albums-outline", activeIcon: "albums" },
+  profile: { icon: "person-circle-outline", activeIcon: "person-circle" },
+  settings: { icon: "settings-outline", activeIcon: "settings" },
+};
+
+const tabs = MAIN_TABS.map((id) => ({ id, ...tabDefinitions[id] }));
 
 export const BottomNavigation = memo(function BottomNavigation({ selected, onSelect }: { selected: MainTab; onSelect: (tab: MainTab) => void }) {
   const palette = usePalette();

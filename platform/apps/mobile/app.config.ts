@@ -14,7 +14,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: "Snezhok",
   slug: "snezhok",
   version: "3.8.4",
-  description: "Private messages, files, servers and calls.",
+  description: "Private messages, shared moments, files and calls.",
   platforms: ["android"],
   orientation: "portrait",
   userInterfaceStyle: "automatic",

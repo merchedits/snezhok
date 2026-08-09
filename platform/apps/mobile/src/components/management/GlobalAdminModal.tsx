@@ -2,6 +2,7 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
+import { userVisibleGlobalPermissions } from "../../config/productCapabilities";
 import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
 import { api, ApiError, type AdminMember, type AdminSettings, type GlobalPermission, type GlobalPermissions } from "../../lib/api";
@@ -11,7 +12,7 @@ import { AppIcon } from "../AppIcon";
 import { useAppDialog } from "../AppDialogProvider";
 import { ManagementEmpty, ManagementModal, ManagementRow, ManagementScroll, ManagementSection } from "./ManagementUi";
 
-const permissionNames: GlobalPermission[] = ["createServers", "createGroups", "uploadFiles", "startCalls"];
+const permissionNames: readonly GlobalPermission[] = userVisibleGlobalPermissions;
 
 export function GlobalAdminModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const palette = usePalette();
@@ -86,7 +87,10 @@ export function GlobalAdminModal({ visible, onClose }: { visible: boolean; onClo
     const next = await api.updateAdminMember(selected.id, {
       isAdmin: selected.isAdmin,
       suspended: selected.suspended,
-      permissionOverrides: Object.fromEntries(permissionNames.map((name) => [name, selected.permissionOverrides[name] ?? null])),
+      permissionOverrides: {
+        ...(selected.permissionOverrides.createServers === undefined ? {} : { createServers: selected.permissionOverrides.createServers }),
+        ...Object.fromEntries(permissionNames.map((name) => [name, selected.permissionOverrides[name] ?? null])),
+      },
       storageQuotaBytes: memberQuotaGb.trim() ? parseUnit(memberQuotaGb, GB, copy("Квота", "Quota")) : null,
     });
     setMembers((items) => items.map((item) => item.id === next.id ? next : item)); setSelected(next);

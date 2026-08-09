@@ -14,6 +14,7 @@ import {
   Volume2,
 } from "lucide-react";
 import type { ChannelSummary, Id, ServerSummary } from "@snezhok/contracts";
+import { productCapabilities } from "../config/productCapabilities.js";
 import { useApp } from "../state/AppContext.js";
 import { useCall } from "../state/CallContext.js";
 import { Avatar, IconButton } from "./ui.js";
@@ -22,14 +23,21 @@ import { CreateChannelDialog, CreateServerDialog, NewConversationDialog } from "
 export function Navigation() {
   const app = useApp();
   const data = app.bootstrap;
+  const selectStream = app.selectStream;
   const selectedChannel = data?.channels.find((channel) => app.selection?.kind === "channel" && channel.id === app.selection.id);
   const [serverId, setServerId] = useState<Id | null>(selectedChannel?.serverId || null);
   const [createServerOpen, setCreateServerOpen] = useState(false);
 
   useEffect(() => {
-    if (selectedChannel) setServerId(selectedChannel.serverId);
+    if (!productCapabilities.servers) {
+      setServerId(null);
+      if (app.selection?.kind === "channel") {
+        const conversation = data?.conversations.find((item) => !item.archived) ?? data?.conversations[0];
+        if (conversation) selectStream({ kind: "conversation", id: conversation.id });
+      }
+    } else if (selectedChannel) setServerId(selectedChannel.serverId);
     else if (app.selection?.kind === "conversation") setServerId(null);
-  }, [app.selection?.kind, selectedChannel?.serverId]);
+  }, [app.selection?.kind, data?.conversations, selectStream, selectedChannel?.serverId]);
 
   if (!data) return null;
 
@@ -51,7 +59,7 @@ export function Navigation() {
   return (
     <div className={`navigation-shell ${app.drawerOpen ? "is-open" : ""}`}>
       <div className="mobile-drawer-scrim" onClick={() => app.setDrawerOpen(false)} aria-hidden="true" />
-      <nav className="server-rail" aria-label="Servers">
+      {productCapabilities.servers ? <nav className="server-rail" aria-label="Servers">
         <button className={`server-button home-button ${serverId === null ? "is-selected" : ""}`} onClick={chooseHome} aria-label="Home" title="Home"><Home /></button>
         <div className="rail-rule" />
         <div className="server-list">
@@ -63,10 +71,10 @@ export function Navigation() {
           ))}
         </div>
         <button className="server-button add-server" aria-label="Add server" title="Add server" onClick={() => setCreateServerOpen(true)}><Plus /></button>
-      </nav>
+      </nav> : null}
 
-      {serverId ? <ServerSidebar serverId={serverId} /> : <HomeSidebar />}
-      {createServerOpen && <CreateServerDialog onClose={() => setCreateServerOpen(false)} />}
+      {productCapabilities.servers && serverId ? <ServerSidebar serverId={serverId} /> : <HomeSidebar />}
+      {productCapabilities.servers && createServerOpen ? <CreateServerDialog onClose={() => setCreateServerOpen(false)} /> : null}
     </div>
   );
 }

@@ -1,6 +1,12 @@
-export const MAIN_TABS = ["chats", "servers", "profile", "settings"] as const;
+import { productCapabilities } from "../config/productCapabilities";
 
-export type MainTab = (typeof MAIN_TABS)[number];
+export const ALL_MAIN_TABS = ["chats", "servers", "profile", "settings"] as const;
+
+export type MainTab = (typeof ALL_MAIN_TABS)[number];
+
+export const MAIN_TABS: readonly MainTab[] = ALL_MAIN_TABS.filter(
+  (tab) => tab !== "servers" || productCapabilities.servers,
+);
 
 export function mainTabIndex(tab: MainTab): number {
   return MAIN_TABS.indexOf(tab);
