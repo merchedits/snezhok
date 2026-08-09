@@ -131,8 +131,8 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
-      <ScreenHeader title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
-      <View style={[styles.search, { backgroundColor: palette.surface }]}> 
+      <ScreenHeader prominent title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
+      <View style={[styles.search, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
         <AppIcon name="search" size={18} color={palette.faintText} />
         <TextInput value={search} onChangeText={setSearch} placeholder={t("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} />
         <Pressable accessibilityLabel={t("globalSearch")} onPress={() => setGlobalSearch(true)}><AppIcon name="options-outline" size={19} color={palette.accent} /></Pressable>
@@ -229,12 +229,12 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
       delayLongPress={320}
       onPress={() => onPress(conversation)}
       onLongPress={() => onLongPress(conversation)}
-      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(72, 62), backgroundColor: pressed ? palette.surface : palette.background }]}
+      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(68, 58), backgroundColor: pressed ? palette.surface : palette.elevated }]}
     >
       {conversation.saved
         ? <View style={[styles.savedAvatar, { width: ui.dense(52, 46), height: ui.dense(52, 46), borderRadius: ui.dense(26, 23), backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color="white" /></View>
         : <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={title} color={peer?.avatarColor} online={peer?.presence === "online"} size={ui.dense(52, 46)} />}
-      <View style={[styles.rowBody, { borderColor: palette.border }]}> 
+      <View style={styles.rowBody}>
         <View style={styles.rowTop}>
           <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.text, fontSize: ui.font(16) }]}>{title}</Text>
           <Text style={[styles.time, { color: conversation.unreadCount ? palette.accent : palette.faintText, fontSize: ui.font(12) }]}>{formatListTime(conversation.updatedAt)}</Text>
@@ -279,17 +279,17 @@ function mediaLabel(kind: string, t: ReturnType<typeof useTranslation>["t"]): st
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   list: { flex: 1 },
-  listContent: { flexGrow: 1, paddingBottom: 86 },
-  search: { height: 38, marginHorizontal: 12, marginVertical: 8, borderRadius: 10, flexDirection: "row", alignItems: "center", paddingHorizontal: 11, gap: 7 },
+  listContent: { flexGrow: 1, paddingTop: 2, paddingBottom: 86 },
+  search: { height: 44, marginHorizontal: 12, marginVertical: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 8 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   filterStrip: { flexGrow: 0, flexShrink: 0, height: 41 },
   filters: { paddingHorizontal: 12, paddingBottom: 7, gap: 7, alignItems: "center" },
   filterChip: { minHeight: 32, borderRadius: 16, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
   filterText: { fontSize: 13, fontWeight: "700" },
-  row: { height: 72, flexDirection: "row", paddingLeft: 12, alignItems: "center" },
-  sectionBreak: { borderTopWidth: 4, borderTopColor: "transparent" },
+  row: { height: 68, flexDirection: "row", marginHorizontal: 12, marginVertical: 2, paddingHorizontal: 10, borderRadius: 18, alignItems: "center" },
+  sectionBreak: { borderTopWidth: 2, borderTopColor: "transparent" },
   savedAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
-  rowBody: { flex: 1, alignSelf: "stretch", justifyContent: "center", borderBottomWidth: StyleSheet.hairlineWidth, marginLeft: 12, paddingRight: 12 },
+  rowBody: { flex: 1, alignSelf: "stretch", justifyContent: "center", marginLeft: 12, paddingRight: 4 },
   rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowTitle: { flex: 1, fontSize: 16, fontWeight: "700" },
   time: { fontSize: 12 },

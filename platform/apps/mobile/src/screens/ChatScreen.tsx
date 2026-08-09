@@ -11,7 +11,7 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, wi
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { AppSettings, Message, UploadQuality, UserSummary } from "@snezhok/contracts";
+import type { AppSettings, CooperativeActivityType, Message, UploadQuality, UserSummary } from "@snezhok/contracts";
 
 import { AttachmentSheet } from "../components/AttachmentSheet";
 import { useAppDialog } from "../components/AppDialogProvider";
@@ -22,6 +22,8 @@ import { MessageSearchModal } from "../components/MessageSearchModal";
 import { ReactionPicker } from "../components/ReactionPicker";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { ScheduledMessagesModal } from "../components/ScheduledMessagesModal";
+import { ActivityLauncherSheet } from "../components/ActivityLauncherSheet";
+import { CooperativeActivityModal } from "../components/CooperativeActivityModal";
 import { SwipeReplyRow } from "../components/SwipeReplyRow";
 import { TypingIndicator } from "../components/TypingIndicator";
 import { usePalette } from "../hooks/usePalette";
@@ -51,6 +53,7 @@ const FIRST_FRAME_MESSAGES = 10;
 const emptyMessages: Message[] = [];
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
+  if (message.activity) return `activity-${message.activity.type}`;
   if (message.kind === "voice" || message.attachments.some((attachment) => attachment.kind === "audio")) return "voice";
   if (message.attachments.some((attachment) => attachment.kind === "image" || attachment.kind === "video")) return "media";
   return message.kind;
@@ -61,7 +64,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const { streamId, streamKind, title } = route.params;
   const palette = usePalette();
   const ui = useUiPreferences();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const showDialog = useAppDialog();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
@@ -84,6 +87,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const toggleReaction = useAppStore((state) => state.toggleReaction);
   const deleteMessage = useAppStore((state) => state.deleteMessage);
   const setMessagePinned = useAppStore((state) => state.setMessagePinned);
+  const createActivity = useAppStore((state) => state.createActivity);
   const sendAttachmentBatch = useAppStore((state) => state.sendAttachmentBatch);
   const cancelUpload = useAppStore((state) => state.cancelUpload);
   const uploadProgress = useAppStore((state) => state.uploadProgress);
@@ -116,6 +120,9 @@ export function ChatScreen({ navigation, route }: Props) {
   const [searchVisible, setSearchVisible] = useState(false);
   const [scheduledVisible, setScheduledVisible] = useState(false);
   const [cancellingScheduledId, setCancellingScheduledId] = useState<string | null>(null);
+  const [activityLauncher, setActivityLauncher] = useState(false);
+  const [creatingActivity, setCreatingActivity] = useState(false);
+  const [activeActivityMessage, setActiveActivityMessage] = useState<Message | null>(null);
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
   const [composerSelection, setComposerSelection] = useState({ start: draft.length, end: draft.length });
   const [routeSettled, setRouteSettled] = useState(false);
@@ -437,11 +444,25 @@ export function ChatScreen({ navigation, route }: Props) {
     return <View>
       {showUnread ? <UnreadDivider /> : null}
       {showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}
-      <SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}>
-        <MessageBubble streamId={streamId} message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })} onReplyPress={(messageId) => void jumpToMessage(messageId)} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")))} />
+      <SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed || item.activity)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}>
+        <MessageBubble streamId={streamId} message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })} onReplyPress={(messageId) => void jumpToMessage(messageId)} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")))} onOpenActivity={() => setActiveActivityMessage(item)} />
       </SwipeReplyRow>
     </View>;
   }, [isGroup, jumpToMessage, me?.id, palette.border, palette.secondaryText, renderedMessages, selectedIds, selectionMode, selectionProgress, streamId, streamKind, t, toggleReaction, toggleSelected]);
+
+  const startActivity = useCallback(async (type: CooperativeActivityType, options: Record<string, unknown> = {}) => {
+    if (creatingActivity) return;
+    setCreatingActivity(true);
+    try {
+      const message = await createActivity(streamId, type, options);
+      setActivityLauncher(false);
+      setActiveActivityMessage(message);
+      requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    } catch (error) {
+      showDialog(t("requestFailed"), userFacingError(error, t));
+    } finally { setCreatingActivity(false); }
+  }, [createActivity, creatingActivity, showDialog, streamId, t]);
 
   const revealOlderMessages = useCallback(async () => {
     if (!userDraggedHistory.current || loadingOlder.current) return;
@@ -578,7 +599,7 @@ export function ChatScreen({ navigation, route }: Props) {
     <KeyboardAvoidingView onLayout={recordFirstPaint} style={[styles.screen, { backgroundColor: palette.background }]} behavior="height" automaticOffset keyboardVerticalOffset={0}>
       {selectedIds.size > 0
         ? <ScreenHeader title={String(selectedIds.size)} left={{ icon: "close", label: t("cancel"), onPress: () => setSelectedIds(new Set()) }} />
-        : <ScreenHeader title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text, fontSize: ui.font(15) }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText, fontSize: ui.font(11) }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={[...(scheduledMessages.length ? [{ icon: "time-outline" as const, label: t("scheduledMessages"), onPress: () => setScheduledVisible(true) }] : []), { icon: "search", label: t("search"), onPress: () => setSearchVisible(true) }, ...(streamKind === "conversation" ? [{ icon: "call-outline" as const, label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : [])]} />}
+        : <ScreenHeader title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text, fontSize: ui.font(15) }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText, fontSize: ui.font(11) }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={[...(conversation?.kind === "direct" && !conversation.saved ? [{ icon: "sparkles-outline" as const, label: language === "ru" ? "Сделать вместе" : "Do something together", onPress: () => setActivityLauncher(true) }] : []), ...(scheduledMessages.length ? [{ icon: "time-outline" as const, label: t("scheduledMessages"), onPress: () => setScheduledVisible(true) }] : []), ...(streamKind === "conversation" ? [{ icon: "call-outline" as const, label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : []), { icon: "search", label: t("search"), onPress: () => setSearchVisible(true) }]} />}
       {latestPin ? <Pressable onPress={jumpToPinned} style={({ pressed }) => [styles.pinBanner, { borderColor: palette.border, backgroundColor: pressed ? palette.surface : palette.background }]}><View style={[styles.pinAccent, { backgroundColor: palette.accent }]} /><AppIcon name="pin" size={17} color={palette.accent} /><View style={styles.pinCopy}><Text style={[styles.pinLabel, { color: palette.accent }]}>{t("pinnedMessage")}</Text><Text numberOfLines={1} style={[styles.pinText, { color: palette.secondaryText }]}>{latestPin.text || t("attachment")}</Text></View></Pressable> : null}
       <View style={styles.messageViewport}>
         <FlashList ref={list} data={renderedMessages} keyExtractor={messageKey} getItemType={messageCellType} renderItem={renderMessage} style={styles.messageList} contentContainerStyle={styles.list} drawDistance={360} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" maintainVisibleContentPosition={maintainVisibleMessagePosition} onScrollBeginDrag={() => { userDraggedHistory.current = true; }} onStartReached={() => void revealOlderMessages().catch(() => undefined)} onStartReachedThreshold={0.2} onLoad={() => setListReady(true)} onContentSizeChange={() => { if (!initialPositioned.current && renderedMessages.length) { initialPositioned.current = true; requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false })); } }} ListEmptyComponent={emptyState} />
@@ -621,6 +642,8 @@ export function ChatScreen({ navigation, route }: Props) {
           } },
         ]);
       }} />
+      <ActivityLauncherSheet visible={activityLauncher} busy={creatingActivity} onClose={() => { if (!creatingActivity) setActivityLauncher(false); }} onStart={(type, options) => void startActivity(type, options)} />
+      <CooperativeActivityModal message={activeActivityMessage ? (messages.find((message) => message.id === activeActivityMessage.id) ?? activeActivityMessage) : null} onClose={() => setActiveActivityMessage(null)} />
     </KeyboardAvoidingView>
   );
 }

@@ -1,6 +1,38 @@
 import { z } from "zod";
 
 export const idSchema = z.string().uuid();
+export const cooperativeActivityTypeValues = [
+  "question", "blitz", "tiny-quest", "color-hunt", "song-exchange",
+  "movie-list", "draw-guess", "ideas-jar", "memory-capsule", "milestone",
+] as const;
+export const cooperativeActivityTypeSchema = z.enum(cooperativeActivityTypeValues);
+export const cooperativeActivityActionValues = [
+  "submit", "add-item", "update-item", "remove-item", "rate", "set-status",
+  "pick", "reroll", "confirm", "submit-drawing", "guess", "complete",
+  "decline", "cancel",
+] as const;
+export const cooperativeActivityActionSchema = z.enum(cooperativeActivityActionValues);
+
+const boundedActivityPayloadSchema = z.record(z.string().max(80), z.unknown()).default({}).superRefine((value, context) => {
+  try {
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 64 * 1024) context.addIssue({ code: "custom", message: "Activity payload is too large" });
+  } catch {
+    context.addIssue({ code: "custom", message: "Activity payload must be JSON serializable" });
+  }
+});
+
+export const cooperativeActivityCreateSchema = z.object({
+  clientId: idSchema,
+  type: cooperativeActivityTypeSchema,
+  options: boundedActivityPayloadSchema,
+});
+
+export const cooperativeActivityCommandSchema = z.object({
+  clientId: idSchema,
+  expectedRevision: z.number().int().nonnegative(),
+  action: cooperativeActivityActionSchema,
+  payload: boundedActivityPayloadSchema,
+});
 export const usernameSchema = z
   .string()
   .trim()

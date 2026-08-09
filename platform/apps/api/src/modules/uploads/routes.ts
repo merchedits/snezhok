@@ -189,6 +189,23 @@ export const attachmentAuthorizationSql = `SELECT EXISTS(
           ))
         )
     )
+    OR EXISTS (
+      SELECT 1 FROM cooperative_activity_attachments activity_link
+      JOIN cooperative_activity_entries entry ON entry.id=activity_link.entry_id
+      JOIN cooperative_activities activity ON activity.id=entry.activity_id
+      JOIN cooperative_activity_participants participant ON participant.activity_id=activity.id AND participant.user_id=$2
+      JOIN messages anchor ON anchor.id=activity.anchor_message_id
+      WHERE activity_link.attachment_id=$1
+        AND anchor.deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hidden_messages hidden WHERE hidden.user_id=$2 AND hidden.message_id=anchor.id)
+        AND (
+          activity.state='completed'
+          OR (entry.created_by=$2 AND activity.type<>'memory-capsule')
+          OR (activity.type='memory-capsule' AND activity.state='active' AND entry.created_by=$2)
+          OR (activity.type='question' AND coalesce((activity.config->>'secret')::boolean,false)=false)
+          OR activity.type IN ('movie-list','draw-guess','ideas-jar','milestone')
+        )
+    )
   )
 ) allowed`;
 

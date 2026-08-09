@@ -28,7 +28,7 @@ export const BottomNavigation = memo(function BottomNavigation({ selected, onSel
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   return (
-    <View style={[styles.nav, { minHeight: ui.dense(62, 56) + insets.bottom, paddingBottom: insets.bottom + 4, backgroundColor: palette.background, borderColor: palette.border }]}>
+    <View style={[styles.nav, { minHeight: ui.dense(62, 56) + insets.bottom, paddingBottom: insets.bottom + 4, backgroundColor: palette.elevated, borderColor: palette.border }]}>
       {tabs.map((tab) => <TabButton key={tab.id} tab={tab} active={selected === tab.id} label={t(tab.id)} onSelect={onSelect} />)}
     </View>
   );

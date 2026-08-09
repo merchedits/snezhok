@@ -8,6 +8,18 @@ export type ChannelKind = "text" | "voice";
 export type ConversationKind = "direct" | "group";
 export type MessageKind = "text" | "system" | "voice" | "video-note" | "media" | "file";
 export type MemberRole = "owner" | "admin" | "moderator" | "member";
+export type CooperativeActivityType =
+  | "question"
+  | "blitz"
+  | "tiny-quest"
+  | "color-hunt"
+  | "song-exchange"
+  | "movie-list"
+  | "draw-guess"
+  | "ideas-jar"
+  | "memory-capsule"
+  | "milestone";
+export type CooperativeActivityState = "active" | "waiting" | "locked" | "completed" | "declined" | "expired" | "cancelled";
 export type PrivacyAudience = "everyone" | "contacts" | "nobody";
 export type ServerPermission =
   | "view_channels" | "send_messages" | "attach_files" | "add_reactions"
@@ -206,6 +218,46 @@ export interface ReactionSummary {
   userIds: Id[];
 }
 
+export interface CooperativeActivityParticipant {
+  user: UserSummary;
+  status: "invited" | "active" | "submitted" | "completed" | "declined";
+  contributionCount: number;
+  submittedAt: Timestamp | null;
+}
+
+export interface CooperativeActivityEntry {
+  id: Id;
+  kind: string;
+  round: number;
+  createdBy: Id;
+  payload: Record<string, unknown>;
+  attachments: Attachment[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+/** Viewer-filtered durable activity state embedded in its chat anchor message. */
+export interface CooperativeActivity {
+  id: Id;
+  conversationId: Id;
+  anchorMessageId: Id;
+  type: CooperativeActivityType;
+  state: CooperativeActivityState;
+  revision: number;
+  createdBy: Id;
+  config: Record<string, unknown>;
+  privateState: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  participants: CooperativeActivityParticipant[];
+  entries: CooperativeActivityEntry[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  revealAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  /** Chat history carries a compact summary; the activity endpoint returns full detail. */
+  detail?: "summary" | "full";
+}
+
 export interface Message {
   id: Id;
   /** Stable sender-generated identifier used to reconcile optimistic messages. */
@@ -220,6 +272,8 @@ export interface Message {
   forwardedFrom?: MessagePreview | null;
   attachments: Attachment[];
   reactions: ReactionSummary[];
+  /** Present on the system-message anchor for a cooperative experience. */
+  activity?: CooperativeActivity | null;
   createdAt: Timestamp;
   editedAt: Timestamp | null;
   deletedAt: Timestamp | null;
@@ -255,6 +309,8 @@ export interface AppSettings {
   callQuality: "data-saver" | "auto" | "high";
   screenShareQuality: "data-saver" | "auto" | "high";
   pushToTalk: boolean;
+  /** Mutual opt-in gate for romantic and adult cooperative prompt packs. */
+  cooperativeMatureContent: boolean;
   /** Global push controls; optional for backward compatibility with older cached settings. */
   messageNotifications?: boolean;
   callNotifications?: boolean;

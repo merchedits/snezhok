@@ -3,7 +3,7 @@ import * as Crypto from "expo-crypto";
 import { Directory, File, FileMode, Paths } from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 
-import type { AppSettings, Attachment, BootstrapPayload, ConversationSummary, FriendEntry, Message, ServerSummary, UserProfile, UserSummary } from "@snezhok/contracts";
+import type { AppSettings, Attachment, BootstrapPayload, ConversationSummary, CooperativeActivity, CooperativeActivityType, FriendEntry, Message, ServerSummary, UserProfile, UserSummary } from "@snezhok/contracts";
 
 import type {
   AuthResponse,
@@ -244,6 +244,24 @@ class ApiClient {
     return this.request<{ message: Message }>(`/streams/${encodeURIComponent(streamId)}/messages`, {
       method: "POST",
       body: input,
+    }).then((result) => result.message);
+  }
+
+  createActivity(conversationId: string, type: CooperativeActivityType, options: Record<string, unknown> = {}): Promise<Message> {
+    return this.request<{ message: Message }>(`/conversations/${encodeURIComponent(conversationId)}/activities`, {
+      method: "POST",
+      body: { clientId: Crypto.randomUUID(), type, options },
+    }).then((result) => result.message);
+  }
+
+  activity(activityId: string): Promise<CooperativeActivity> {
+    return this.request<{ activity: CooperativeActivity }>(`/activities/${encodeURIComponent(activityId)}`).then((result) => result.activity);
+  }
+
+  commandActivity(activityId: string, expectedRevision: number, action: string, payload: Record<string, unknown> = {}): Promise<Message> {
+    return this.request<{ message: Message }>(`/activities/${encodeURIComponent(activityId)}/commands`, {
+      method: "POST",
+      body: { clientId: Crypto.randomUUID(), expectedRevision, action, payload },
     }).then((result) => result.message);
   }
 

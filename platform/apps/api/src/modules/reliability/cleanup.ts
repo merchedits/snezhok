@@ -183,6 +183,7 @@ export async function cleanupReliabilityData(
          AND NOT EXISTS(SELECT 1 FROM conversations conversation WHERE conversation.avatar_attachment_id=attachment.id)
          AND NOT EXISTS(SELECT 1 FROM attachments parent WHERE parent.thumbnail_attachment_id=attachment.id)
          AND NOT EXISTS(SELECT 1 FROM scheduled_messages scheduled WHERE attachment.id=ANY(scheduled.attachment_ids) AND scheduled.status IN ('waiting','pending','delivering'))
+         AND NOT EXISTS(SELECT 1 FROM cooperative_activity_attachments activity_link WHERE activity_link.attachment_id=attachment.id)
          AND NOT EXISTS(SELECT 1 FROM media_jobs job WHERE job.attachment_id=attachment.id AND job.status IN ('pending','running'))
        ORDER BY attachment.created_at,attachment.id LIMIT $2
      ) DELETE FROM attachments attachment USING doomed WHERE attachment.id=doomed.id

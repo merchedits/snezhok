@@ -7,11 +7,11 @@ import { useAppStore } from "../store/useAppStore";
 import { createPalette } from "../theme";
 
 const accents: Record<AppSettings["accent"], string> = {
-  blue: "#2aabee",
-  green: "#36aa6d",
-  purple: "#8b6de8",
-  orange: "#e98b3f",
-  red: "#df5964",
+  blue: "#3F6FE5",
+  green: "#39A86B",
+  purple: "#8A63D2",
+  orange: "#E77C33",
+  red: "#D94A57",
 };
 
 export function usePalette() {

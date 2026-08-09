@@ -9,6 +9,7 @@ import type {
   ChannelCategory,
   ChannelSummary,
   ConversationSummary,
+  CooperativeActivityType,
   FriendEntry,
   Message,
   Presence,
@@ -91,6 +92,8 @@ interface AppState {
   toggleReaction: (message: Message, emoji: string) => Promise<void>;
   deleteMessage: (message: Message, scope: "me" | "everyone") => Promise<void>;
   setMessagePinned: (message: Message, pinned: boolean) => Promise<void>;
+  createActivity: (conversationId: string, type: CooperativeActivityType, options?: Record<string, unknown>) => Promise<Message>;
+  commandActivity: (message: Message, action: string, payload?: Record<string, unknown>) => Promise<Message>;
   retryOutbox: () => Promise<void>;
   applyMessage: (message: Message, eventKind?: "created" | "updated") => void;
   applyMessageDeleted: (payload: { id: string; streamId: string; deletedAt: number }) => void;
@@ -133,6 +136,7 @@ export const defaultSettings: AppSettings = {
   callQuality: "auto",
   screenShareQuality: "auto",
   pushToTalk: false,
+  cooperativeMatureContent: false,
 };
 
 function toBootstrap(state: AppState): BootstrapPayload | null {
@@ -992,6 +996,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
     }
     if (accountOperationIsCurrent(guard)) schedulePersistence({ bootstrap: true, outbox: true, streamIds: [streamId] });
+  },
+
+  createActivity: async (conversationId, type, options = {}) => {
+    if (!get().online) throw new Error("Activities require a network connection");
+    const saved = await api.createActivity(conversationId, type, options);
+    get().applyMessage(saved, "created");
+    return saved;
+  },
+
+  commandActivity: async (message, action, payload = {}) => {
+    if (!message.activity) throw new Error("Activity is no longer available");
+    if (!get().online) throw new Error("Activities require a network connection");
+    const saved = await api.commandActivity(message.activity.id, message.activity.revision, action, payload);
+    get().applyMessage(saved, "updated");
+    return saved;
   },
 
   forwardMessage: async (messageId, targetStreamId) => {

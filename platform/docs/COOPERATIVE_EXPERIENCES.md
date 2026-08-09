@@ -1,5 +1,11 @@
 # Cooperative Experiences
 
+## 4.0 implementation status
+
+The 4.0 Android/API release implements the shared framework and the complete first direct-chat set: Question Drop, Blitz, Tiny Quest, Color Hunt, Song Exchange, Movie List, Draw & Guess, Ideas Jar, Memory Capsule, the ✦ launcher, and derived milestone cards. Activity cards are ordinary cached chat messages, commands use client idempotency keys plus expected revisions, and all private projections are built on the server. Chat history embeds compact activity summaries; potentially large list, drawing, and revealed-capsule detail is fetched only when the card opens so it does not inflate every cached message page on A12-class devices.
+
+The current Color Hunt result is a deterministic paired 3 × 3 grid rendered from the eighteen authenticated source photos. A future media-worker derivative may add a single downloadable collage artifact without changing activity state. Song Exchange keeps a shared musical diary in chronological chat history. Memory Capsules accept text, up to four photos, and an optional song link, with one-month or six-month reveal choices; 4.0 locks automatically when both contributions are present and shows the authoritative server reveal date on the locked card. Yandex Music playback is an external app/universal-link handoff: Yandex's current official support documents sharing playlists and using its Android app, but does not publish a third-party playback/playlist-write API for this integration. Snezhok therefore does not scrape pages, copy cookies, proxy audio, or claim embedded native playback. See [Yandex Music playlists](https://yandex.ru/support/music/ru/collection/playlists) and [official Android app availability](https://yandex.ru/support/music/ru/new-template/appmusic).
+
 ## Product contract
 
 Snezhok activities turn a private conversation into a small shared action:
@@ -119,7 +125,7 @@ Submissions stay locked until both contribute. The result pairs the two contribu
 
 Each participant receives a distinct color from an accessible palette. They photograph objects dominated by their assigned color. Progress is private by default except for a neutral count such as “6 of 9 found”.
 
-At nine accepted photos per participant, the media worker creates a deterministic 3 × 3 collage for each person plus an optional paired cover. The chat result keeps the collages and links to individual authenticated photos. Users may replace a photo before completion. Automated color validation, if introduced, is advisory and never rejects meaningful user content without a manual override.
+At nine accepted photos per participant, the 4.0 client creates a deterministic 3 × 3 visual collage for each person inside the durable paired result. The chat result keeps links to every authenticated source photo. A later media-worker job may materialize downloadable collage derivatives. Automated color validation, if introduced, is advisory and never rejects meaningful user content without a manual override.
 
 ### Song Exchange
 
@@ -163,7 +169,7 @@ The feature is named **Банка идей / Ideas Jar** by default so it works 
 
 A capsule combines one contribution from each participant: text, photo, or song, plus an optional “what was today like?” note. Participants choose a supported reveal time such as one month or six months.
 
-The capsule locks only after both contributions and final confirmation. Before locking, show the exact reveal date/time and deletion rule. After locking, the chat card shows contributors and reveal date but no private previews. Server time authoritatively unlocks it; notification is best-effort and reopening later still reveals correctly.
+The capsule locks only after both contributions. The launch step states the chosen delay, and after locking the chat card shows contributors and the exact server-authoritative reveal date without private previews. Server time authoritatively unlocks it; notification is best-effort and reopening later still reveals correctly.
 
 The revealed capsule becomes a normal durable result with the original creation date and reveal date. Users can delete their own source content according to messaging policy; the UI must explain how that affects the paired capsule.
 

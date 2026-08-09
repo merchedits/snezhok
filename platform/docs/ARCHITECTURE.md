@@ -39,6 +39,16 @@ Read state is `last_read_sequence`, not a timestamp. Clients can optimistically 
 
 The realtime connection is a notification and low-latency delivery path. Durable state remains available through REST. Reconnect starts from the last acknowledged event cursor and falls back to a bootstrap/delta sync when the retained event window is exceeded.
 
+### Cooperative activities
+
+Cooperative experiences are durable conversation objects introduced by migration `0018_cooperative_activities.sql`. Each activity owns exactly one ordinary `system` message anchor. Activity creation allocates the conversation's normal monotonic message sequence, so older clients retain a safe readable timeline item while 4.0 clients attach a viewer-filtered `activity` projection to that same message.
+
+The API exposes creation under `/conversations/:conversationId/activities` and revisioned idempotent commands under `/activities/:id/commands`. Participants, entries, media links, command idempotency, and audit events are stored separately. Mutations publish personalized `message:created` or `message:updated` payloads through the existing durable per-recipient event log. Secret answers and locked media are filtered while building each recipient payload; realtime is never the privacy boundary.
+
+Message history carries compact activity summaries. The authenticated activity-detail endpoint expands large living lists, drawings, and revealed capsules only when the Android card opens; this preserves cached-chat startup and keeps large cooperative payloads out of every realtime/history page.
+
+Memory Capsule reveal is a server-time scheduler transition. Cooperative milestones derive from completed durable state and create one deterministic chat card, never a streak or mutable score. The first release restricts activities to two-person direct conversations. Movie List and Ideas Jar are unique living objects per conversation.
+
 ## Client storage
 
 The web client caches recent streams, messages, drafts and queued sends in IndexedDB. TanStack Query owns remote cache coordination; long lists are virtualized.
@@ -52,6 +62,8 @@ Uploads are resumable and persisted before they are attached to messages. The se
 The Android attachment drawer defaults to adaptive compressed media and exposes one High quality toggle. Selecting Upload file is the byte-for-byte original path. Media variants are generated asynchronously with bounded concurrency. The initial private deployment uses a local filesystem behind an interface that can later target S3; MinIO is intentionally omitted to reduce memory use.
 
 Nginx serves authorized immutable objects through an internal location after the API returns `X-Accel-Redirect`, preserving range requests and avoiding Node memory pressure.
+
+Activity media reuses the same immutable attachments and upload jobs. File authorization joins the activity participant and reveal state in addition to normal ownership rules; possessing a guessed file URL cannot bypass a secret reveal. Orphan collection treats activity attachment links as live references.
 
 ## Calls and screen sharing
 

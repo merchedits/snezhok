@@ -40,11 +40,11 @@ interface ChoiceRequest {
 }
 
 const accentColors: Record<AppSettings["accent"], string> = {
-  blue: "#2aabee",
-  green: "#36aa6d",
-  purple: "#8b6de8",
-  orange: "#e98b3f",
-  red: "#df5964",
+  blue: "#3F6FE5",
+  green: "#39A86B",
+  purple: "#8A63D2",
+  orange: "#E77C33",
+  red: "#D94A57",
 };
 
 export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
@@ -142,8 +142,8 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   );
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.surface }]}> 
-      <ScreenHeader title={t("settings")} {...(!embedded ? { left: { icon: "chevron-back" as const, label: t("back"), onPress: navigation.goBack } } : {})} />
+    <View style={[styles.screen, { backgroundColor: palette.background }]}>
+      <ScreenHeader prominent={embedded} title={t("settings")} {...(!embedded ? { left: { icon: "chevron-back" as const, label: t("back"), onPress: navigation.goBack } } : {})} />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: embedded ? 24 : Math.max(insets.bottom + 16, 28) }]}
         showsVerticalScrollIndicator={false}
@@ -198,6 +198,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
           <SettingsCard>
             <SettingsRow icon="notifications-outline" label={pc("notifications")} onPress={() => setNotificationPreferences(true)} />
             <SettingsRow icon="at-outline" label={pc("mentions")} onPress={() => setMentions(true)} />
+            <SettingsSwitchRow icon="sparkles-outline" label={settings.language === "ru" ? "Романтические и 18+ вопросы" : "Romantic and adult prompts"} value={settings.cooperativeMatureContent} onChange={(cooperativeMatureContent) => patch({ cooperativeMatureContent })} />
           </SettingsCard>
         </SettingsSection>
 

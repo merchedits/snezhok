@@ -76,6 +76,13 @@ import IconVolume from "@tabler/icons-react-native/IconVolume";
 import IconVolumeOff from "@tabler/icons-react-native/IconVolumeOff";
 import IconWifi from "@tabler/icons-react-native/IconWifi";
 import IconX from "@tabler/icons-react-native/IconX";
+import IconHelpCircle from "@tabler/icons-react-native/IconHelpCircle";
+import IconBolt from "@tabler/icons-react-native/IconBolt";
+import IconMusic from "@tabler/icons-react-native/IconMusic";
+import IconMovie from "@tabler/icons-react-native/IconMovie";
+import IconPencil from "@tabler/icons-react-native/IconPencil";
+import IconBulb from "@tabler/icons-react-native/IconBulb";
+import IconArchive from "@tabler/icons-react-native/IconArchive";
 
 type TablerGlyph = ComponentType<{ size?: string | number; color?: string; strokeWidth?: string | number }>;
 
@@ -168,6 +175,13 @@ const glyphs = {
   "volume-mute": IconVolumeOff,
   "warning-outline": IconAlertTriangle,
   "wifi-outline": IconWifi,
+  "help-circle-outline": IconHelpCircle,
+  "bolt-outline": IconBolt,
+  "music-outline": IconMusic,
+  "movie-outline": IconMovie,
+  "pencil-outline": IconPencil,
+  "bulb-outline": IconBulb,
+  "archive-outline": IconArchive,
 } as const satisfies Record<string, TablerGlyph>;
 
 export type AppIconName = keyof typeof glyphs;

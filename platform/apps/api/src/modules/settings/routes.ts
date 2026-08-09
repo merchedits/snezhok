@@ -14,6 +14,7 @@ const settingsSchema = z.object({
   microphoneMode: z.enum(["system","phone","speakerphone"]),
   callAudioRoute: z.enum(["auto","earpiece","speaker","headset","bluetooth"]),
   callQuality: z.enum(["data-saver","auto","high"]), screenShareQuality: z.enum(["data-saver","auto","high"]), pushToTalk: z.boolean(),
+  cooperativeMatureContent: z.boolean(),
   messageNotifications: z.boolean(), callNotifications: z.boolean(), notificationPreviews: z.boolean(),
   notificationSound: z.boolean(), notificationMobile: z.boolean(), notificationMentionsOnly: z.boolean(),
   quietHoursStart: z.number().int().min(0).max(1439).nullable(), quietHoursEnd: z.number().int().min(0).max(1439).nullable(),

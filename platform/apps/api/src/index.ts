@@ -7,6 +7,7 @@ import { startPushDeliveryWorker } from "./modules/notifications/pushWorker.js";
 import { startScheduledMessageDelivery } from "./modules/productivity/scheduler.js";
 import { startReliabilityMaintenance } from "./modules/reliability/cleanup.js";
 import { startCallMediaControlWorker } from "./modules/calls/mediaControl.js";
+import { startActivityScheduler } from "./modules/activities/scheduler.js";
 
 if (config.RUN_MIGRATIONS) await migrate();
 const app = await buildApp();
@@ -15,6 +16,7 @@ const stopScheduledMessages = startScheduledMessageDelivery(app.log);
 const stopPushDelivery = startPushDeliveryWorker(app.log);
 const stopReliabilityMaintenance = startReliabilityMaintenance(app.log);
 const stopCallMediaControl = startCallMediaControlWorker(app.log);
+const stopActivityScheduler = startActivityScheduler(app.log);
 
 await app.listen({ host: config.HOST, port: config.PORT });
 
@@ -26,6 +28,7 @@ async function stop(signal: string) {
   stopPushDelivery();
   stopReliabilityMaintenance();
   stopCallMediaControl();
+  stopActivityScheduler();
   await new Promise<void>((resolve) => io.close(() => resolve()));
   await app.close(); await pool.end();
 }

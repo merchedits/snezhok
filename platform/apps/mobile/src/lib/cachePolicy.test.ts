@@ -14,6 +14,30 @@ test("legacy cached messages are made safe without touching session state", () =
   assert.deepEqual(normalized.stream?.[0]?.reactions, []);
 });
 
+test("cooperative activity cards survive the offline chat cache intact", () => {
+  const activity = {
+    id: "activity",
+    messageId: "message",
+    conversationId: "stream",
+    type: "question",
+    state: "waiting",
+    revision: 1,
+    config: { prompt: "A shared question", secret: true },
+    participants: [],
+    entries: [],
+    createdBy: "user",
+    createdAt: 1,
+    updatedAt: 1,
+    completedAt: null,
+    revealAt: null,
+  };
+  const normalized = normalizeCachedMessages({
+    stream: [{ id: "message", streamId: "stream", sequence: 1, createdAt: 1, sender: { id: "user" }, attachments: [], reactions: [], activity }],
+  });
+
+  assert.deepEqual(normalized.stream?.[0]?.activity, activity);
+});
+
 test("invalid cached records are discarded instead of reaching chat rendering", () => {
   assert.deepEqual(normalizeCachedMessages({ stream: [{ id: "missing-fields" }, null] }), { stream: [] });
   assert.deepEqual(normalizeCachedMessages(null), {});

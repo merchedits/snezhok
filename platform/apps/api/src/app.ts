@@ -28,6 +28,7 @@ import { uploadRoutes } from "./modules/uploads/routes.js";
 import { userRoutes } from "./modules/users/routes.js";
 import { adminRoutes } from "./modules/admin/routes.js";
 import { realtimeListenerHealthy } from "./modules/realtime/socket.js";
+import { activityRoutes } from "./modules/activities/routes.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -101,6 +102,7 @@ export async function buildApp() {
     await api.register(conversationRoutes);
     await api.register(diagnosticRoutes);
     await api.register(messageRoutes);
+    await api.register(activityRoutes);
     await api.register(productivityRoutes);
     await api.register(notificationRoutes);
     await api.register(uploadRoutes);

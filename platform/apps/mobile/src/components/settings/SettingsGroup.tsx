@@ -30,7 +30,7 @@ export function SettingsCard({ children }: { children: ReactNode }) {
   const ui = useUiPreferences();
   const rows = Children.toArray(children);
   return (
-    <View style={[styles.card, { borderRadius: Math.max(10, ui.bubbleRadius), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border }]}>
+    <View style={[styles.card, { borderRadius: Math.max(16, ui.bubbleRadius), backgroundColor: palette.elevated, borderColor: palette.border }]}>
       {rows.map((row, index) => (
         <Fragment key={index}>
           {row}
@@ -221,7 +221,7 @@ export function SettingsChoiceSheet({
       <View style={styles.modalLayer}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: progress, backgroundColor: palette.overlay }]} />
         <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={StyleSheet.absoluteFill} />
-        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border, transform: [{ translateY: sheetTranslateY }] }]}>
+        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.elevated, borderColor: palette.border, transform: [{ translateY: sheetTranslateY }] }]}>
           <View style={[styles.grabber, { backgroundColor: palette.faintText }]} />
           <Text style={[styles.sheetTitle, { color: palette.text, fontSize: ui.font(18), lineHeight: ui.font(23) }]}>{display.title}</Text>
           <View style={styles.options}>

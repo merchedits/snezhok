@@ -86,7 +86,7 @@ export function DiagnosticsScreen({ navigation }: NativeStackScreenProps<RootSta
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.surface }]}>
+    <View style={[styles.screen, { backgroundColor: palette.background }]}>
       <ScreenHeader title={t("diagnostics")} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom + 20, 32) }]} showsVerticalScrollIndicator={false}>
         {loading && !report ? <ActivityIndicator color={palette.accent} /> : null}

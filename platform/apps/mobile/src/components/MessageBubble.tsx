@@ -17,6 +17,7 @@ import { Avatar } from "./Avatar";
 import { ImageViewer } from "./ImageViewer";
 import { VideoViewer } from "./VideoViewer";
 import { VoiceMessageAttachment } from "./VoiceMessageAttachment";
+import { CooperativeActivityCard } from "./CooperativeActivityCard";
 
 interface MessageBubbleProps {
   streamId: string;
@@ -32,9 +33,10 @@ interface MessageBubbleProps {
   onReact?: (emoji: string) => void;
   onOpenReactions?: (anchorY: number) => void;
   onReplyPress?: (messageId: string) => void;
+  onOpenActivity?: () => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ streamId, message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions, onReplyPress }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ streamId, message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions, onReplyPress, onOpenActivity }: MessageBubbleProps) {
   const palette = usePalette();
   const ui = useUiPreferences();
   const lastTapAt = useRef(0);
@@ -111,7 +113,7 @@ export const MessageBubble = memo(function MessageBubble({ streamId, message, mi
             <View style={styles.channelAvatar}>{showSender ? <Avatar uri={message.sender.avatarUrl} label={message.sender.displayName} color={message.sender.avatarColor} size={40} /> : null}</View>
             <View style={[styles.channelContent, selected && { backgroundColor: palette.accentSoft }]}>
               {showSender ? <View style={styles.authorLine}><Text style={[styles.channelAuthor, { color: message.sender.avatarColor || palette.text, fontSize: ui.font(15) }]}>{message.sender.displayName}</Text><Text style={[styles.channelTime, { color: palette.faintText, fontSize: ui.font(11) }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text></View> : null}
-              <MessageContent streamId={streamId} message={message} mine={mine} showSender={false} showTime={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} />
+              <MessageContent streamId={streamId} message={message} mine={mine} showSender={false} showTime={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
             </View>
           </Pressable>
         </Animated.View>
@@ -123,8 +125,8 @@ export const MessageBubble = memo(function MessageBubble({ streamId, message, mi
       <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
       <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
         <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, { marginVertical: ui.dense(2, 1) }]}>
-          <Pressable delayLongPress={240} onPress={handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, { borderRadius: ui.bubbleRadius, paddingHorizontal: ui.dense(12, 10), paddingVertical: ui.dense(8, 5), backgroundColor: selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderColor: selected ? palette.accent : palette.border, opacity: pressed ? 0.82 : 1 }]}>
-            <MessageContent streamId={streamId} message={message} mine={mine} showSender={showSender && !mine} showTime interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} />
+          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, { borderRadius: message.activity ? 24 : ui.bubbleRadius, paddingHorizontal: message.activity ? 0 : ui.dense(12, 10), paddingVertical: message.activity ? 0 : ui.dense(8, 5), backgroundColor: message.activity ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderColor: message.activity ? "transparent" : selected ? palette.accent : palette.border, opacity: pressed ? 0.82 : 1 }]}>
+            <MessageContent streamId={streamId} message={message} mine={mine} showSender={showSender && !mine} showTime interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
           </Pressable>
         </View>
       </Animated.View>
@@ -150,7 +152,7 @@ function SelectionMarker({ selected, animatedStyle }: { selected: boolean; anima
   );
 }
 
-function MessageContent({ streamId, message, mine, showSender, showTime, interactionDisabled, onReact, onReplyPress }: { streamId: string; message: Message; mine: boolean; showSender: boolean; showTime: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined }) {
+function MessageContent({ streamId, message, mine, showSender, showTime, interactionDisabled, onReact, onReplyPress, onOpenActivity }: { streamId: string; message: Message; mine: boolean; showSender: boolean; showTime: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined; onOpenActivity?: (() => void) | undefined }) {
   const palette = usePalette();
   const ui = useUiPreferences();
   const { t } = useTranslation();
@@ -159,6 +161,7 @@ function MessageContent({ streamId, message, mine, showSender, showTime, interac
   const mediaAttachments = attachments.filter((attachment) => attachment.kind === "image" || attachment.kind === "video");
   const otherAttachments = mediaAttachments.length > 1 ? attachments.filter((attachment) => attachment.kind !== "image" && attachment.kind !== "video") : attachments;
   const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+  if (message.activity) return <CooperativeActivityCard activity={message.activity} onOpen={() => onOpenActivity?.()} />;
   return (
     <View pointerEvents={interactionDisabled ? "none" : "auto"}>
       {showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent, fontSize: ui.font(13) }]}>{message.sender.displayName}</Text> : null}
@@ -272,6 +275,7 @@ const styles = StyleSheet.create({
   mineRow: { alignItems: "flex-end" },
   theirRow: { alignItems: "flex-start" },
   bubble: { maxWidth: "78%", minWidth: 78, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
+  activityBubble: { maxWidth: "94%", width: 302, borderWidth: 0 },
   channelRow: { width: "100%", flexDirection: "row", paddingHorizontal: 12, paddingVertical: 3 },
   channelAvatar: { width: 40, marginRight: 10 },
   channelContent: { flex: 1, minWidth: 0, paddingRight: 8, borderRadius: 10 },

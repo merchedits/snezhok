@@ -31,6 +31,13 @@ not an acceptable substitute.
 - Diagnostic reports exclude credentials, email addresses, account IDs,
   message text, exception messages, and stack payloads that may contain user
   content.
+- Cooperative activity projections are generated per viewer. Secret answers,
+  hidden choices, capsule contents, attachment metadata, and media file access
+  remain unavailable to the other participant until the database reveal state
+  commits. This is server access control, not end-to-end encryption.
+- Romantic and adult prompt packs require the explicit
+  `cooperativeMatureContent` setting from both current direct-chat
+  participants. Surprise never selects these packs.
 
 ## Required production controls
 

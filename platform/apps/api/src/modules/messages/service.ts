@@ -7,6 +7,7 @@ import { allocateMessageSequence, canManageMessages, resolveStreamAccess, stream
 import { mayDeleteForEveryone } from "./deletePolicy.js";
 import { publishStoredEvent, storeEvent } from "../realtime/events.js";
 import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
+import { getActivityViews } from "../activities/view.js";
 
 export interface MessageCreateInput {
   clientId: string;
@@ -28,6 +29,7 @@ interface MessageRow {
   forwarded_id: string | null; forwarded_sender_id: string | null; forwarded_sender_name: string | null;
   forwarded_text: string | null; forwarded_kind: MessageKind | null; forwarded_created_at_ms: number | null;
   attachments: unknown; reactions: unknown; read_by_others: boolean; silent: boolean;
+  activity_id: string | null;
 }
 
 export async function createMessage(userId: string, streamId: string, input: MessageCreateInput) {
@@ -396,8 +398,9 @@ async function mapMessagesForViewer(client: Pick<DbClient, "query">, rows: Messa
     [viewerId, senderIds],
   ) : { rows: [] as { user_id: string }[] };
   const blockedIds = new Set(blocked.rows.map((row) => row.user_id));
+  const activityViews = await getActivityViews(client, rows.flatMap((row) => row.activity_id ? [row.activity_id] : []), viewerId);
   return rows.map((row) => {
-    const message = mapMessage(row, viewerId);
+    const message = { ...mapMessage(row, viewerId), activity: row.activity_id ? activityViews.get(row.activity_id) ?? null : null };
     return blockedIds.has(row.sender_id)
       ? { ...message, sender: { ...message.sender, avatarUrl: null, bio: "", statusText: "", presence: "offline" as const, lastSeenAt: 0 } }
       : message;
@@ -423,8 +426,9 @@ const messageSelectSql = `
         AND rs.last_read_sequence>=m.sequence
         AND coalesce((reader_settings.settings->>'readReceipts')::boolean,true)
     ) AS read_by_others,
-    COALESCE(att.items,'[]'::jsonb) AS attachments,COALESCE(react.items,'[]'::jsonb) AS reactions
+    COALESCE(att.items,'[]'::jsonb) AS attachments,COALESCE(react.items,'[]'::jsonb) AS reactions,ca.id AS activity_id
   FROM messages m JOIN users u ON u.id=m.sender_id
+  LEFT JOIN cooperative_activities ca ON ca.anchor_message_id=m.id
   LEFT JOIN messages reply ON reply.id=m.reply_to_id LEFT JOIN users ru ON ru.id=reply.sender_id
   LEFT JOIN messages forwarded ON forwarded.id=m.forwarded_from_id LEFT JOIN users fu ON fu.id=forwarded.sender_id
   LEFT JOIN LATERAL (
@@ -454,6 +458,7 @@ function mapMessage(row: MessageRow, viewerId?: string): Message {
     replyTo: row.reply_id ? { id: row.reply_id, senderId: row.reply_sender_id!, senderName: row.reply_sender_name!, text: row.reply_text ?? "", kind: row.reply_kind!, createdAt: Number(row.reply_created_at_ms) } : null,
     forwardedFrom: row.forwarded_id ? { id: row.forwarded_id, senderId: row.forwarded_sender_id!, senderName: row.forwarded_sender_name!, text: row.forwarded_text ?? "", kind: row.forwarded_kind!, createdAt: Number(row.forwarded_created_at_ms) } : null,
     attachments: row.attachments as Message["attachments"], reactions,
+    activity: null,
     createdAt: Number(row.created_at_ms), editedAt: row.edited_at_ms === null ? null : Number(row.edited_at_ms),
     deletedAt: row.deleted_at_ms === null ? null : Number(row.deleted_at_ms), pinnedAt: row.pinned_at_ms === null ? null : Number(row.pinned_at_ms),
     readByOthers: row.read_by_others, silent: row.silent,

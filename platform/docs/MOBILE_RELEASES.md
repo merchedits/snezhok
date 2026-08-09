@@ -15,6 +15,8 @@ Release builds check the manifest shortly after launch and whenever the app retu
 
 Before opening Android's installer, Snezhok verifies the byte count and SHA-256 from the release manifest. Android then verifies that the APK is signed by the same release certificate as the installed application. Android does not permit an ordinary sideloaded app to install an APK silently: the user must allow Snezhok as an installation source once and confirm each package update.
 
+Release 4.0 introduces durable cooperative activity payloads on system-message anchors. The payload is backward compatible: older installed clients display the Russian fallback system text and continue normal messaging, while 4.0 renders the interactive card. Deploy migration 0018 and the matching API revision before publishing the 4.0 APK.
+
 ## Publishing a release
 
 1. Increase both `version` and `android.versionCode` in `apps/mobile/app.config.ts`; version codes must never decrease or be reused.
