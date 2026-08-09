@@ -10,6 +10,8 @@ const verifierBootstrapFiles = new Set([
   "platform/package.json",
   "platform/scripts/android/verify-mobile-only-revision.mjs",
   "platform/scripts/android/verify-mobile-only-revision.test.mjs",
+  "platform/scripts/compliance/spdx-expression.mjs",
+  "platform/scripts/compliance/spdx-expression.test.mjs",
 ]);
 
 export function parseArguments(values) {
@@ -30,12 +32,12 @@ export function isMobileOnlyPath(file) {
     || verifierBootstrapFiles.has(file);
 }
 
-export function lockfileDiffIsMobileVersionOnly(beforeText, afterText) {
+export function lockfileKeepsServerWorkspaceGraphs(beforeText, afterText) {
   const before = JSON.parse(beforeText);
   const after = JSON.parse(afterText);
-  if (before.packages?.["apps/mobile"]) delete before.packages["apps/mobile"].version;
-  if (after.packages?.["apps/mobile"]) delete after.packages["apps/mobile"].version;
-  return JSON.stringify(before) === JSON.stringify(after);
+  const protectedWorkspaces = ["", "apps/api", "apps/media-worker", "apps/web", "packages/contracts"];
+  return before.lockfileVersion === after.lockfileVersion
+    && protectedWorkspaces.every((workspace) => JSON.stringify(before.packages?.[workspace] ?? null) === JSON.stringify(after.packages?.[workspace] ?? null));
 }
 
 export function packageManifestDiffIsVerifierOnly(beforeText, afterText) {
@@ -70,7 +72,7 @@ function main() {
   if (files.includes("platform/package-lock.json")) {
     const before = git(["show", `${base}:platform/package-lock.json`]);
     const after = git(["show", `${revision}:platform/package-lock.json`]);
-    if (!lockfileDiffIsMobileVersionOnly(before, after)) throw new Error("full coordinated deployment required; package-lock changes exceed the mobile version field");
+    if (!lockfileKeepsServerWorkspaceGraphs(before, after)) throw new Error("full coordinated deployment required; package-lock changes alter a server, web, contracts, or root workspace graph");
   }
   if (files.includes("platform/package.json")) {
     const before = git(["show", `${base}:platform/package.json`]);

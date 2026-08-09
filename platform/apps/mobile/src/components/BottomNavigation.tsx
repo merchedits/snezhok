@@ -28,8 +28,10 @@ export const BottomNavigation = memo(function BottomNavigation({ selected, onSel
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   return (
-    <View style={[styles.nav, { minHeight: ui.dense(66, 60) + insets.bottom, paddingBottom: insets.bottom + 5, backgroundColor: palette.navigation, borderColor: palette.outline }]}>
+    <View style={[styles.shell, { paddingBottom: Math.max(insets.bottom, 8), backgroundColor: palette.background }]}>
+    <View style={[styles.nav, { minHeight: ui.dense(66, 60), backgroundColor: palette.navigation, shadowColor: palette.outline }]}>
       {tabs.map((tab) => <TabButton key={tab.id} tab={tab} active={selected === tab.id} label={t(tab.id)} onSelect={onSelect} />)}
+    </View>
     </View>
   );
 });
@@ -38,8 +40,8 @@ const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { ta
   const palette = usePalette();
   const ui = useUiPreferences();
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
-  const activeFill = tab.id === "profile" ? palette.moment.mint : tab.id === "settings" ? palette.moment.lavender : palette.accent;
-  const activeForeground = tab.id === "chats" ? palette.onAccent : palette.text;
+  const activeFill = palette.pop;
+  const activeForeground = palette.onPop;
   const progress = useSharedValue(active ? 1 : 0);
   useEffect(() => {
     progress.value = withTiming(active ? 1 : 0, {
@@ -58,16 +60,17 @@ const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { ta
   return (
     <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={label} onPress={onPress} style={styles.tab} android_ripple={{ color: palette.accentSoft, borderless: false }}>
       <Animated.View style={[styles.iconWrap, iconStyle]}>
-        <AppIcon name={active ? tab.activeIcon : tab.icon} size={23} color={active ? activeForeground : palette.secondaryText} strokeWidth={active ? 2 : 1.8} />
+        <AppIcon name={active ? tab.activeIcon : tab.icon} size={23} color={active ? activeForeground : "#F4EDFF"} weight={active ? "fill" : "bold"} />
       </Animated.View>
-      <Text numberOfLines={1} style={[styles.label, { color: active ? palette.text : palette.secondaryText, fontSize: ui.font(11) }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.label, { color: active ? palette.onPop : "#F4EDFF", fontSize: ui.font(11) }]}>{label}</Text>
     </Pressable>
   );
 });
 
 const styles = StyleSheet.create({
-  nav: { flexDirection: "row", borderTopWidth: 1.5 },
+  shell: { paddingHorizontal: 10, paddingTop: 6 },
+  nav: { flexDirection: "row", borderRadius: 26, overflow: "hidden", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.18, shadowRadius: 12, elevation: 8 },
   tab: { flex: 1, minHeight: 58, alignItems: "center", justifyContent: "center", gap: 2, borderRadius: 18, overflow: "hidden" },
   iconWrap: { width: 48, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  label: { maxWidth: "96%", fontSize: 11, fontWeight: "800" },
+  label: { maxWidth: "96%", fontSize: 11, fontWeight: "700" },
 });

@@ -286,10 +286,10 @@ function callRouteLabel(route: AppSettings["callAudioRoute"], t: ReturnType<type
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { paddingHorizontal: 14, paddingTop: 18, gap: 24 },
+  content: { paddingHorizontal: 20, paddingTop: 18, gap: 24 },
   releaseNotes: { gap: 4 },
   releaseNote: { fontSize: 12, lineHeight: 17 },
-  signOut: { minHeight: 52, borderWidth: 1.5, borderRadius: 18, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 3 },
+  signOut: { minHeight: 52, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   signOutText: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
   pressed: { opacity: 0.62 },
 });

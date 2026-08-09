@@ -134,8 +134,8 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
       <PlayfulBackdrop variant="chats" />
       <ScreenHeader prominent title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
-      <View style={[styles.search, { backgroundColor: palette.moment.pink, borderColor: palette.outline, shadowColor: palette.outline }]}>
-        <AppIcon name="search" size={18} color={palette.text} />
+      <View style={[styles.search, { backgroundColor: palette.surface }]}>
+        <AppIcon name="search" size={19} color={palette.secondaryText} />
         <TextInput value={search} onChangeText={setSearch} placeholder={t("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} />
         <Pressable accessibilityLabel={t("globalSearch")} onPress={() => setGlobalSearch(true)}><AppIcon name="options-outline" size={19} color={palette.accent} /></Pressable>
       </View>
@@ -163,7 +163,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         renderItem={renderConversation}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
       />
-      <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.moment.tangerine, borderColor: palette.outline, shadowColor: palette.outline, transform: [{ translateY: pressed ? 3 : 0 }] }]}><AppIcon name="create-outline" size={24} color={palette.text} /></Pressable>
+      <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.pop, shadowColor: palette.outline, transform: [{ scale: pressed ? 0.96 : 1 }] }]}><AppIcon name="create-outline" size={24} color={palette.onPop} /></Pressable>
       <NewConversationModal
         visible={newMessage}
         onClose={() => setNewMessage(false)}
@@ -226,13 +226,13 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
   const { language, t } = useTranslation();
   const title = conversationTitle(conversation, language);
   const peer = directPeer(conversation, currentUserId);
-  const rowBackground = palette.moment[conversationTone(conversation.id, conversation.saved)];
+  const rowBackground = conversation.saved ? palette.group.violet : "transparent";
   return (
     <Pressable
       delayLongPress={320}
       onPress={() => onPress(conversation)}
       onLongPress={() => onLongPress(conversation)}
-      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(68, 58), backgroundColor: pressed ? palette.accentSoft : rowBackground, borderColor: palette.outline }]}
+      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(72, 62), backgroundColor: pressed ? palette.accentSoft : rowBackground }]}
     >
       {conversation.saved
         ? <View style={[styles.savedAvatar, { width: ui.dense(52, 46), height: ui.dense(52, 46), borderRadius: ui.dense(26, 23), backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color={palette.onAccent} /></View>
@@ -257,16 +257,7 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
 function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const palette = usePalette();
   const ui = useUiPreferences();
-  return <Pressable onPress={onPress} style={[styles.filterChip, { minHeight: ui.dense(32, 28), borderRadius: ui.dense(16, 14), backgroundColor: active ? palette.accent : palette.elevated, borderColor: palette.outline }]}><Text style={[styles.filterText, { color: active ? palette.onAccent : palette.text, fontSize: ui.font(13) }]}>{label}</Text></Pressable>;
-}
-
-const conversationTones = ["sky", "mint", "pink", "butter", "lavender"] as const;
-
-function conversationTone(id: string, saved: boolean) {
-  if (saved) return "lavender" as const;
-  let hash = 0;
-  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
-  return conversationTones[hash % conversationTones.length]!;
+  return <Pressable onPress={onPress} style={[styles.filterChip, { minHeight: ui.dense(34, 30), borderRadius: ui.dense(17, 15), backgroundColor: active ? palette.pop : palette.surface }]}><Text style={[styles.filterText, { color: active ? palette.onPop : palette.text, fontSize: ui.font(13) }]}>{label}</Text></Pressable>;
 }
 
 function conversationTitle(conversation: ConversationSummary, language: "en" | "ru"): string {
@@ -291,14 +282,14 @@ function mediaLabel(kind: string, t: ReturnType<typeof useTranslation>["t"]): st
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   list: { flex: 1 },
-  listContent: { flexGrow: 1, paddingTop: 2, paddingBottom: 86 },
-  search: { height: 46, marginHorizontal: 12, marginVertical: 9, borderRadius: 17, borderWidth: 1.5, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 8, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 3 },
+  listContent: { flexGrow: 1, paddingTop: 4, paddingBottom: 86 },
+  search: { height: 48, marginHorizontal: 20, marginVertical: 10, borderRadius: 12, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 9 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   filterStrip: { flexGrow: 0, flexShrink: 0, height: 41 },
-  filters: { paddingHorizontal: 12, paddingBottom: 7, gap: 7, alignItems: "center" },
-  filterChip: { minHeight: 32, borderRadius: 16, borderWidth: 1.25, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
+  filters: { paddingHorizontal: 20, paddingBottom: 7, gap: 8, alignItems: "center" },
+  filterChip: { minHeight: 34, borderRadius: 17, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
   filterText: { fontSize: 13, fontWeight: "700" },
-  row: { height: 68, flexDirection: "row", marginHorizontal: 12, marginVertical: 2, paddingHorizontal: 10, borderRadius: 19, borderWidth: 1.25, alignItems: "center" },
+  row: { height: 72, flexDirection: "row", marginHorizontal: 12, marginVertical: 1, paddingHorizontal: 8, borderRadius: 18, alignItems: "center" },
   sectionBreak: { borderTopWidth: 2, borderTopColor: "transparent" },
   savedAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
   rowBody: { flex: 1, alignSelf: "stretch", justifyContent: "center", marginLeft: 12, paddingRight: 4 },
@@ -312,5 +303,5 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 100, alignItems: "center" },
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptyText: { fontSize: 14, marginTop: 6 },
-  fab: { position: "absolute", right: 18, width: 56, height: 56, borderRadius: 20, borderWidth: 1.5, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 0, elevation: 5 },
+  fab: { position: "absolute", right: 20, width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 7 },
 });

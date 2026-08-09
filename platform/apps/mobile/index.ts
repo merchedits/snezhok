@@ -6,6 +6,8 @@ import { registerRootComponent } from "expo";
 import { registerGlobals } from "@livekit/react-native";
 
 import App from "./App";
+import { installTypography } from "./src/installTypography";
 
 registerGlobals();
+installTypography();
 registerRootComponent(App);

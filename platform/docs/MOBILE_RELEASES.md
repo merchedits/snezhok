@@ -34,7 +34,7 @@ Release 4.0.2 hardens attachment messages before they enter FlashList. Cached, o
    ```
 
    A passing mobile-only release does not redeploy the API, worker, PostgreSQL,
-   LiveKit, maintenance units, or backups. Any API, contract, dependency,
+   LiveKit, maintenance units, or backups. Mobile-only dependencies are allowed when deployed workspace graphs remain unchanged. Any API, contract, non-mobile dependency,
    migration, Compose, infrastructure, or operational-script change (apart
    from this verifier's own bootstrap files) requires the complete coordinated
    deployment. The production checkout and

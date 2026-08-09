@@ -13,7 +13,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "4.0.2",
+  version: "4.1.0",
   description: "Private messages, shared moments, files and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -22,6 +22,24 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   icon: "./assets/snezhok-icon.png",
   runtimeVersion: { policy: "appVersion" },
   plugins: [
+    [
+      "expo-font",
+      {
+        fonts: [
+          {
+            fontFamily: "Onest",
+            fontDefinitions: [
+              { path: "../../node_modules/@expo-google-fonts/onest/400Regular/Onest_400Regular.ttf", weight: 400 },
+              { path: "../../node_modules/@expo-google-fonts/onest/500Medium/Onest_500Medium.ttf", weight: 500 },
+              { path: "../../node_modules/@expo-google-fonts/onest/600SemiBold/Onest_600SemiBold.ttf", weight: 600 },
+              { path: "../../node_modules/@expo-google-fonts/onest/700Bold/Onest_700Bold.ttf", weight: 700 },
+              { path: "../../node_modules/@expo-google-fonts/onest/800ExtraBold/Onest_800ExtraBold.ttf", weight: 800 },
+              { path: "../../node_modules/@expo-google-fonts/onest/900Black/Onest_900Black.ttf", weight: 900 },
+            ],
+          },
+        ],
+      },
+    ],
     "./plugins/withReleaseSigning.cjs",
     "./plugins/withLegalAssets.cjs",
     "./plugins/withAndroidPerformance.cjs",
@@ -69,7 +87,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 32,
+    versionCode: 33,
     // Messages, drafts and the durable outbox are private local data. They
     // must never leave the app sandbox through Android cloud/ADB backup.
     allowBackup: false,
@@ -77,7 +95,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
       foregroundImage: "./assets/snezhok-icon.png",
-      backgroundColor: "#06101f",
+      backgroundColor: "#6437F5",
     },
     permissions: [
       "android.permission.INTERNET",

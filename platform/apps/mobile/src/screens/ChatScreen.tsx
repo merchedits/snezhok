@@ -905,7 +905,7 @@ const styles = StyleSheet.create({
   firstFrameMessages: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, justifyContent: "flex-end", overflow: "hidden", paddingVertical: 8 },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 18 },
   headerCopy: { minWidth: 0, maxWidth: 150 }, headerTitle: { fontSize: 15, lineHeight: 18, fontWeight: "800" }, headerSubtitle: { fontSize: 11, lineHeight: 14, marginTop: 1 },
-  pinBanner: { minHeight: 46, borderBottomWidth: 1.25, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  pinBanner: { minHeight: 46, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   pinAccent: { width: 3, height: 29, borderRadius: 2 }, pinCopy: { flex: 1, minWidth: 0 }, pinLabel: { fontSize: 12, fontWeight: "800" }, pinText: { fontSize: 12, marginTop: 1 },
   day: { width: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, marginVertical: 10 }, dayLine: { flex: 1, height: StyleSheet.hairlineWidth }, dayText: { fontSize: 11, fontWeight: "700" },
   unreadDivider: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, marginVertical: 5 }, unreadLine: { flex: 1, height: StyleSheet.hairlineWidth }, unreadText: { fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
@@ -918,7 +918,7 @@ const styles = StyleSheet.create({
   selectionToolbar: { minHeight: 58, flexDirection: "row", alignItems: "flex-start", borderTopWidth: 1.5, paddingTop: 7, paddingHorizontal: 4 },
   selectionAction: { flex: 1, minWidth: 0, minHeight: 47, alignItems: "center", justifyContent: "center", gap: 2 },
   selectionLabel: { maxWidth: "100%", paddingHorizontal: 2, fontSize: 10, fontWeight: "600" },
-  composer: { minHeight: 58, flexDirection: "row", alignItems: "flex-end", borderTopWidth: 1.5, paddingTop: 7, paddingHorizontal: 7, gap: 6 }, composerButton: { width: 38, height: 42, alignItems: "center", justifyContent: "center" }, inputWrap: { flex: 1, minHeight: 41, maxHeight: 120, borderRadius: 19, borderWidth: 1.25, justifyContent: "center" }, input: { fontSize: 16, lineHeight: 20, paddingHorizontal: 13, paddingVertical: 9, maxHeight: 120 }, send: { width: 40, height: 40, borderRadius: 15, borderWidth: 1.25, alignItems: "center", justifyContent: "center", marginBottom: 1 }, voiceButtonFill: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 14 },
+  composer: { minHeight: 58, flexDirection: "row", alignItems: "flex-end", paddingTop: 7, paddingHorizontal: 8, gap: 6 }, composerButton: { width: 38, height: 42, alignItems: "center", justifyContent: "center" }, inputWrap: { flex: 1, minHeight: 41, maxHeight: 120, borderRadius: 18, justifyContent: "center" }, input: { fontSize: 16, lineHeight: 20, paddingHorizontal: 13, paddingVertical: 9, maxHeight: 120 }, send: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 1 }, voiceButtonFill: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 12 },
 });
 
 function formatLastSeen(timestamp: number): string {

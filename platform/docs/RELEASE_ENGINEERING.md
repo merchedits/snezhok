@@ -9,7 +9,7 @@ For the sideloaded updater, build the production-like `preview` APK with the pro
 Before an Android-only release, compare it with the exact revision currently
 reported by server health. The mobile-only verifier permits client and release
 documentation changes plus the required mobile version bump; it rejects all
-server, shared-contract, dependency, migration, and infrastructure changes.
+server, shared-contract, non-mobile dependency, migration, and infrastructure changes. Mobile package and lockfile dependency changes are allowed only while every deployed workspace graph remains identical.
 This avoids an unnecessary production backup and container rebuild without
 weakening APK provenance or publication checks.
 

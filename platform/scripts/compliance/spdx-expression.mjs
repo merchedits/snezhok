@@ -19,6 +19,7 @@ const LICENSE_IDS = new Set([
   "MIT",
   "MIT-0",
   "MPL-2.0",
+  "OFL-1.1",
   "Python-2.0",
   "Unlicense",
   "WTFPL",
@@ -114,4 +115,3 @@ export function parseSpdxExpression(value) {
 export function isSpdxLicenseId(value) {
   return LICENSE_IDS.has(value) || LICENSE_REFERENCE.test(value);
 }
-

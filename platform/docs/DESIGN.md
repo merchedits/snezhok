@@ -1,292 +1,178 @@
-# Snezhok 2026 Experience and Design System
+# Snezhok Design Language
 
-## Status and product feeling
+This is the authoritative visual and interaction contract for Android. The source brand package is `Design Language/`; this document translates it into implementation rules. Android remains the product reference. Russian is primary and English ships alongside it.
 
-This document is the authoritative design contract for new Android work. Existing screens migrate to it incrementally; a redesign is not permission to destabilize messaging, calls, cached startup, accessibility, or low-end performance.
+## Brand character
 
-Snezhok is a private place where people talk, make small things together, and keep the result. It should feel:
+Snezhok is playful, not childish; bold, not noisy; social, not clinical; and unusual only in small, deliberate doses. It should feel like a private, well-designed place shared by people who know each other—not a toy, enterprise dashboard, generic AI product, or engagement machine.
 
-- warm, friendly, and personal rather than corporate;
-- bold, colorful, and expressive rather than clinical or noisy;
-- immediate like a messenger rather than navigated like a content platform;
-- gently playful rather than childish;
-- private and trustworthy rather than engagement-driven.
+The composition is 80% functional calm and 20% expression. Color establishes hierarchy. Space carries more weight than outlines. Photography and messages remain content; decoration never competes with them.
 
-The visual references establish the mood: warm off-white space, oversized confident type in rare editorial moments, bold flat color, rounded geometry, hand-drawn loops, and a small expressive character. Snezhok adapts those ingredients to a high-frequency messaging product. It does not copy reference branding, layouts, photography, or mascot art.
+Conversation stays home. Shared activities begin with one action, involve both people, and leave a durable result in chat. There are milestones but no punitive streaks, compatibility scores, or guilt mechanics.
 
-## Experience principles
+## Fixed identity
 
-1. **Conversation remains home.** Play, media, lists, and memories begin in a chat and return a durable result to that chat.
-2. **One tap creates shared motion.** The initiating action should immediately create something both people can see or contribute to.
-3. **Content before chrome.** Messages, people, photos, drawings, answers, and shared results carry more visual weight than navigation.
-4. **Playfulness is structural.** Primary canvases, cards, navigation, fields, and utility sheets all carry the product's color and shape language. Reveals may become more exuberant, but routine screens must never fall back to a white corporate dashboard.
-5. **No punishment loops.** There are milestones, not streak anxiety, expiring guilt, public scores, or compatibility percentages.
-6. **Privacy is visible.** Secret answers, locked submissions, audience, reveal conditions, and deletion consequences are stated where the decision is made.
-7. **Fast is part of friendly.** Every tap acknowledges immediately. Cached content paints first. Animation never delays navigation or input.
-8. **Android is authoritative.** Russian is the default language, physical Galaxy A12-class testing is required, and all layouts respect keyboard and system-navigation insets.
+Accent customization is not exposed. Snezhok has one mandatory identity:
 
-## Current product scope
-
-The primary Android navigation has three destinations in this order:
-
-1. **Чаты / Chats**
-2. **Профиль / Profile**
-3. **Настройки / Settings**
-
-Servers, server channels, server administration, server notification overrides, and server entry points are dormant. Their implementation and data remain in the repository for a possible future release, controlled by the checked-in client gates at `apps/mobile/src/config/productCapabilities.ts` and `apps/web/src/config/productCapabilities.ts`. Dormant capabilities must not appear in navigation, search results, notifications, settings, administration, or deep links.
-
-Chat and call details hide the bottom navigation. Direct switches between bottom destinations animate only the source and destination; intermediate screens never pass through the viewport.
-
-## Visual language
-
-### Color strategy
-
-Snezhok uses one mandatory product palette. Accent-color selection is not exposed. The legacy `accent` settings field remains temporarily fixed to `blue` only so installed 3.x clients can cross the update boundary without a breaking settings migration.
-
-Use color in four structural layers:
-
-- **Destination canvas:** sunny butter for Chats, sky for a chat room, mint for Profile, and lavender for Settings. Deep indigo/colored equivalents replace neutral charcoal in dark mode.
-- **Content cream:** routine fields, navigation, incoming content, and blocking surfaces use warm cream rather than clinical white.
-- **Snezhok cobalt:** primary actions, links, unread state, focus, and current-user identity use one fixed blue.
-- **Play colors:** pink, coral, butter, lime, mint, tangerine, lavender, and sky recur in list cards, section cards, icon tiles, cooperative activities, and results.
-
-A screen may use two or three play families when hierarchy remains clear. Large flat shapes may sit behind content as static scene-setting forms. Do not create animated wallpaper, noisy confetti, or per-row image assets.
-
-#### Light foundation
-
-| Token | Value | Use |
+| Token | Value | Purpose |
 | --- | --- | --- |
-| `chats-canvas` | `#FFD166` | sunny Chats scene |
-| `chat-canvas` | `#B9D7FF` | direct-chat scene |
-| `profile-canvas` | `#AEE6C6` | personal Profile scene |
-| `settings-canvas` | `#C9B5FF` | Settings scene |
-| `surface` | `#FFF0C9` | fields and supporting controls |
-| `surface-raised` | `#FFF8E7` | sheets, dialogs, navigation |
-| `ink` | `#1E2140` | primary content and strong outlines |
-| `ink-secondary` | `#56506E` | previews and support text |
-| `border` | `#D99463` | soft internal separation |
-| `outline` | `#24233A` | deliberate 1.25-1.5 dp object outlines |
-| `snow-blue` | `#3858E8` | fixed accessible primary action |
-| `snow-blue-pressed` | `#2941B6` | pressed primary action |
-| `snow-blue-soft` | `#B9C8FF` | selection and support surface |
+| Milk | `#FFF7E8` | main light canvas |
+| Ink | `#17131A` | primary text and dark canvas |
+| Electric Violet | `#6437F5` | identity, navigation, primary actions, outgoing messages |
+| Acid Lime | `#D7FF29` | creation, selected state, reveal accent |
+| Pink | `#FF7EA8` | identity and social/editorial moments |
+| Orange | `#FF8A1F` | energetic activity moments |
+| Sky | `#62B8FF` | calm activity moments |
+| Lavender | `#DCC8FF` | reflection and secondary violet moments |
+| Mint | `#BDEFCF` | success and cooperative moments |
+| Fog | `#EFE9DF` | quiet controls and separators |
+| Warm incoming | `#F1EBDD` | incoming bubbles and neutral groups |
 
-#### Dark foundation
+Soft group surfaces are Violet `#E3D4EA`, Lime `#F8F8C6`, Pink `#FFE1DC`, Orange `#FFE3C4`, and Sky `#E3ECEC`.
 
-| Token | Value | Use |
+Use one dominant color per screen and no more than two supporting accents. Most authenticated screens use Milk as the canvas and Violet as identity. Strong full-screen color is reserved for authentication, calls, activities, or a genuine feature stage. Never assign random colors to list rows. Never turn every settings icon into a different color.
+
+Gradients are limited to one rare hero/reveal or brand artifact per screen. Routine controls and messages use flat color. Semantic danger, warning, success, online, and disabled colors never become decoration.
+
+Dark mode uses Ink/deep warm surfaces, not gaming-neon black. Violet and Lime retain their roles. Every semantic foreground/background pair must meet WCAG AA.
+
+## Typography
+
+Onest is the product family, embedded in the APK with Cyrillic and Latin weights 400–900. Use sentence case.
+
+| Role | Size / line | Weight |
 | --- | --- | --- |
-| `chats-canvas` | `#1B1D52` | deep indigo Chats scene |
-| `chat-canvas` | `#22265F` | chat scene |
-| `profile-canvas` | `#173F38` | Profile scene |
-| `settings-canvas` | `#35265F` | Settings scene |
-| `surface` | `#292D68` | fields and supporting controls |
-| `surface-raised` | `#343879` | dialogs and floating controls |
-| `ink` | `#FFF7E7` | primary content |
-| `ink-secondary` | `#D5CFF0` | previews and support text |
-| `ink-faint` | `#AAA3C8` | timestamps and disabled text |
-| `border` | `#585D99` | internal separation |
-| `snow-blue` | `#7FA2FF` | primary action and selection |
-| `snow-blue-pressed` | `#A9BEFF` | pressed primary action |
-| `snow-blue-soft` | `#3A4C91` | selection and outgoing support surface |
+| Display | 32 / 38 | 800–900 |
+| Page title | 28 / 33 | 800 |
+| Section title | 20 / 25 | 700–800 |
+| Row/card title | 16 / 21 | 700 |
+| Body/message | 16 / 22 | 400 |
+| Supporting body | 14 / 19 | 400–500 |
+| Label/metadata | 12 / 16 | 600–700 |
 
-System theme is the default. Light and dark are equally complete. High-contrast mode increases text and boundary contrast without replacing every surface with pure black or white.
+Display type belongs only to onboarding, a major empty state, or a shared reveal. It may occupy two lines at most. Routine screens must not shout in all caps.
 
-#### Moment palette
+## Icons
 
-| Name | Fill | Pairing | Default activity use |
-| --- | --- | --- | --- |
-| Lavender | `#B894FF` | `#1E2140` | questions, Settings, reflection |
-| Pink | `#FF87AE` | `#1E2140` | identity, search, social details |
-| Coral | `#FF7568` | `#1E2140` | romance and energetic reveals |
-| Butter | `#FFD45C` | `#1E2140` | memories, movies, avatar plates |
-| Lime | `#CDEB62` | `#1E2140` | quests and completed actions |
-| Mint | `#6ED9A7` | `#1E2140` | profile, cooperative milestones |
-| Tangerine | `#FF9138` | `#1E2140` | creation, surprise, Draw & Guess |
-| Sky | `#76C5FF` | `#1E2140` | songs and calm prompts |
+Phosphor is the only interface icon family. Bold is the default weight; Fill is reserved for selected navigation or a binary selected state. Icons normally use Ink, Violet, or the current semantic foreground. Emoji is content, never the sole control glyph. The sparkle is a deliberate cooperative-action symbol and always has an accessible label.
 
-The established ✦ launcher and cooperative cards keep their slightly lighter companion tints (`#CDB5FF`, `#FF9184`, `#DCEF72`, `#91E3BB`, `#A8D8FF`, `#FFE88A`, `#FFA044`, and `#FFB8C3`). They are fixed members of the same families, not user-selectable accents. Their successful grid, labels, and activity identity should not be casually restyled.
+Do not mix Phosphor with Tabler, platform Material icons, arbitrary SVG styles, or emoji buttons.
 
-Moment colors have fixed semantic pairings across themes. Use their dark pairing for text on light fills and a tested lighter tint for dark-mode text. Danger, warning, success, and online presence remain separate semantic colors and are never decorative.
+## Geometry and spacing
 
-Gradients are permitted only for the Snezhok wordmark, a rare hero/reveal background, or a generated collage treatment. Controls, settings rows, message bodies, and routine navigation use solid fills.
+Use the 4 dp rhythm: 4, 8, 12, 16, 20, 24, and 32. Page padding is 20 dp; section rhythm is 24–32 dp. Compact message internals may use 8–12 dp.
 
-### Typography
+| Geometry | Value |
+| --- | ---: |
+| Micro radius | 4 dp |
+| Control radius | 12 dp |
+| Card/bubble radius | 18 dp |
+| Hero radius | 24 dp |
+| Navigation dock radius | 26 dp |
+| Semantic pill | 999 dp |
 
-Android uses the platform typeface until a bundled family with complete Cyrillic, Latin, weight, accessibility, license, and A12 startup validation replaces it. Personality comes from scale, weight, color, and composition—not an unverified decorative font.
+The minimum target is 44 dp and should be 48 dp where practical. A pill is allowed only for a filter, status, segment, or compact selection. Ordinary cards and buttons are not pills. Avoid nested rounded rectangles; when spacing or fill already establishes hierarchy, remove the border.
 
-| Token | Size / line | Weight | Use |
-| --- | --- | --- | --- |
-| `display` | 32 / 37 sp | 800 | onboarding and major shared reveal only |
-| `page-title` | 28 / 33 sp | 800 | Chats, Profile, Settings |
-| `section-title` | 20 / 25 sp | 750 | feature and sheet sections |
-| `title` | 16 / 21 sp | 700 | rows, cards, chat title |
-| `body` | 16 / 22 sp | 400 | messages and inputs |
-| `body-small` | 14 / 19 sp | 450 | previews and descriptions |
-| `label` | 12 / 16 sp | 650 | metadata, chips, timestamps |
+## Elevation and decoration
 
-Use sentence case. Never use uppercase paragraphs. Display type may occupy at most two lines on a phone and must not push the first action below the fold at 360 × 800 dp.
+Shadows belong only to genuinely floating layers: the bottom dock, floating creation action, menu, sheet, or dialog. Use a soft short shadow, never a hard offset cartoon shadow. Virtualized rows and message bubbles have no shadow.
 
-### Spacing and geometry
+A routine card does not need an Ink outline. Dividers use Fog or a hairline. At most two large, flat, partially off-canvas editorial motifs may appear on an otherwise calm screen. No random snowflakes, confetti wallpaper, decorative spark on every section, or mascot beside routine controls.
 
-Use the 4 dp grid: 4, 8, 12, 16, 20, 24, 32, and 40. The normal page inset is 16 dp; compact message geometry may use 8 or 12 dp. Touch targets are at least 48 × 48 dp, with a 44 dp absolute minimum only where Android conventions require it.
+The mascot is limited to onboarding, loading, empty, success, and sticker/celebration contexts. It never replaces content or becomes a permanent navigation ornament.
 
-| Radius | Value | Use |
-| --- | ---: | --- |
-| `small` | 10 dp | fields, compact controls |
-| `medium` | 16 dp | rows, bubbles, menus |
-| `large` | 24 dp | feature cards, sheets, large media |
-| `hero` | 32 dp | rare reveal or empty-state panel |
-| `round` | 999 dp | avatars, chips, icon buttons |
-
-Rounded does not mean nested. A screen may have a section card and a control inside it; it should not place a card inside a card inside another tinted card. When hierarchy is already clear from spacing or color, remove the border.
-
-### Elevation and borders
-
-Primary cards and important controls use a deliberate dark 1.25-1.5 dp outline. Search, floating actions, hero panels, and blocking cards may add one short 2-4 dp hard offset shadow for tactile depth. Virtualized message and conversation rows avoid expensive blur shadows. Bottom sheets and menus use one consistent elevation. Backdrop opacity animates independently from panel position so the sheet is at its final elevation on the first rendered frame.
-
-### Icons and expressive graphics
-
-- Use the existing coherent Tabler-style line family, 1.8–2.0 visual stroke.
-- Use filled variants only for active bottom navigation or a binary selected state.
-- Interface actions do not use emoji as their only icon.
-- The ✦ Big Button is a deliberate product symbol and always has an accessible label.
-- Decorative loops, snow puffs, flowers, or stars use simple flat vectors and one stroke language.
-- The Snezhok character is a small, friendly snow puff/snowflake—not a copy of the reference flower. It appears in onboarding, empty states, activity instructions, and celebratory results, never beside every message or setting.
-- Photography is user content first. Stock lifestyle photography does not appear inside the authenticated product.
-
-## Component grammar
+## Core components
 
 ### Buttons
 
-- **Primary:** solid snow blue, white label, 48–52 dp height, medium radius. One primary action per decision surface.
-- **Secondary:** soft surface with ink label and optional leading icon.
-- **Quiet:** text or icon on transparent background for reversible utilities.
-- **Destructive:** danger text or fill only after the user has entered a destructive flow.
-- **Play:** moment-color fill with ink pairing; label describes the action, such as “Ответить тайно”.
+- Primary: Violet with white label, 48–52 dp high, 12 dp radius.
+- Creation/selected: Lime with Ink label.
+- Secondary: warm/soft surface with Ink label.
+- Quiet: transparent icon or text for reversible utilities.
+- Destructive: danger treatment only inside a destructive flow.
 
-Buttons acknowledge touch within one frame through opacity, scale no smaller than 0.97, or color. Haptics support meaningful selection, start, reveal, success, and destructive confirmation; they do not fire on every scroll or keypress.
+One decision surface has one dominant action. Press feedback uses color, opacity, or scale no smaller than 0.96 and acknowledges within one frame.
 
-### Fields
+### Fields and search
 
-Fields have persistent labels when the meaning could become ambiguous after entry. Placeholder text is an example, never the only label. Errors appear adjacent to the field and keep user input intact. Search is a compact soft-surface field; the message composer is its own component, not a generic form field.
+Fields use warm or Fog surfaces, 12 dp radius, calm borders only for focus/error. Search is quiet and does not receive a decorative shadow. Placeholder copy is an example, not the only label when ambiguity would remain.
 
-### Cards
+### Cards and lists
 
-Cards are for a durable object or grouped decision: a shared activity, paired songs, movie, capsule, or settings section. They are not wrappers for every list row. Every card has one dominant content area and no more than two visible actions; additional actions go into a styled sheet.
-
-### Chips and segmented controls
-
-Chips represent a filter, category, person, or compact state. They do not replace ordinary buttons. Selected chips use fill plus text contrast, not color alone. Segmented controls have two to four mutually exclusive options and a shared container.
+Cards represent a durable object or grouped decision—not every row. A card has one dominant content area and at most two visible actions. Chat and contact lists are mostly neutral; Saved Messages or another singular special object may receive a soft branded surface.
 
 ### Sheets and dialogs
 
-Android uses Snezhok sheets for choice lists, activity launch, reactions, and contextual actions. Centered dialogs are reserved for short blocking decisions, security, and destructive confirmation. No default Android-looking confirmation dialog is accepted where the styled application surface can be used.
+Choice lists, reactions, activity launchers, and contextual actions use Snezhok sheets. Sheets have a 26 dp top radius and one floating-layer shadow. The backdrop fades independently while the sheet moves upward. Centered dialogs are reserved for security, destructive confirmation, and short blocking decisions. Do not show stock Android dialogs where a styled surface is appropriate.
 
-Sheets slide 160–220 ms with ease-out; the backdrop fades 120–160 ms. Keyboard-bound sheets resize or pan deliberately and never jump behind three-button navigation.
+## Navigation
 
-### Navigation
+The current primary destinations are Chats, Profile, and Settings. Server code remains dormant behind checked-in capability gates and must not appear in navigation, search, notifications, administration, or deep links.
 
-The bottom bar is quiet, fixed, safe-area aware, and contains Chats, Profile, and Settings. Labels remain visible. The active item may use a compact snow-blue soft capsule behind its icon; the entire bar must not become a floating glass pill.
+The bottom dock is Violet on a Milk screen. Unselected items use a soft white foreground. The selected icon/label sits on a Lime island with Ink foreground and uses the Fill icon weight. Labels stay visible. Safe-area padding is outside the dock so the dock never sits under Android navigation controls.
 
-Top bars contain identity/title on the left and at most three high-frequency actions on the right. Overflow holds the rest. In a direct chat, reserve one prominent ✦ action for cooperative experiences once that framework is available; do not add several game icons.
+Direct tab changes animate only source and destination. A chat, profile detail, media viewer, or call hides the dock. Headers are flat and calm, with a 28 dp page title or compact chat identity and no more than three frequent actions.
 
-## Messaging surface
+## Screen contracts
 
-Messaging behavior remains Telegram-like:
+### Chats
 
-- cached recent messages paint immediately and the chat opens at the newest message;
-- direct and group messages use restrained bubbles with real aspect-ratio media;
-- one check means accepted by the current protocol; two checks require actual remote read state;
-- double tap applies a heart; tap opens the compact reaction picker;
-- swipe replies; long press selects the whole message with animated left-gutter checks;
-- selected bubbles shift smoothly and actions use short labels;
-- optimistic sends and mutations reconcile without duplicates;
-- selection UI clears immediately after an action begins instead of waiting on the network.
+Milk canvas, quiet warm search, Lime selected filters, neutral rows, and a Lime creation action. Saved Messages may use Soft Violet. No random per-row palette and no outlined card around every conversation.
 
-The normal chat background is a bold sky/indigo scene with two or three large static flat forms. It is not a photo collage or animated wallpaper. Incoming bubbles use cream; outgoing bubbles use confident sky blue; both use the product outline. Cooperative activity cards appear in the same chronological stream and may be more exuberant.
+### Chat
 
-### Composer
+Messages dominate. Incoming bubbles are Warm with Ink; outgoing bubbles are Violet with white. Bubbles have no normal border or shadow and use a tighter sender-side top corner. Media retains real aspect ratio and authenticated sources. Selection adds Violet boundary/checks without permanently changing normal geometry.
 
-The resting composer contains attachment, expanding text input, and voice/send control. The cooperative ✦ entry belongs in the header, not inside the already dense composer. Reply and edit context occupy one compact strip above the field. Recording keeps the existing hold, slide-to-cancel, slide-to-lock, live waveform, and Samsung fallback behavior.
+The composer is a calm Milk/Warm strip with a warm field, quiet attachment control, Violet send control, and existing voice gesture behavior. The sparkle cooperative launcher stays prominent in the header. Pinned/reply/edit states use compact soft group surfaces.
 
-### Activity cards in chat
+### Profile
 
-Every cooperative activity renders from one shared card grammar:
+Milk canvas with one Pink identity/portrait stage as the dominant expressive area. Supporting photo collections use Soft Violet; contacts return to neutral Warm rows. It is a personal identity page, not a social feed or collage of colored cards.
 
-1. Type icon and short label.
-2. Human prompt or object title.
-3. Participant state using avatars and plain language.
-4. One current action for the viewer.
-5. A compact result after completion.
+### Settings
 
-Waiting cards say who or what is awaited without nagging. Secret contributions never expose length, typing, choice, thumbnail, metadata, or partial result before the reveal rule succeeds. Completion updates the existing card and may add one concise system event; it does not flood the chat with every internal step.
+Milk canvas and soft color by section group—not by individual row. Appearance may be Soft Violet, storage Soft Lime, voice/video Soft Sky, privacy Soft Pink/Mint, and destructive sign-out a quiet danger surface. Accent color selection is absent.
 
-## Media, calls, profile, and settings
+### Authentication
 
-Media keeps authenticated URLs, immediate drawers, Upload File as the first tile, one HQ toggle, album batching of ten, progress, thumbnail-first rendering, polished viewing, and correct aspect ratios. Cooperative photo submissions reuse the same transfer and privacy pipeline.
+Violet may dominate the whole stage. Identity copy is white, fields are warm/light, and the main action is Lime with Ink. Decoration stays editorial and sparse.
 
-Calls stay visually calmer than activity reveals. Participant video dominates; controls use dark neutral surfaces and snow blue for active state. Connection, reconnecting, degraded, and failed states are explicit. Screen sharing, audio route, foreground service behavior, and LiveKit reliability rules remain unchanged by the redesign.
+### Calls and media
 
-Profile uses a mint scene, a butter avatar plate, and a pink identity card, followed by colorful object sections. It is not a social feed. Settings use a lavender scene and stable category colors across grouped cards. The strong color is intentional; row order, typography, icons, and separators still carry hierarchy.
+Calls remain calmer than activities: participant video dominates, dark Ink surfaces support it, Violet marks active controls, and state is explicit. Viewers prioritize content with minimal custom controls. Reliability, authenticated media, safe areas, LiveKit behavior, foreground services, and the Samsung recorder fallback are not changed by styling.
 
-## Motion and feedback
+### Cooperative activities
 
-| Interaction | Duration | Treatment |
-| --- | ---: | --- |
-| Press feedback | 70–110 ms | color/opacity and optional 0.97–1 scale |
-| Tab destination | 160–190 ms | direct horizontal source-to-destination |
-| Sheet | 180–220 ms | upward ease-out; independent backdrop |
-| Activity card update | 180–260 ms | local crossfade/resize, no list-wide layout storm |
-| Secret reveal | 300–450 ms | one intentional mask/flip/fade sequence |
-| Milestone | up to 700 ms | bounded, dismissible, never blocks chat |
+The sparkle menu may be more expressive than routine messaging while staying within the fixed families. Every activity card contains: type and icon, human prompt/title, participant state, one current action, and a compact durable result. Secret input reveals no partial answer or metadata. Activity steps update one chronological chat object rather than flooding the conversation.
 
-Use Reanimated/UI-thread motion for gestures and per-frame transforms. Do not animate entire FlashList trees, waveform progress through global Zustand state, ambient decorative loops, parallax, or continuous gradients. Reduced motion replaces spatial/celebratory motion with immediate state plus a short opacity transition.
+## Motion
 
-Skeletons appear only when no cached content exists. Existing content never disappears behind a route-level spinner. Offline, retrying, waiting, locked, revealed, completed, expired, and failed states are designed states—not toast-only afterthoughts.
+| Motion | Duration |
+| --- | ---: |
+| Micro feedback | 160 ms |
+| Standard UI transition | 230 ms |
+| Expressive reveal | 320 ms |
+| Celebration maximum | 500 ms |
 
-## Language and tone
+Use gentle ease-out with a small overshoot only where it improves tactility. Reanimated/UI-thread transforms handle gestures and per-frame motion. Never animate the full FlashList, drive waveform/video progress through global state, or run continuous ambient decoration. Reduced motion replaces spatial motion with immediate state and a short fade.
 
-Russian ships first and English ships in the same change. Copy is warm, short, and specific:
+## Language, accessibility, and performance
 
-- Prefer “Ждём ответ Наташи” to “Ожидание ответа другого участника”.
-- Prefer “Открыть вместе” to “Инициировать совместное раскрытие”.
-- Never shame inactivity or imply relationship quality from app usage.
-- Avoid generic encouragement, therapy claims, romance assumptions, and marketing prose inside routine screens.
-- NSFW and romantic categories use explicit names and consent; they are never selected by Surprise unless both participants enabled them.
+Copy is warm, short, and specific. It never shames inactivity, diagnoses a relationship, or makes therapeutic claims. Romantic/18+ content is explicit and consensual and is never selected by Surprise unless both people enabled it.
 
-## Accessibility and device constraints
+Support Android font scaling without hiding primary actions. Controls expose labels, roles, checked/selected/disabled state, and predictable traversal. Color is never the only state signal. Verify 360×800 and 412×915 layouts, Russian expansion, keyboard open/closed, gesture and three-button navigation.
 
-- Support 200% Android font scale without hiding primary actions.
-- Meet WCAG AA contrast for text and controls; moment color is never the only state signal.
-- Provide roles, labels, selected/checked/disabled state, and predictable screen-reader traversal.
-- Describe user images only from user-provided captions; do not invent visual meaning.
-- Minimum targets remain 48 dp where practical.
-- Test 360 × 800 and 412 × 915 dp-equivalent layouts, gesture navigation, three-button navigation, keyboard open/closed, rotation-sensitive call/share surfaces, and Russian expansion.
-- On the Samsung A12, cached shell interaction targets 1.5 seconds, chat switch paint 100 ms, and optimistic feedback 50 ms as defined by the performance budgets.
+Cached content paints first. Navigation and optimistic feedback remain immediate. Decorative work must be compositor-cheap. Physical Samsung A12-class testing remains required before calling performance or native media behavior verified.
 
-## Screen implementation order
+## Review gate
 
-The redesign is migrated vertically, not by replacing every primitive at once:
+A surface is ready only when all are true:
 
-1. Tokens, foundation surfaces, type scale, icons, bottom navigation, headers, sheets, and buttons.
-2. Chats list and direct-chat shell without changing message reliability behavior.
-3. Profile and Settings using the same primitives.
-4. Cooperative activity card and ✦ launch sheet.
-5. Individual cooperative activities in the order defined by `COOPERATIVE_EXPERIENCES.md`.
-6. Authentication, calls, media viewers, and remaining secondary surfaces.
-
-Each slice must be shippable, physically testable, and reversible. Do not maintain old and new component styles indefinitely; migrate shared primitives and remove the superseded visual path after its consumers move.
-
-## Review checklist
-
-A screen is not ready unless all answers are yes:
-
-- Is the frequent action obvious without explanatory copy?
-- Is there one dominant action and a clear next state?
-- Does it use the fixed destination canvas, Snezhok cobalt, warm cream, and a controlled two or three play-color families?
-- Are nested cards, pills, shadows, and decorative art structurally justified?
-- Does interaction acknowledge within one frame and reconcile safely?
-- Do loading, empty, offline, failure, waiting, and completed states preserve context?
-- Does Russian fit at 360 × 800 dp and at increased font scale?
-- Are touch, screen-reader, contrast, motion, safe-area, and keyboard rules satisfied?
-- Does it remain smooth on a physical Galaxy A12-class device?
-- For cooperative work, does one action affect both people, require meaningful contribution, and leave a useful result in chat/history?
+- The frequent action is obvious and one action dominates.
+- The 80/20 calm-to-expression ratio is visible.
+- It uses Onest, Phosphor, Milk/Ink, fixed Violet, and controlled Lime/supporting accents.
+- No random row colors, unjustified pills, nested cards, hard shadows, or decorative clutter remain.
+- Loading, empty, offline, failure, waiting, and completed states preserve context.
+- Russian, increased font scale, touch targets, contrast, safe areas, and keyboard behavior work.
+- Messaging/media/call reliability behavior is unchanged or explicitly tested.
+- Cooperative actions affect both people and leave a useful result in chat/history.

@@ -1,32 +1,35 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createPalette } from "./theme";
+import { brand, createPalette, radii, spacing } from "./theme";
 
-test("the product palette has one fixed accent and saturated screen canvases", () => {
+test("the product uses the fixed Snezhok brand system", () => {
   const light = createPalette("light");
-  assert.equal(light.accent, "#3858E8");
-  assert.notEqual(light.background, light.chatCanvas);
-  assert.notEqual(light.chatCanvas, light.profileCanvas);
-  assert.notEqual(light.profileCanvas, light.settingsCanvas);
-  assert.equal(light.elevated, "#FFF8E7");
+  assert.equal(light.background, brand.milk);
+  assert.equal(light.text, brand.ink);
+  assert.equal(light.accent, brand.violet);
+  assert.equal(light.pop, brand.lime);
+  assert.equal(light.navigation, brand.violet);
+  assert.equal(light.chatCanvas, brand.milk);
 });
 
-test("dark mode remains colorful instead of collapsing to charcoal", () => {
-  const dark = createPalette("dark");
-  assert.equal(dark.background, "#1B1D52");
-  assert.equal(dark.chatCanvas, "#22265F");
-  assert.equal(dark.accent, "#7FA2FF");
-  assert.notEqual(dark.surface, "#222731");
+test("geometry follows the brand rhythm instead of ad-hoc screen values", () => {
+  assert.equal(spacing.page, 20);
+  assert.equal(spacing.section, 24);
+  assert.equal(radii.control, 12);
+  assert.equal(radii.card, 18);
+  assert.equal(radii.hero, 24);
+  assert.equal(radii.dock, 26);
 });
 
-test("fixed play colors and message bubbles retain readable text contrast", () => {
+test("functional color pairs retain readable text contrast", () => {
   for (const scheme of ["light", "dark"] as const) {
     const palette = createPalette(scheme);
-    for (const fill of Object.values(palette.moment)) assert.ok(contrast(palette.text, fill) >= 4.5, `${scheme} ${fill} must retain AA text contrast`);
+    assert.ok(contrast(palette.text, palette.background) >= 4.5);
     assert.ok(contrast(palette.text, palette.incoming) >= 4.5);
-    assert.ok(contrast(palette.text, palette.outgoing) >= 4.5);
+    assert.ok(contrast(palette.onAccent, palette.outgoing) >= 4.5);
     assert.ok(contrast(palette.onAccent, palette.accent) >= 4.5);
+    assert.ok(contrast(palette.onPop, palette.pop) >= 4.5);
     assert.ok(contrast(palette.onDanger, palette.danger) >= 4.5);
   }
 });

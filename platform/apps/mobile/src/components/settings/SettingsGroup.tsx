@@ -32,7 +32,7 @@ export function SettingsCard({ children, tone }: { children: ReactNode; tone?: S
   const ui = useUiPreferences();
   const rows = Children.toArray(children);
   return (
-    <View style={[styles.card, { borderRadius: Math.max(18, ui.bubbleRadius), backgroundColor: tone ? palette.moment[tone] : palette.elevated, borderColor: palette.outline, shadowColor: palette.outline }]}>
+    <View style={[styles.card, { borderRadius: Math.max(18, ui.bubbleRadius), backgroundColor: settingsTone(palette, tone) }]}>
       {rows.map((row, index) => (
         <Fragment key={index}>
           {row}
@@ -223,10 +223,10 @@ export function SettingsChoiceSheet({
       <View style={styles.modalLayer}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: progress, backgroundColor: palette.overlay }]} />
         <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={StyleSheet.absoluteFill} />
-        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.navigation, borderColor: palette.outline, transform: [{ translateY: sheetTranslateY }] }]}>
+        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.elevated, shadowColor: palette.outline, transform: [{ translateY: sheetTranslateY }] }]}>
           <View style={[styles.grabber, { backgroundColor: palette.faintText }]} />
           <Text style={[styles.sheetTitle, { color: palette.text, fontSize: ui.font(18), lineHeight: ui.font(23) }]}>{display.title}</Text>
-          <View style={[styles.options, { backgroundColor: palette.elevated, borderColor: palette.outline }]}>
+          <View style={[styles.options, { backgroundColor: palette.surface }]}>
             {display.options.map((option, index) => {
               const active = option.value === display.selected;
               return (
@@ -261,9 +261,9 @@ export function SettingsChoiceSheet({
 
 const styles = StyleSheet.create({
   section: { gap: 8 },
-  sectionTitle: { marginLeft: 4, fontSize: 15, lineHeight: 20, fontWeight: "900", letterSpacing: -0.2 },
+  sectionTitle: { marginLeft: 4, fontSize: 15, lineHeight: 20, fontWeight: "800", letterSpacing: -0.2 },
   cardStack: { gap: 12 },
-  card: { borderWidth: 1.5, borderRadius: 18, overflow: "hidden", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 3 },
+  card: { borderRadius: 18, overflow: "hidden" },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
   row: { minHeight: 56, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 8 },
   iconSlot: { width: 38, alignItems: "flex-start", justifyContent: "center" },
@@ -278,10 +278,10 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.52 },
   pressed: { opacity: 0.62 },
   modalLayer: { flex: 1, justifyContent: "flex-end" },
-  sheet: { maxHeight: "86%", borderTopWidth: 1.5, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 12, paddingTop: 8 },
+  sheet: { maxHeight: "86%", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 12, paddingTop: 8, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.14, shadowRadius: 14, elevation: 16 },
   grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", opacity: 0.55 },
   sheetTitle: { paddingHorizontal: 10, paddingTop: 14, paddingBottom: 10, fontSize: 18, lineHeight: 23, fontWeight: "800" },
-  options: { overflow: "hidden", borderRadius: 18, borderWidth: 1.5 },
+  options: { overflow: "hidden", borderRadius: 18 },
   choice: { minHeight: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: 14 },
   choiceDot: { width: 10, height: 10, borderRadius: 5, marginRight: 11 },
   choiceLabel: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "600" },
@@ -289,3 +289,12 @@ const styles = StyleSheet.create({
   cancel: { minHeight: 50, marginTop: 10, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   cancelText: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
 });
+
+function settingsTone(palette: ReturnType<typeof usePalette>, tone?: SettingsCardTone) {
+  if (!tone) return palette.group.neutral;
+  if (tone === "pink" || tone === "coral") return palette.group.pink;
+  if (tone === "lime" || tone === "butter") return palette.group.lime;
+  if (tone === "tangerine") return palette.group.orange;
+  if (tone === "sky" || tone === "mint") return palette.group.sky;
+  return palette.group.violet;
+}

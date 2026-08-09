@@ -114,7 +114,7 @@ export const MessageBubble = memo(function MessageBubble({ streamId, message, mi
             <View style={styles.channelAvatar}>{showSender ? <Avatar uri={message.sender.avatarUrl} label={message.sender.displayName} color={message.sender.avatarColor} size={40} /> : null}</View>
             <View style={[styles.channelContent, selected && { backgroundColor: palette.accentSoft }]}>
               {showSender ? <View style={styles.authorLine}><Text style={[styles.channelAuthor, { color: message.sender.avatarColor || palette.text, fontSize: ui.font(15) }]}>{message.sender.displayName}</Text><Text style={[styles.channelTime, { color: palette.faintText, fontSize: ui.font(11) }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text></View> : null}
-              <MessageContent streamId={streamId} message={message} mine={mine} showSender={false} showTime={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+              <MessageContent streamId={streamId} message={message} mine={mine} foreground={palette.text} mutedForeground={palette.secondaryText} showSender={false} showTime={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
             </View>
           </Pressable>
         </Animated.View>
@@ -126,8 +126,8 @@ export const MessageBubble = memo(function MessageBubble({ streamId, message, mi
       <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
       <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
         <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, { marginVertical: ui.dense(2, 1) }]}>
-          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, { borderRadius: message.activity ? 24 : ui.bubbleRadius, paddingHorizontal: message.activity ? 0 : ui.dense(12, 10), paddingVertical: message.activity ? 0 : ui.dense(8, 5), backgroundColor: message.activity ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderColor: message.activity ? "transparent" : selected ? palette.accent : palette.outline, opacity: pressed ? 0.82 : 1 }]}>
-            <MessageContent streamId={streamId} message={message} mine={mine} showSender={showSender && !mine} showTime interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, mine ? styles.mineBubble : styles.theirBubble, { borderRadius: message.activity ? 24 : ui.bubbleRadius, paddingHorizontal: message.activity ? 0 : ui.dense(12, 10), paddingVertical: message.activity ? 0 : ui.dense(8, 5), backgroundColor: message.activity ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderWidth: selected && !message.activity ? 1.5 : 0, borderColor: selected ? palette.accent : "transparent", opacity: pressed ? 0.82 : 1 }]}>
+            <MessageContent streamId={streamId} message={message} mine={mine} foreground={selected || !mine ? palette.text : palette.onAccent} mutedForeground={selected || !mine ? palette.secondaryText : "rgba(255,255,255,0.76)"} showSender={showSender && !mine} showTime interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
           </Pressable>
         </View>
       </Animated.View>
@@ -153,7 +153,7 @@ function SelectionMarker({ selected, animatedStyle }: { selected: boolean; anima
   );
 }
 
-function MessageContent({ streamId, message, mine, showSender, showTime, interactionDisabled, onReact, onReplyPress, onOpenActivity }: { streamId: string; message: Message; mine: boolean; showSender: boolean; showTime: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined; onOpenActivity?: (() => void) | undefined }) {
+function MessageContent({ streamId, message, mine, foreground, mutedForeground, showSender, showTime, interactionDisabled, onReact, onReplyPress, onOpenActivity }: { streamId: string; message: Message; mine: boolean; foreground: string; mutedForeground: string; showSender: boolean; showTime: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined; onOpenActivity?: (() => void) | undefined }) {
   const palette = usePalette();
   const ui = useUiPreferences();
   const { t } = useTranslation();
@@ -168,19 +168,19 @@ function MessageContent({ streamId, message, mine, showSender, showTime, interac
       {message.replyTo ? (
         <Pressable accessibilityRole="button" onPress={() => onReplyPress?.(message.replyTo!.id)} style={[styles.reply, { borderColor: palette.accent }]}>
           <Text numberOfLines={1} style={[styles.replyName, { color: palette.accent, fontSize: ui.font(12) }]}>{message.replyTo.senderName}</Text>
-          <Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText, fontSize: ui.font(12) }]}>{message.replyTo.text}</Text>
+          <Text numberOfLines={1} style={[styles.replyText, { color: mutedForeground, fontSize: ui.font(12) }]}>{message.replyTo.text}</Text>
         </Pressable>
       ) : null}
       {message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}
       {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
       {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} />)}
-      {message.text ? <Text selectable={false} style={[styles.text, { color: palette.text, fontSize: ui.font(16), lineHeight: ui.font(21) }]}>{message.text}</Text> : null}
+      {message.text ? <Text selectable={false} style={[styles.text, { color: foreground, fontSize: ui.font(16), lineHeight: ui.font(21) }]}>{message.text}</Text> : null}
       {showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? (
         <View style={[styles.meta, !showTime && styles.channelMeta]}>
           {message.pinnedAt ? <View style={styles.pinned}><AppIcon name="pin" size={10} color={palette.accent} /><Text style={[styles.edited, { color: palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}
-          {message.editedAt ? <Text style={[styles.edited, { color: palette.faintText }]}>edited</Text> : null}
-          {showTime ? <Text style={[styles.time, { color: palette.faintText }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
-          {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}
+          {message.editedAt ? <Text style={[styles.edited, { color: mutedForeground }]}>edited</Text> : null}
+          {showTime ? <Text style={[styles.time, { color: mutedForeground }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
+          {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : foreground} /> : null}
         </View>
       ) : null}
       {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink, borderColor: reaction.reacted ? palette.accent : palette.outline }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
@@ -316,7 +316,9 @@ const styles = StyleSheet.create({
   row: { width: "100%", paddingHorizontal: 8, marginVertical: 2 },
   mineRow: { alignItems: "flex-end" },
   theirRow: { alignItems: "flex-start" },
-  bubble: { maxWidth: "78%", minWidth: 78, borderWidth: 1.2, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
+  bubble: { maxWidth: "82%", minWidth: 78, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  mineBubble: { borderTopRightRadius: 8 },
+  theirBubble: { borderTopLeftRadius: 8 },
   activityBubble: { maxWidth: "94%", width: 302, borderWidth: 0 },
   channelRow: { width: "100%", flexDirection: "row", paddingHorizontal: 12, paddingVertical: 3 },
   channelAvatar: { width: 40, marginRight: 10 },

@@ -7,6 +7,7 @@ test("accepts reviewed SPDX identifiers and compound expressions", () => {
     "MIT",
     "(MIT OR Apache-2.0)",
     "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
+    "MIT AND OFL-1.1",
     "GPL-2.0-only WITH Classpath-exception-2.0",
     "LicenseRef-Vendor-Commercial-Exception",
   ]) assert.doesNotThrow(() => parseSpdxExpression(expression));
