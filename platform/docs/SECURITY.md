@@ -22,6 +22,9 @@ not an acceptable substitute.
   permissions, sessions, transfers, and durable realtime cursors.
 - Blob objects are immutable. Access always passes through an authenticated
   authorization query; Nginx receives only an internal redirect after approval.
+  Nginx has execute-only traversal on the private checkout root and receives no
+  directory-listing permission there; the deployment gate verifies this ACL so
+  an authorized redirect cannot silently degrade into HTTP 403.
 - LiveKit receives short-lived, room-scoped grants after the API verifies stream
   membership. API and LiveKit secrets never enter client bundles.
 - Android access and refresh tokens live in SecureStore. The bounded SQLite

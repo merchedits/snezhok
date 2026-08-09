@@ -65,6 +65,14 @@ public GPL source repository. It does not synchronize source files or modify
 
 Nginx can be switched back to port 3002 without modifying legacy data. Restore v3 PostgreSQL and media from the same backup point when a v3 rollback is required. Never restore only one side of the database/media pair.
 
+Authenticated attachments use `X-Accel-Redirect`: the API authorizes each
+request, then Nginx reads the immutable object. The canonical checkout remains
+private, while `deploy-production.sh` installs an execute-only ACL for
+`www-data` on `/home/merchedits/sites/snezhok-v3` and verifies traversal to the
+object directory. A missing ACL presents as successful API file lookups followed
+by public HTTP 403 responses and `Permission denied` entries in Nginx's error
+log; do not diagnose that state as an Android decoder or upload failure.
+
 ## Android distribution
 
 The internal APK is signed with one stable release key and copied to an authenticated download endpoint. The signing key and passwords are backed up outside the server. Losing the key prevents installed clients from accepting upgrades with the same application ID.

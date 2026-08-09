@@ -19,7 +19,7 @@ env_mode=$(stat -c '%a' "$PLATFORM_ROOT/.env")
 (( (8#$env_mode & 077) == 0 )) || { echo "production .env must not be group/world accessible" >&2; exit 1; }
 configured_revision=$(awk -F= '$1=="IMAGE_TAG" {print $2}' "$PLATFORM_ROOT/.env" | tail -1 | tr -d '\r')
 
-for command in docker curl git node systemctl; do command -v "$command" >/dev/null || { echo "required command missing: $command" >&2; exit 1; }; done
+for command in docker curl git node runuser setfacl systemctl; do command -v "$command" >/dev/null || { echo "required command missing: $command" >&2; exit 1; }; done
 docker compose version >/dev/null
 systemctl is-enabled --quiet snezhok-backup.timer || { echo "maintenance timers must be installed before deployment" >&2; exit 1; }
 checkout_revision=$(git -c safe.directory="$PLATFORM_ROOT" -C "$PLATFORM_ROOT" rev-parse --verify HEAD)
@@ -28,6 +28,18 @@ checkout_revision=$(git -c safe.directory="$PLATFORM_ROOT" -C "$PLATFORM_ROOT" r
   || { echo "production checkout has uncommitted or untracked inputs" >&2; exit 1; }
 node "$PLATFORM_ROOT/scripts/compliance/verify-public-source.mjs" \
   --revision "$REVISION" --repository https://github.com/merchedits/snezhok
+
+# X-Accel-Redirect keeps authorization in the API and file transfer in Nginx.
+# The checkout itself is intentionally private, so grant the Nginx worker only
+# directory traversal on its root. Without this ACL the API returns an internal
+# redirect successfully but Nginx replaces every attachment with HTTP 403.
+CHECKOUT_ROOT=$(dirname "$PLATFORM_ROOT")
+MEDIA_OBJECT_ROOT="$PLATFORM_ROOT/data-v3/storage/objects"
+[[ "$CHECKOUT_ROOT" == "/home/merchedits/sites/snezhok-v3" && -d "$MEDIA_OBJECT_ROOT" ]] \
+  || { echo "canonical media object directory is missing" >&2; exit 1; }
+setfacl -m u:www-data:--x "$CHECKOUT_ROOT"
+runuser -u www-data -- test -x "$CHECKOUT_ROOT"
+runuser -u www-data -- test -x "$MEDIA_OBJECT_ROOT"
 
 # The recovery point is made from the still-running release. Require its
 # image tag and maintenance provenance to remain current until the synchronized
