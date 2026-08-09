@@ -51,7 +51,6 @@ type Props = NativeStackScreenProps<RootStackParamList, "Chat">;
 const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2 } as const;
 const INITIAL_RENDERED_MESSAGES = 80;
 const MESSAGE_PAGE_SIZE = 60;
-const FIRST_FRAME_MESSAGES = 10;
 const emptyMessages: Message[] = [];
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
@@ -130,10 +129,8 @@ export function ChatScreen({ navigation, route }: Props) {
   const [composerSelection, setComposerSelection] = useState({ start: draft.length, end: draft.length });
   const [routeSettled, setRouteSettled] = useState(false);
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
-  const [listReady, setListReady] = useState(false);
   const selectionProgress = useSharedValue(0);
   const selectionMode = selectedIds.size > 0;
-  const initialPositioned = useRef(false);
   const userDraggedHistory = useRef(false);
   const loadingOlder = useRef(false);
   const firstPaintRecorded = useRef(false);
@@ -208,14 +205,12 @@ export function ChatScreen({ navigation, route }: Props) {
     setVoiceCommand("idle");
     setRecorderMounted(false);
     setRecording(false);
-    initialPositioned.current = false;
     userDraggedHistory.current = false;
     loadingOlder.current = false;
     firstPaintRecorded.current = false;
     cachedMessageCountAtOpen.current = useAppStore.getState().messages[streamId]?.length ?? 0;
     setRouteSettled(false);
     setRenderLimit(INITIAL_RENDERED_MESSAGES);
-    setListReady(false);
   }, [streamId]);
   useEffect(() => {
     const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
@@ -484,9 +479,6 @@ export function ChatScreen({ navigation, route }: Props) {
     }
   }, [displayMessages.length, loadOlderMessages, renderLimit, streamId]);
 
-  const firstFrameMessages = useMemo(() => renderedMessages.slice(-FIRST_FRAME_MESSAGES), [renderedMessages]);
-  const firstFrameStart = renderedMessages.length - firstFrameMessages.length;
-
   const emptyState = useMemo(() => <View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>, [palette.secondaryText, palette.text, t, title]);
 
   const performForward = useCallback(async (targetStreamId: string) => {
@@ -599,17 +591,14 @@ export function ChatScreen({ navigation, route }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView onLayout={recordFirstPaint} style={[styles.screen, { backgroundColor: palette.chatCanvas }]} behavior="translate-with-padding" automaticOffset keyboardVerticalOffset={0}>
+    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.chatCanvas }]} behavior="translate-with-padding" automaticOffset keyboardVerticalOffset={0}>
       <PlayfulBackdrop variant="chat" />
       {selectedIds.size > 0
         ? <ScreenHeader tone="chat" title={String(selectedIds.size)} left={{ icon: "close", label: t("cancel"), onPress: () => setSelectedIds(new Set()) }} />
         : <ScreenHeader tone="chat" title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text, fontSize: ui.font(15) }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText, fontSize: ui.font(11) }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={[...(conversation?.kind === "direct" && !conversation.saved ? [{ icon: "sparkles-outline" as const, label: language === "ru" ? "Сделать вместе" : "Do something together", onPress: () => setActivityLauncher(true) }] : []), ...(scheduledMessages.length ? [{ icon: "time-outline" as const, label: t("scheduledMessages"), onPress: () => setScheduledVisible(true) }] : []), ...(streamKind === "conversation" ? [{ icon: "call-outline" as const, label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : []), { icon: "search", label: t("search"), onPress: () => setSearchVisible(true) }]} />}
       {latestPin ? <Pressable onPress={jumpToPinned} style={({ pressed }) => [styles.pinBanner, { borderColor: palette.outline, backgroundColor: pressed ? palette.accentSoft : palette.moment.butter }]}><View style={[styles.pinAccent, { backgroundColor: palette.accent }]} /><AppIcon name="pin" size={17} color={palette.accent} /><View style={styles.pinCopy}><Text style={[styles.pinLabel, { color: palette.accent }]}>{t("pinnedMessage")}</Text><Text numberOfLines={1} style={[styles.pinText, { color: palette.secondaryText }]}>{latestPin.text || t("attachment")}</Text></View></Pressable> : null}
       <View style={styles.messageViewport}>
-        <FlashList ref={list} data={renderedMessages} keyExtractor={messageKey} getItemType={messageCellType} renderItem={renderMessage} style={styles.messageList} contentContainerStyle={styles.list} drawDistance={360} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" maintainVisibleContentPosition={maintainVisibleMessagePosition} onScrollBeginDrag={() => { userDraggedHistory.current = true; }} onStartReached={() => void revealOlderMessages().catch(() => undefined)} onStartReachedThreshold={0.2} onLoad={() => setListReady(true)} onContentSizeChange={() => { if (!initialPositioned.current && renderedMessages.length) { initialPositioned.current = true; requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false })); } }} ListEmptyComponent={emptyState} />
-        {!listReady && firstFrameMessages.length ? <View pointerEvents="none" style={[styles.firstFrameMessages, { backgroundColor: palette.chatCanvas }]}>
-          {firstFrameMessages.map((message, index) => <View key={message.id}>{renderMessage({ item: message, index: firstFrameStart + index })}</View>)}
-        </View> : null}
+        <FlashList ref={list} data={renderedMessages} keyExtractor={messageKey} getItemType={messageCellType} renderItem={renderMessage} style={styles.messageList} contentContainerStyle={styles.list} drawDistance={360} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" maintainVisibleContentPosition={maintainVisibleMessagePosition} onScrollBeginDrag={() => { userDraggedHistory.current = true; }} onStartReached={() => void revealOlderMessages().catch(() => undefined)} onStartReachedThreshold={0.2} onLoad={recordFirstPaint} ListEmptyComponent={emptyState} />
       </View>
       {selectedIds.size > 0 ? <View style={[styles.selectionToolbar, { paddingBottom: Math.max(insets.bottom + 8, 16), borderColor: palette.border, backgroundColor: palette.composer }]}>
         {clipboardText ? <SelectionAction icon="copy-outline" label={t("copy")} onPress={() => void copySelected()} /> : null}
@@ -902,7 +891,6 @@ function SelectionAction({ icon, label, danger = false, onPress }: { icon: AppIc
 
 const styles = StyleSheet.create({
   screen: { flex: 1 }, messageViewport: { flex: 1, overflow: "hidden" }, messageList: { flex: 1 }, list: { paddingVertical: 8 },
-  firstFrameMessages: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, justifyContent: "flex-end", overflow: "hidden", paddingVertical: 8 },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 18 },
   headerCopy: { minWidth: 0, maxWidth: 150 }, headerTitle: { fontSize: 15, lineHeight: 18, fontWeight: "800" }, headerSubtitle: { fontSize: 11, lineHeight: 14, marginTop: 1 },
   pinBanner: { minHeight: 46, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },

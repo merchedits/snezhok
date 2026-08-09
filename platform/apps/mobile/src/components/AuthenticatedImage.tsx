@@ -1,22 +1,28 @@
 import { memo } from "react";
-import { ActivityIndicator, Image, type ImageResizeMode, type ImageStyle, Pressable, type StyleProp, View } from "react-native";
+import { Image, type ImageContentFit } from "expo-image";
+import { type ImageStyle, type StyleProp } from "react-native";
 
-import { useCachedAuthorizedMedia } from "../hooks/useCachedAuthorizedMedia";
-import { usePalette } from "../hooks/usePalette";
+import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 
 interface AuthenticatedImageProps {
   uri: string;
   cacheKey: string;
   mimeType?: string | null;
-  resizeMode?: ImageResizeMode;
+  resizeMode?: ImageContentFit;
   style: StyleProp<ImageStyle>;
   showLoader?: boolean;
 }
 
-export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, cacheKey, mimeType, resizeMode = "cover", style, showLoader = false }: AuthenticatedImageProps) {
-  const palette = usePalette();
-  const media = useCachedAuthorizedMedia(uri, cacheKey, mimeType);
-  if (media.uri) return <Image source={{ uri: media.uri }} resizeMode={resizeMode} style={style} onError={media.retry} />;
-  if (media.failed) return <Pressable accessibilityRole="button" onPress={media.retry} style={[style, { backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" }]}><ActivityIndicator color={palette.accent} size="small" /></Pressable>;
-  return <View style={[style, { backgroundColor: palette.surface, alignItems: "center", justifyContent: "center" }]}>{showLoader ? <ActivityIndicator color={palette.accent} size="small" /> : null}</View>;
+export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, cacheKey, resizeMode = "cover", style }: AuthenticatedImageProps) {
+  const source = useAuthorizedMedia(uri);
+  return (
+    <Image
+      source={source}
+      cachePolicy="memory-disk"
+      contentFit={resizeMode}
+      recyclingKey={cacheKey}
+      transition={0}
+      style={style}
+    />
+  );
 });

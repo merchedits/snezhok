@@ -5,7 +5,7 @@ import { ActivityIndicator, type GestureResponderEvent, Pressable, StyleSheet, T
 import type { Attachment } from "@snezhok/contracts";
 
 import { usePalette } from "../hooks/usePalette";
-import { useCachedAuthorizedMedia } from "../hooks/useCachedAuthorizedMedia";
+import { useAuthorizedMedia, type AuthenticatedMediaSource } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import {
   VOICE_WAVEFORM_HEIGHT,
@@ -44,9 +44,10 @@ export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ att
   const playback = useSyncExternalStore(subscribeVoicePlayback, voicePlaybackSnapshot, voicePlaybackSnapshot);
   const activated = playback.requestedKey === `${streamId}:${attachment.id}`;
   const bars = useMemo(() => voiceWaveformBars(attachment.waveform), [attachment.waveform]);
+  const source = useAuthorizedMedia(attachment.url);
 
   if (activated) {
-    return <ActiveVoiceMessage attachment={attachment} bars={bars} speed={playback.speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
+    return <ActiveVoiceMessage attachment={attachment} bars={bars} source={source} speed={playback.speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
   }
   return (
     <VoiceMessageFrame
@@ -74,20 +75,18 @@ interface ActiveVoiceMessageProps {
   mine: boolean;
   foreground: string;
   mutedForeground: string;
+  source: AuthenticatedMediaSource;
 }
 
-function ActiveVoiceMessage({ attachment, bars, speed, streamId, mine, foreground, mutedForeground }: ActiveVoiceMessageProps) {
-  const media = useCachedAuthorizedMedia(attachment.url, attachment.primaryChecksum ?? attachment.checksum ?? attachment.id, attachment.mimeType);
-  if (!media.uri) {
-    return <VoiceMessageFrame bars={bars} currentSeconds={attachmentDuration(attachment)} durationSeconds={attachmentDuration(attachment)} loading={media.loading} failed={media.failed} playing={false} progress={0} speed={speed} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onSpeedChange={cycleVoicePlaybackSpeed} onToggle={media.failed ? media.retry : () => undefined} />;
-  }
-  return <LoadedVoiceMessage attachment={attachment} bars={bars} localUri={media.uri} speed={speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
+function ActiveVoiceMessage({ attachment, bars, source, speed, streamId, mine, foreground, mutedForeground }: ActiveVoiceMessageProps) {
+  const [attempt, setAttempt] = useState(0);
+  return <LoadedVoiceMessage key={attempt} attachment={attachment} bars={bars} source={source} speed={speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onRetry={() => setAttempt((current) => current + 1)} />;
 }
 
-function LoadedVoiceMessage({ attachment, bars, localUri, speed, streamId, mine, foreground, mutedForeground }: Omit<ActiveVoiceMessageProps, "source"> & { localUri: string }) {
+function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, foreground, mutedForeground, onRetry }: ActiveVoiceMessageProps & { onRetry: () => void }) {
   // 120ms is smooth enough for a continuously clipped fill without making a
   // low-end device reconcile the entire message row every animation frame.
-  const player = useAudioPlayer(localUri, { updateInterval: 120 });
+  const player = useAudioPlayer(source, { updateInterval: 120 });
   const status = useAudioPlayerStatus(player);
   const fallbackDuration = attachmentDuration(attachment);
   const duration = positiveOr(status.duration, fallbackDuration);
@@ -128,6 +127,10 @@ function LoadedVoiceMessage({ attachment, bars, localUri, speed, streamId, mine,
   }, [attachment.id, status.didJustFinish, streamId]);
 
   const toggle = () => {
+    if (status.error) {
+      onRetry();
+      return;
+    }
     if (status.playing) {
       pauseVoicePlayback(streamId, attachment.id);
       return;
@@ -150,7 +153,7 @@ function LoadedVoiceMessage({ attachment, bars, localUri, speed, streamId, mine,
       bars={bars}
       currentSeconds={displayedTime}
       durationSeconds={duration}
-      loading={status.isBuffering && !status.playing}
+      loading={!status.error && (!status.isLoaded || status.isBuffering && !status.playing)}
       failed={Boolean(status.error)}
       playing={status.playing}
       progress={progress}

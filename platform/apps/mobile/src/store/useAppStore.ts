@@ -265,6 +265,7 @@ let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
 let draftPersistenceTimer: ReturnType<typeof setTimeout> | null = null;
 const messageLoads = new Map<string, Promise<void>>();
 const latestMessageLoads = new Map<string, number>();
+const cachedMessagePreloads = new Map<string, Promise<void>>();
 const pinnedMessageLoads = new Map<string, Promise<void>>();
 const latestPinnedMessageLoads = new Map<string, number>();
 const reactionSyncQueues = new Map<string, Promise<void>>();
@@ -538,6 +539,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     lastProductivityCompletedAt = 0;
     productivityRefresh = null;
     latestMessageLoads.clear();
+    cachedMessagePreloads.clear();
     latestPinnedMessageLoads.clear();
     for (const timer of remoteDraftTimers.values()) clearTimeout(timer);
     remoteDraftTimers.clear();
@@ -681,7 +683,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (active) return active;
     if (before === undefined && (get().messages[streamId]?.length ?? 0) > 0 && Date.now() - (latestMessageLoads.get(streamId) ?? 0) < 15_000) return Promise.resolve();
     const loading = (async () => {
-      if (before === undefined) {
+      if (before === undefined && !(get().messages[streamId]?.length)) {
         const cached = await readCachedMessagePage(streamId, before, 40).catch(() => []);
         if (cached.length && accountOperationIsCurrent(guard)) {
           set((state) => ({
@@ -713,17 +715,33 @@ export const useAppStore = create<AppState>((set, get) => ({
     const guard = captureAccountOperation();
     const missing = [...new Set(streamIds)].filter((streamId) => !(get().messages[streamId]?.length));
     if (!missing.length) return;
-    const cached = await readCachedMessagePages(missing, 40).catch(() => ({}));
-    if (!accountOperationIsCurrent(guard) || Object.keys(cached).length === 0) return;
-    set((state) => ({
-      messages: Object.fromEntries([
-        ...Object.entries(state.messages),
-        ...Object.entries(cached).map(([streamId, items]) => [
-          streamId,
-          boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], items)),
-        ]),
-      ]),
-    }));
+    const waiting = missing.flatMap((streamId) => {
+      const active = cachedMessagePreloads.get(streamId);
+      return active ? [active] : [];
+    });
+    const cold = missing.filter((streamId) => !cachedMessagePreloads.has(streamId));
+    if (cold.length) {
+      const preload = (async () => {
+        const cached = await readCachedMessagePages(cold, 40).catch(() => ({}));
+        if (!accountOperationIsCurrent(guard) || Object.keys(cached).length === 0) return;
+        set((state) => ({
+          messages: Object.fromEntries([
+            ...Object.entries(state.messages),
+            ...Object.entries(cached).map(([streamId, items]) => [
+              streamId,
+              boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], items)),
+            ]),
+          ]),
+        }));
+      })().finally(() => {
+        for (const streamId of cold) {
+          if (cachedMessagePreloads.get(streamId) === preload) cachedMessagePreloads.delete(streamId);
+        }
+      });
+      for (const streamId of cold) cachedMessagePreloads.set(streamId, preload);
+      waiting.push(preload);
+    }
+    await Promise.all(waiting);
   },
 
   loadOlderMessages: async (streamId) => {

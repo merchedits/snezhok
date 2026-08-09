@@ -2,7 +2,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image } from "expo-image";
 import { clearVideoCacheAsync, getCurrentVideoCacheSize, setVideoCacheSizeAsync } from "expo-video";
 import { DEFAULT_MEDIA_CACHE_LIMIT_MB, MEDIA_CACHE_LIMITS_MB, type MediaCacheLimitMb } from "./mediaCachePolicy";
-import { clearAuthenticatedMediaCache } from "./authenticatedMediaCache";
 
 const MEDIA_CACHE_LIMIT_KEY = "@snezhok/media-cache/limit-mb/v1";
 export { DEFAULT_MEDIA_CACHE_LIMIT_MB, formatStorageBytes, MEDIA_CACHE_LIMITS_MB, type MediaCacheLimitMb } from "./mediaCachePolicy";
@@ -30,7 +29,6 @@ export function currentMediaCacheBytes(): number {
 }
 
 export async function clearMediaCache(): Promise<void> {
-  clearAuthenticatedMediaCache();
   await Promise.all([
     clearVideoCacheAsync(),
     Image.clearDiskCache(),

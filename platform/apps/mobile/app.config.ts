@@ -13,7 +13,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "4.1.2",
+  version: "4.1.3",
   description: "Private messages, shared moments, files and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -87,7 +87,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 35,
+    versionCode: 36,
     // Messages, drafts and the durable outbox are private local data. They
     // must never leave the app sandbox through Android cloud/ADB backup.
     allowBackup: false,

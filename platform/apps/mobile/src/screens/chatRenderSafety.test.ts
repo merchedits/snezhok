@@ -9,6 +9,7 @@ const serverAdminSource = readFileSync(new URL("../components/management/ServerA
 const storeSource = readFileSync(new URL("../store/useAppStore.ts", import.meta.url), "utf8");
 const updateProviderSource = readFileSync(new URL("../updates/UpdateProvider.tsx", import.meta.url), "utf8");
 const messageBubbleSource = readFileSync(new URL("../components/MessageBubble.tsx", import.meta.url), "utf8");
+const authenticatedImageSource = readFileSync(new URL("../components/AuthenticatedImage.tsx", import.meta.url), "utf8");
 const voiceAttachmentSource = readFileSync(new URL("../components/VoiceMessageAttachment.tsx", import.meta.url), "utf8");
 const bottomNavigationSource = readFileSync(new URL("../components/BottomNavigation.tsx", import.meta.url), "utf8");
 const settingsSource = readFileSync(new URL("./SettingsScreen.tsx", import.meta.url), "utf8");
@@ -37,13 +38,19 @@ test("small-deployment chats hide global search, folders, and archive controls",
   assert.doesNotMatch(chatsSource, /onArchive=|onAddToFolder=|onToggleFolder=/);
 });
 
-test("chat rows avoid optional native thumbnail and waveform surfaces", () => {
+test("chat media uses native bounded caches and lazy audio players", () => {
   assert.match(messageBubbleSource, /AuthenticatedImage/);
-  assert.doesNotMatch(messageBubbleSource, /from "expo-image"|cachePolicy=|recyclingKey=/);
+  assert.match(authenticatedImageSource, /from "expo-image"/);
+  assert.match(authenticatedImageSource, /useAuthorizedMedia/);
+  assert.match(authenticatedImageSource, /cachePolicy="memory-disk"/);
+  assert.match(authenticatedImageSource, /recyclingKey={cacheKey}/);
   assert.doesNotMatch(voiceAttachmentSource, /react-native-svg|<Svg|<Path/);
   assert.match(voiceAttachmentSource, /styles\.waveformBar/);
-  assert.match(voiceAttachmentSource, /useCachedAuthorizedMedia/);
-  assert.match(voiceAttachmentSource, /useAudioPlayer\(localUri/);
+  assert.match(voiceAttachmentSource, /useAuthorizedMedia/);
+  assert.match(voiceAttachmentSource, /useAudioPlayer\(source/);
+  assert.match(voiceAttachmentSource, /key=\{attempt\}/);
+  assert.match(voiceAttachmentSource, /if \(status\.error\) \{\s+onRetry\(\)/);
+  assert.doesNotMatch(voiceAttachmentSource, /useCachedAuthorizedMedia|File\.createDownloadTask/);
   assert.match(voiceAttachmentSource, /idleWaveform = mine \? "rgba\(255,255,255,0\.72\)"/);
 });
 
@@ -63,19 +70,27 @@ test("private stabilization builds use the resumable foreground attachment path"
   assert.match(storeSource, /!DURABLE_BACKGROUND_TRANSFERS_ENABLED \|\| !backgroundTransferAvailable/);
 });
 
-test("cached chat rows paint before FlashList's deferred layout pass", () => {
+test("cached chats use one bottom-anchor mechanism without a duplicate overlay", () => {
   assert.match(chatSource, /const INITIAL_RENDERED_MESSAGES = 80/);
-  assert.match(chatSource, /renderedMessages\.slice\(-FIRST_FRAME_MESSAGES\)/);
-  assert.match(chatSource, /!listReady && firstFrameMessages\.length/);
+  assert.match(chatSource, /startRenderingFromBottom: true/);
+  assert.match(chatSource, /onLoad=\{recordFirstPaint\}/);
+  assert.doesNotMatch(chatSource, /FIRST_FRAME_MESSAGES|firstFrameMessages|onContentSizeChange=/);
   assert.match(chatSource, /onScrollBeginDrag=\{\(\) => \{ userDraggedHistory\.current = true/);
 });
 
-test("conversation taps never mount a native chat route before onPress", () => {
+test("conversation touch warms SQLite without pre-mounting the native route", () => {
   assert.doesNotMatch(chatsSource, /navigation\.preload/);
-  assert.doesNotMatch(chatsSource, /onPressIn=/);
+  assert.match(chatsSource, /onPressIn=\{\(\) => onWarm\(conversation\)\}/);
+  assert.match(chatsSource, /preloadCachedMessages\(\[conversation\.id\]\)/);
   assert.doesNotMatch(chatsSource, /refresh\(\{ silent: true \}\)/);
   assert.match(chatsSource, /chatParams\(conversation, performance\.now\(\)\)/);
   assert.match(chatsSource, /active && screenFocused/);
+});
+
+test("cached message warmups are single-flight per stream", () => {
+  assert.match(storeSource, /const cachedMessagePreloads = new Map<string, Promise<void>>\(\)/);
+  assert.match(storeSource, /cachedMessagePreloads\.get\(streamId\)/);
+  assert.match(storeSource, /cachedMessagePreloads\.set\(streamId, preload\)/);
 });
 
 test("chat reconciliation waits for the native transition to settle", () => {

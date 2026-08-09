@@ -85,8 +85,10 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
 
   const openConversation = useCallback((conversation: ConversationSummary) => {
     navigation.navigate("Chat", chatParams(conversation, performance.now()));
-    setTimeout(() => void preloadCachedMessages([conversation.id]).catch(() => undefined), 0);
-  }, [chatParams, navigation, preloadCachedMessages]);
+  }, [chatParams, navigation]);
+  const warmConversation = useCallback((conversation: ConversationSummary) => {
+    void preloadCachedMessages([conversation.id]).catch(() => undefined);
+  }, [preloadCachedMessages]);
   const selectConversation = useCallback((conversation: ConversationSummary) => {
     if (conversation.saved) return;
     setSelectedConversation(conversation);
@@ -97,9 +99,10 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     currentUserId={me?.id}
     sectionBreak={item.sectionBreak}
     draft={drafts[item.conversation.id] ?? ""}
+    onWarm={warmConversation}
     onPress={openConversation}
     onLongPress={selectConversation}
-  />, [drafts, me?.id, openConversation, selectConversation]);
+  />, [drafts, me?.id, openConversation, selectConversation, warmConversation]);
   const confirmDelete = useCallback(() => {
     const conversation = selectedConversation;
     if (!conversation || deleting) return;
@@ -176,12 +179,13 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
 
 interface ConversationRowProps extends ConversationListRow {
   currentUserId: string | undefined;
+  onWarm: (conversation: ConversationSummary) => void;
   onPress: (conversation: ConversationSummary) => void;
   onLongPress: (conversation: ConversationSummary) => void;
   draft: string;
 }
 
-const ConversationRow = memo(function ConversationRow({ conversation, currentUserId, sectionBreak, draft, onPress, onLongPress }: ConversationRowProps) {
+const ConversationRow = memo(function ConversationRow({ conversation, currentUserId, sectionBreak, draft, onWarm, onPress, onLongPress }: ConversationRowProps) {
   const palette = usePalette();
   const ui = useUiPreferences();
   const { language, t } = useTranslation();
@@ -191,6 +195,7 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
   return (
     <Pressable
       delayLongPress={320}
+      onPressIn={() => onWarm(conversation)}
       onPress={() => onPress(conversation)}
       onLongPress={() => onLongPress(conversation)}
       style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(72, 62), backgroundColor: pressed ? palette.accentSoft : rowBackground }]}

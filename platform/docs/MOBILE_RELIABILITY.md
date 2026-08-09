@@ -14,8 +14,10 @@ Snezhok treats the Android application as the product authority. Changes to chat
 - Cached, optimistic, HTTP, and realtime attachment arrays are normalized before list classification or rendering. One malformed nested record must never unmount a chat.
 - Stateful native media children use the durable attachment ID as their React identity. Recycler-position keys are not permitted for image, video, audio, or document subtrees.
 - Every attachment subtree has a local JavaScript error boundary. A render failure records privacy-safe structural diagnostics and displays a compact fallback instead of reaching the application-level crash handler.
-- Authenticated image thumbnails and voice-note renditions are downloaded into Snezhok's bounded local media cache before they are handed to Android image/audio decoders. Native playback and bitmap surfaces must not depend on authorization headers surviving decoder redirects, retries, or token rotation.
-- Voice playback allocates its native player only after the local rendition is complete, starts after the player reports loaded, and uses the outgoing bubble's foreground/control colors rather than global secondary text colors.
+- Authenticated image thumbnails use `expo-image`'s native memory/disk cache with an authorization-aware source and a stable recycling key. Voice notes create an `expo-audio` player only after playback is requested and pass the authenticated remote source directly; the native audio implementation performs its own temporary download. Do not add a second JavaScript-managed file cache unless a measured platform defect requires it. Explicit user downloads remain ordinary files outside this playback path.
+- Chat history paints from the SQLite snapshot already held in Zustand. Touching a conversation row starts a deduplicated SQLite warmup, navigation stays immediate, and network reconciliation waits until the native transition completes.
+- `FlashList` is solely responsible for initial bottom anchoring through `startRenderingFromBottom`. Do not combine it with a duplicate first-frame overlay or an initial `scrollToEnd`, because competing position mechanisms cause extra row mounts and visible jumps.
+- Voice playback allocates its native player only after the user requests playback, starts after the authenticated source reports loaded, and uses the outgoing bubble's foreground/control colors rather than global secondary text colors. A failed player must be recreated on retry instead of reusing the failed native instance.
 
 ## Samsung A12 performance budgets
 
