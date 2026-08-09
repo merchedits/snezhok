@@ -599,7 +599,7 @@ export function ChatScreen({ navigation, route }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView onLayout={recordFirstPaint} style={[styles.screen, { backgroundColor: palette.chatCanvas }]} behavior="height" automaticOffset keyboardVerticalOffset={0}>
+    <KeyboardAvoidingView onLayout={recordFirstPaint} style={[styles.screen, { backgroundColor: palette.chatCanvas }]} behavior="translate-with-padding" automaticOffset keyboardVerticalOffset={0}>
       <PlayfulBackdrop variant="chat" />
       {selectedIds.size > 0
         ? <ScreenHeader tone="chat" title={String(selectedIds.size)} left={{ icon: "close", label: t("cancel"), onPress: () => setSelectedIds(new Set()) }} />
@@ -611,7 +611,7 @@ export function ChatScreen({ navigation, route }: Props) {
           {firstFrameMessages.map((message, index) => <View key={message.id}>{renderMessage({ item: message, index: firstFrameStart + index })}</View>)}
         </View> : null}
       </View>
-      {selectedIds.size > 0 ? <View style={[styles.selectionToolbar, { paddingBottom: Math.max(insets.bottom, 8), borderColor: palette.outline, backgroundColor: palette.composer }]}>
+      {selectedIds.size > 0 ? <View style={[styles.selectionToolbar, { paddingBottom: Math.max(insets.bottom + 8, 16), borderColor: palette.border, backgroundColor: palette.composer }]}>
         {clipboardText ? <SelectionAction icon="copy-outline" label={t("copy")} onPress={() => void copySelected()} /> : null}
         <SelectionAction icon="return-up-forward-outline" label={t("forward")} onPress={() => setForwardPicker(true)} />
         <SelectionAction icon={selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "pin-outline" : "pin"} label={t(selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "unpinAction" : "pinAction")} onPress={() => void toggleSelectedPins()} />

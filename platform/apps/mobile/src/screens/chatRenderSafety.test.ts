@@ -8,6 +8,10 @@ const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8"
 const serverAdminSource = readFileSync(new URL("../components/management/ServerAdminModal.tsx", import.meta.url), "utf8");
 const storeSource = readFileSync(new URL("../store/useAppStore.ts", import.meta.url), "utf8");
 const updateProviderSource = readFileSync(new URL("../updates/UpdateProvider.tsx", import.meta.url), "utf8");
+const messageBubbleSource = readFileSync(new URL("../components/MessageBubble.tsx", import.meta.url), "utf8");
+const voiceAttachmentSource = readFileSync(new URL("../components/VoiceMessageAttachment.tsx", import.meta.url), "utf8");
+const bottomNavigationSource = readFileSync(new URL("../components/BottomNavigation.tsx", import.meta.url), "utf8");
+const settingsSource = readFileSync(new URL("./SettingsScreen.tsx", import.meta.url), "utf8");
 
 test("chat external-store selectors never allocate a filtered snapshot", () => {
   assert.doesNotMatch(chatSource, /useAppStore\(\(state\)\s*=>\s*state\.[^)]+\.filter\(/);
@@ -28,14 +32,32 @@ test("launch-time storage failures are contained instead of becoming unhandled r
   assert.match(updateProviderSource, /AsyncStorage\.getItem\(AUTO_UPDATE_KEY\)[\s\S]*?\.catch\(/);
 });
 
-test("chat folder filters stay a compact horizontal strip", () => {
-  assert.match(chatsSource, /style=\{styles\.filterStrip\}/);
-  assert.match(chatsSource, /filterStrip:\s*\{[^}]*flexGrow:\s*0[^}]*height:\s*41/);
+test("small-deployment chats hide global search, folders, and archive controls", () => {
+  assert.doesNotMatch(chatsSource, /styles\.filterStrip|MessageSearchModal|TextEntryModal/);
+  assert.doesNotMatch(chatsSource, /onArchive=|onAddToFolder=|onToggleFolder=/);
+});
+
+test("chat rows avoid optional native thumbnail and waveform surfaces", () => {
+  assert.match(messageBubbleSource, /Image as NativeImage/);
+  assert.doesNotMatch(messageBubbleSource, /from "expo-image"|cachePolicy=|recyclingKey=/);
+  assert.doesNotMatch(voiceAttachmentSource, /react-native-svg|<Svg|<Path/);
+  assert.match(voiceAttachmentSource, /styles\.waveformBar/);
+});
+
+test("fixed visual language removes configurable density, contrast, motion, and radii", () => {
+  assert.doesNotMatch(settingsSource, /compactSpacing|highContrast|reduceMotion|messageCorners|bubbleRadiusOptions/);
+  assert.doesNotMatch(bottomNavigationSource, /android_ripple|shadowOpacity|elevation/);
+  assert.match(bottomNavigationSource, /Math\.max\(insets\.bottom, 16\)/);
 });
 
 test("productivity synchronization is single-flight and ignores duplicate online callbacks", () => {
   assert.match(storeSource, /if \(productivityRefresh\) return productivityRefresh/);
   assert.match(storeSource, /if \(get\(\)\.online === online\) return/);
+});
+
+test("private stabilization builds use the resumable foreground attachment path", () => {
+  assert.match(storeSource, /const DURABLE_BACKGROUND_TRANSFERS_ENABLED = false/);
+  assert.match(storeSource, /!DURABLE_BACKGROUND_TRANSFERS_ENABLED \|\| !backgroundTransferAvailable/);
 });
 
 test("cached chat rows paint before FlashList's deferred layout pass", () => {

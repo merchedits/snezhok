@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import type { ConversationSummary } from "@snezhok/contracts";
 
@@ -11,10 +11,8 @@ import { useAppDialog } from "../components/AppDialogProvider";
 import { Avatar } from "../components/Avatar";
 import { ConversationActionsSheet } from "../components/ConversationActionsSheet";
 import { NewConversationModal } from "../components/NewConversationModal";
-import { MessageSearchModal } from "../components/MessageSearchModal";
 import { PlayfulBackdrop } from "../components/PlayfulBackdrop";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { TextEntryModal } from "../components/TextEntryModal";
 import { usePalette } from "../hooks/usePalette";
 import { useUiPreferences } from "../hooks/useUiPreferences";
 import { prefetchAuthorizedMedia } from "../hooks/useAuthorizedMedia";
@@ -44,19 +42,12 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const refresh = useAppStore((state) => state.refreshBootstrap);
   const deleteConversation = useAppStore((state) => state.deleteConversation);
   const drafts = useAppStore((state) => state.drafts);
-  const folders = useAppStore((state) => state.folders);
-  const createFolder = useAppStore((state) => state.createFolder);
-  const setFolderMembership = useAppStore((state) => state.setFolderMembership);
   const setConversationPreference = useAppStore((state) => state.setConversationPreference);
   const markStreamUnread = useAppStore((state) => state.markStreamUnread);
   const preloadCachedMessages = useAppStore((state) => state.preloadCachedMessages);
-  const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [filter, setFilter] = useState("all");
-  const [newFolder, setNewFolder] = useState(false);
-  const [globalSearch, setGlobalSearch] = useState(false);
   const foregroundActive = active && screenFocused;
   const rowHeight = ui.dense(72, 62);
   const warmConversationKey = useMemo(() => conversations.slice(0, 12).map((conversation) => conversation.id).join(","), [conversations]);
@@ -70,18 +61,16 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         const previews = recentMediaPreviewUris(useAppStore.getState().messages, streamIds, 6);
         return prefetchAuthorizedMedia(previews).catch(() => false);
       });
-    }, 350);
+    }, 80);
     return () => clearTimeout(timer);
   }, [foregroundActive, preloadCachedMessages, warmConversationKey]);
 
-  const filtered = useMemo(() => {
-    const folder = folders.find((item) => item.id === filter);
-    const folderIds = folder ? new Set(folder.streams.filter((item) => item.streamKind === "conversation").map((item) => item.streamId)) : null;
-    const source = filter === "archived" ? conversations.filter((item) => item.archived)
-      : folderIds ? conversations.filter((item) => folderIds.has(item.id))
-        : conversations;
-    return visibleConversationSummaries(source, search, (conversation) => conversationTitle(conversation, language), filter === "archived" || Boolean(folder?.includeArchived));
-  }, [conversations, filter, folders, language, search]);
+  const filtered = useMemo(() => visibleConversationSummaries(
+    conversations,
+    "",
+    (conversation) => conversationTitle(conversation, language),
+    true,
+  ), [conversations, language]);
   const rows = useMemo(() => filtered.map((conversation, index) => ({
     conversation,
     sectionBreak: startsRegularConversationSection(filtered, index),
@@ -95,8 +84,8 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   }), [language]);
 
   const openConversation = useCallback((conversation: ConversationSummary) => {
-    void preloadCachedMessages([conversation.id]).catch(() => undefined);
     navigation.navigate("Chat", chatParams(conversation, performance.now()));
+    setTimeout(() => void preloadCachedMessages([conversation.id]).catch(() => undefined), 0);
   }, [chatParams, navigation, preloadCachedMessages]);
   const selectConversation = useCallback((conversation: ConversationSummary) => {
     if (conversation.saved) return;
@@ -134,17 +123,6 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
       <PlayfulBackdrop variant="chats" />
       <ScreenHeader prominent title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
-      <View style={[styles.search, { backgroundColor: palette.surface }]}>
-        <AppIcon name="search" size={19} color={palette.secondaryText} />
-        <TextInput value={search} onChangeText={setSearch} placeholder={t("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} />
-        <Pressable accessibilityLabel={t("globalSearch")} onPress={() => setGlobalSearch(true)}><AppIcon name="options-outline" size={19} color={palette.accent} /></Pressable>
-      </View>
-      <ScrollView horizontal style={styles.filterStrip} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-        <FilterChip label={t("allChats")} active={filter === "all"} onPress={() => setFilter("all")} />
-        <FilterChip label={t("archivedChats")} active={filter === "archived"} onPress={() => setFilter("archived")} />
-        {folders.map((folder) => <FilterChip key={folder.id} label={folder.name} active={filter === folder.id} onPress={() => setFilter(folder.id)} />)}
-        <FilterChip label="+" active={false} onPress={() => setNewFolder(true)} />
-      </ScrollView>
       <FlatList
         style={styles.list}
         contentContainerStyle={styles.listContent}
@@ -178,12 +156,10 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         title={selectedConversation ? conversationTitle(selectedConversation, language) : ""}
         busy={deleting}
         pinned={selectedConversation?.pinned ?? false}
-        archived={selectedConversation?.archived ?? false}
         muted={selectedConversation?.muted ?? false}
         unread={(selectedConversation?.unreadCount ?? 0) > 0}
         onClose={() => { if (!deleting) setSelectedConversation(null); }}
         onPin={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { pinned: !selectedConversation.pinned }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
-        onArchive={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { archived: !selectedConversation.archived }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
         onMute={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { muted: !selectedConversation.muted }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
         onMarkUnread={() => {
           const conversation = selectedConversation;
@@ -191,24 +167,9 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
           setSelectedConversation(null);
           void markStreamUnread(conversation.id).catch(() => showDialog(t("requestFailed"), t("markUnreadFailed")));
         }}
-        onAddToFolder={() => setNewFolder(true)}
-        folders={folders}
         conversationId={selectedConversation?.id ?? null}
-        onToggleFolder={(folder, included) => {
-          const conversation = selectedConversation;
-          if (!conversation) return;
-          void setFolderMembership(folder, { streamKind: "conversation", streamId: conversation.id }, included)
-            .then(() => setSelectedConversation(null))
-            .catch(() => showDialog(t("requestFailed"), t("tryAgain")));
-        }}
         onDelete={confirmDelete}
       />
-      <TextEntryModal visible={newFolder} title={t("newFolder")} placeholder={t("folderName")} submitLabel={t("create")} onClose={() => setNewFolder(false)} onSubmit={async (name) => { await createFolder(name, selectedConversation ? [{ streamKind: "conversation", streamId: selectedConversation.id }] : []); setSelectedConversation(null); }} />
-      <MessageSearchModal visible={globalSearch} onClose={() => setGlobalSearch(false)} onOpenUser={(user) => { setGlobalSearch(false); navigation.navigate("Profile", { userId: user.id }); }} onOpenMessage={(message) => {
-        setGlobalSearch(false);
-        const conversation = conversations.find((item) => item.id === message.streamId);
-        if (conversation) navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversationTitle(conversation, language), targetMessageId: message.id, openedAt: performance.now() });
-      }} />
     </View>
   );
 }
@@ -254,12 +215,6 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
   );
 });
 
-function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  const palette = usePalette();
-  const ui = useUiPreferences();
-  return <Pressable onPress={onPress} style={[styles.filterChip, { minHeight: ui.dense(34, 30), borderRadius: ui.dense(17, 15), backgroundColor: active ? palette.pop : palette.surface }]}><Text style={[styles.filterText, { color: active ? palette.onPop : palette.text, fontSize: ui.font(13) }]}>{label}</Text></Pressable>;
-}
-
 function conversationTitle(conversation: ConversationSummary, language: "en" | "ru"): string {
   if (!conversation.saved) return conversation.title;
   return language === "ru" ? "Сохранённые сообщения" : "Saved Messages";
@@ -283,12 +238,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   list: { flex: 1 },
   listContent: { flexGrow: 1, paddingTop: 4, paddingBottom: 86 },
-  search: { height: 48, marginHorizontal: 20, marginVertical: 10, borderRadius: 12, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, gap: 9 },
-  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
-  filterStrip: { flexGrow: 0, flexShrink: 0, height: 41 },
-  filters: { paddingHorizontal: 20, paddingBottom: 7, gap: 8, alignItems: "center" },
-  filterChip: { minHeight: 34, borderRadius: 17, paddingHorizontal: 14, alignItems: "center", justifyContent: "center" },
-  filterText: { fontSize: 13, fontWeight: "700" },
   row: { height: 72, flexDirection: "row", marginHorizontal: 12, marginVertical: 1, paddingHorizontal: 8, borderRadius: 18, alignItems: "center" },
   sectionBreak: { borderTopWidth: 2, borderTopColor: "transparent" },
   savedAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
@@ -303,5 +252,5 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 100, alignItems: "center" },
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptyText: { fontSize: 14, marginTop: 6 },
-  fab: { position: "absolute", right: 20, width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 7 },
+  fab: { position: "absolute", right: 20, width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center" },
 });

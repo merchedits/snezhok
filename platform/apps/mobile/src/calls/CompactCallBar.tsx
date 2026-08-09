@@ -32,7 +32,7 @@ export function CompactCallBar({ visible, title, language, microphoneEnabled, re
 }
 
 const styles = StyleSheet.create({
-  bar: { position: "absolute", zIndex: 1000, elevation: 30, left: 10, right: 10, minHeight: 56, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, shadowColor: "#000", shadowOpacity: 0.24, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+  bar: { position: "absolute", zIndex: 1000, elevation: 30, left: 10, right: 10, minHeight: 56, borderRadius: 17, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", paddingHorizontal: 10 },
   identity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   statusDot: { width: 9, height: 9, borderRadius: 5, marginHorizontal: 6 },
   copy: { flex: 1, minWidth: 0, marginLeft: 4 },

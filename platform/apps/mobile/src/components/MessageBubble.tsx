@@ -1,7 +1,6 @@
 import { AppIcon } from "./AppIcon";
-import { Image } from "expo-image";
 import { Component, memo, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
-import { type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image as NativeImage, type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 import type { Attachment, Message } from "@snezhok/contracts";
@@ -223,7 +222,7 @@ class AttachmentFailureBoundary extends Component<AttachmentFailureBoundaryProps
   }
 
   componentDidCatch(error: Error, _info: ErrorInfo) {
-    recordDiagnostic("error", "media", "Attachment renderer was contained", { name: error.name });
+    recordDiagnostic("error", "crash", "Unhandled JavaScript error", { name: error.name });
   }
 
   componentDidUpdate(previous: AttachmentFailureBoundaryProps) {
@@ -242,7 +241,7 @@ function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={styles.albumTile}>
-      <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={StyleSheet.absoluteFill} />
+      <NativeImage source={thumbnailSource} resizeMode="cover" style={StyleSheet.absoluteFill} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </Pressable>
     {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
@@ -265,13 +264,10 @@ function AttachmentView({ attachment, streamId }: { attachment: Attachment; stre
 
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
-  const [decoded, setDecoded] = useState<{ attachmentId: string; width: number; height: number } | null>(null);
   const open = openAttachmentId === attachment.id;
   const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
-  const decodedSize = decoded?.attachmentId === attachment.id ? { width: decoded.width, height: decoded.height } : null;
-  const size = decodedSize ?? messageMediaSize(attachment.width, attachment.height);
-  const measurement = attachment.width && attachment.height ? {} : { onLoad: ({ source: loaded }: { source: { width: number; height: number } }) => setDecoded({ attachmentId: attachment.id, ...messageMediaSize(loaded.width, loaded.height) }) };
-  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} {...measurement} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
+  const size = messageMediaSize(attachment.width, attachment.height);
+  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><NativeImage source={thumbnailSource} resizeMode="cover" style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
@@ -281,7 +277,7 @@ function InlineVideo({ attachment }: { attachment: Attachment }) {
   const size = messageMediaSize(attachment.width, attachment.height);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={[styles.videoPreview, size]}>
-      {attachment.thumbnailUrl ? <Image source={thumbnailSource} cachePolicy="memory-disk" contentFit="cover" recyclingKey={attachment.id} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
+      {attachment.thumbnailUrl ? <NativeImage source={thumbnailSource} resizeMode="cover" style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
       <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
       {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
     </Pressable>

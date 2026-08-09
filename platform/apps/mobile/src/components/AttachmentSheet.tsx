@@ -188,7 +188,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     <Modal transparent visible={visible} animationType="slide" navigationBarTranslucent={false} onRequestClose={busy ? undefined : onClose}>
       <View style={[styles.overlay, { backgroundColor: palette.overlay }]}>
         <Pressable accessibilityLabel={t("cancel")} disabled={busy} onPress={onClose} style={StyleSheet.absoluteFill} />
-        <View style={[styles.sheet, { height: sheetHeight, backgroundColor: palette.elevated, paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <View style={[styles.sheet, { height: sheetHeight, backgroundColor: palette.elevated, paddingBottom: Math.max(insets.bottom + 8, 16) }]}>
           <View style={styles.header}>
             <View style={[styles.handle, { backgroundColor: palette.faintText }]} />
             <Text style={[styles.title, { color: palette.text }]}>{t("recentMedia")}</Text>

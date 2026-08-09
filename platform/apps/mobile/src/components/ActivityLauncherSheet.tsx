@@ -41,7 +41,7 @@ export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visib
     <Modal transparent visible={visible} statusBarTranslucent animationType="fade" onRequestClose={onClose}>
       <View style={styles.root}>
         <Pressable accessibilityRole="button" accessibilityLabel={language === "ru" ? "Закрыть" : "Close"} style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16), backgroundColor: palette.elevated }]}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 8, 20), backgroundColor: palette.elevated }]}>
           <View style={[styles.handle, { backgroundColor: palette.border }]} />
           <View style={styles.heading}>
             <View><Text style={[styles.title, { color: palette.text }]}>{language === "ru" ? "Что сделаем вместе?" : "What should we do together?"}</Text><Text style={[styles.subtitle, { color: palette.secondaryText }]}>{language === "ru" ? "Одно действие — и оно появится в чате у вас обоих." : "One tap and it appears in both chat histories."}</Text></View>

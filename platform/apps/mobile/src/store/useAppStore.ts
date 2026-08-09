@@ -40,10 +40,16 @@ import {
 import type { AttachmentMessageKind } from "../transfers/backgroundTransferModel";
 import { attachmentGroupSize } from "../transfers/backgroundTransferModel";
 import { backgroundTransferAvailable } from "../../modules/snezhok-background-transfer";
+
 import { applyConversationPreview } from "./conversationPreview";
 import { upsertConversation } from "./conversationIdentity";
 import { markMessageDeleted, mergeMessages as mergeUnboundedMessages, reconcilePinnedMessages } from "./messageReconciliation";
 import { enqueueOutbox, replayOutbox, resolveOutboxMessageId } from "./outboxReliability";
+
+// Keep the audited WorkManager transport available for a later rollout, but
+// prefer the same resumable protocol in-process while Android attachments are
+// being stabilized on the current two-person test fleet.
+const DURABLE_BACKGROUND_TRANSFERS_ENABLED = false;
 
 type Phase = "booting" | "signed-out" | "ready" | "error";
 
@@ -877,7 +883,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // restores an older native binary. Sending a message must never depend on
     // the optional durable worker being present: use the same resumable HTTP
     // protocol in-process until the next signed update restores the module.
-    if (!backgroundTransferAvailable) {
+    if (!DURABLE_BACKGROUND_TRANSFERS_ENABLED || !backgroundTransferAvailable) {
       await sendForegroundAttachmentBatch(streamId, prepared, messageKind, replyToId, guard);
       return;
     }

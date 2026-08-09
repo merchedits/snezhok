@@ -13,13 +13,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "Snezhok",
   slug: "snezhok",
-  version: "4.1.0",
+  version: "4.1.1",
   description: "Private messages, shared moments, files and calls.",
   platforms: ["android"],
   orientation: "portrait",
   userInterfaceStyle: "automatic",
   scheme: "snezhok",
-  icon: "./assets/snezhok-icon.png",
+  icon: "./assets/snezhok-flower-icon.png",
   runtimeVersion: { policy: "appVersion" },
   plugins: [
     [
@@ -87,15 +87,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 33,
+    versionCode: 34,
     // Messages, drafts and the durable outbox are private local data. They
     // must never leave the app sandbox through Android cloud/ADB backup.
     allowBackup: false,
     ...(googleServicesFile ? { googleServicesFile } : {}),
     softwareKeyboardLayoutMode: "resize",
     adaptiveIcon: {
-      foregroundImage: "./assets/snezhok-icon.png",
-      backgroundColor: "#6437F5",
+      foregroundImage: "./assets/snezhok-flower-icon.png",
+      backgroundColor: "#121218",
     },
     permissions: [
       "android.permission.INTERNET",

@@ -143,8 +143,8 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => v
     // Message text can appear in component stacks and exception messages. Keep
     // production diagnostics useful without copying user-authored content into
     // Logcat or the client report buffer.
-    recordDiagnostic("error", "crash", "Chat screen failed", {
-      errorName: error.name || "Error",
+    recordDiagnostic("error", "crash", "Unhandled JavaScript error", {
+      name: error.name || "Error",
       hasComponentStack: Boolean(info.componentStack),
     });
   }

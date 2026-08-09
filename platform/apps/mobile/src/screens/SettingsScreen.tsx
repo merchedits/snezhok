@@ -31,7 +31,7 @@ import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 import { useAndroidUpdate } from "../updates/UpdateProvider";
 
-type ChoiceSetting = "language" | "theme" | "fontScale" | "bubbleRadius" | "defaultUploadQuality" | "microphoneMode" | "noiseSuppression" | "callAudioRoute" | "callQuality" | "screenShareQuality" | "mediaCacheLimit";
+type ChoiceSetting = "language" | "theme" | "fontScale" | "defaultUploadQuality" | "microphoneMode" | "noiseSuppression" | "callAudioRoute" | "callQuality" | "screenShareQuality" | "mediaCacheLimit";
 
 interface ChoiceRequest {
   key: ChoiceSetting;
@@ -80,7 +80,6 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
       case "language": patch({ language: value as AppSettings["language"] }); break;
       case "theme": patch({ theme: value as AppSettings["theme"] }); break;
       case "fontScale": patch({ fontScale: Number(value) }); break;
-      case "bubbleRadius": patch({ bubbleRadius: Number(value) }); break;
       case "defaultUploadQuality": patch({ defaultUploadQuality: value as AppSettings["defaultUploadQuality"] }); break;
       case "microphoneMode": patch({ microphoneMode: value as AppSettings["microphoneMode"] }); break;
       case "noiseSuppression": patch({ noiseSuppression: value as AppSettings["noiseSuppression"] }); break;
@@ -102,7 +101,6 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const themeOptions = (["system", "light", "dark"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
   const uploadOptions = (["data-saver", "auto", "high", "original"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
   const fontScaleOptions = [0.9, 1, 1.1, 1.2, 1.35].map((value) => ({ value: String(value), label: `${Math.round(value * 100)}%` }));
-  const bubbleRadiusOptions = [8, 12, 16, 20, 24].map((value) => ({ value: String(value), label: `${value} px` }));
   const microphoneOptions = (["system", "phone", "speakerphone"] as const).map((value) => ({ value, label: microphoneLabel(value, t) }));
   const noiseOptions = (["off", "standard", "high"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
   const callRouteOptions = (["auto", "earpiece", "speaker", "headset", "bluetooth"] as const).map((value) => ({ value, label: callRouteLabel(value, t) }));
@@ -146,12 +144,6 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
             <SettingsRow icon="language-outline" label={t("language")} value={settings.language === "ru" ? t("russian") : t("english")} onPress={() => openChoice("language", t("language"), settings.language, languageOptions)} />
             <SettingsRow icon="moon-outline" label={t("theme")} value={optionLabel(settings.language, settings.theme)} onPress={() => openChoice("theme", t("theme"), settings.theme, themeOptions)} />
             <SettingsRow icon="accessibility-outline" label={t("fontSize")} value={`${Math.round(settings.fontScale * 100)}%`} onPress={() => openChoice("fontScale", t("fontSize"), String(settings.fontScale), fontScaleOptions)} />
-            <SettingsRow icon="chatbubble-outline" label={t("messageCorners")} value={`${settings.bubbleRadius} px`} onPress={() => openChoice("bubbleRadius", t("messageCorners"), String(settings.bubbleRadius), bubbleRadiusOptions)} />
-          </SettingsCard>
-          <SettingsCard tone="pink">
-            <SettingsSwitchRow icon="contract-outline" label={t("compactSpacing")} value={settings.density === "compact"} onChange={(compact) => patch({ density: compact ? "compact" : "comfortable" })} />
-            <SettingsSwitchRow icon="eye-outline" label={t("highContrast")} value={settings.highContrast} onChange={(highContrast) => patch({ highContrast })} />
-            <SettingsSwitchRow icon="accessibility-outline" label={t("reduceMotion")} value={settings.reducedMotion} onChange={(reducedMotion) => patch({ reducedMotion })} />
           </SettingsCard>
         </SettingsSection>
 
@@ -231,7 +223,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
           accessibilityRole="button"
           accessibilityLabel={t("signOut")}
           onPress={() => showDialog(t("signOut"), t("signOutQuestion"), [{ text: t("cancel"), style: "cancel" }, { text: t("signOut"), style: "destructive", onPress: () => void signOut() }])}
-          style={({ pressed }) => [styles.signOut, { backgroundColor: palette.elevated, borderColor: palette.outline, shadowColor: palette.outline }, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.signOut, { backgroundColor: palette.elevated, borderColor: palette.border }, pressed && styles.pressed]}
         >
           <Text style={[styles.signOutText, { color: palette.danger }]}>{t("signOut")}</Text>
         </Pressable>

@@ -30,7 +30,7 @@ Accent customization is not exposed. Snezhok has one mandatory identity:
 
 Soft group surfaces are Violet `#E3D4EA`, Lime `#F8F8C6`, Pink `#FFE1DC`, Orange `#FFE3C4`, and Sky `#E3ECEC`.
 
-Use one dominant color per screen and no more than two supporting accents. Most authenticated screens use Milk as the canvas and Violet as identity. Strong full-screen color is reserved for authentication, calls, activities, or a genuine feature stage. Never assign random colors to list rows. Never turn every settings icon into a different color.
+Use one dominant color per screen and no more than one supporting brand accent. Routine authenticated UI is neutral Ink/Surface in dark mode or Milk/Warm in light mode; Violet carries identity and Lime marks the single selected or primary state. Pink, orange, sky, and mint are reserved for activity content and mascot/sticker artwork, never routine settings or navigation. Never assign random colors to list rows or settings icons.
 
 Gradients are limited to one rare hero/reveal or brand artifact per screen. Routine controls and messages use flat color. Semantic danger, warning, success, online, and disabled colors never become decoration.
 
@@ -107,7 +107,7 @@ Choice lists, reactions, activity launchers, and contextual actions use Snezhok 
 
 ## Navigation
 
-The current primary destinations are Chats, Profile, and Settings. Server code remains dormant behind checked-in capability gates and must not appear in navigation, search, notifications, administration, or deep links.
+The current primary destinations are Chats, Profile, and Settings. The selected bottom-navigation item is one complete Lime capsule containing both icon and label. It has no Android ripple rectangle, shadow, or glow. Server code remains dormant behind checked-in capability gates and must not appear in navigation, search, notifications, administration, or deep links.
 
 The bottom dock is Violet on a Milk screen. Unselected items use a soft white foreground. The selected icon/label sits on a Lime island with Ink foreground and uses the Fill icon weight. Labels stay visible. Safe-area padding is outside the dock so the dock never sits under Android navigation controls.
 
@@ -117,7 +117,7 @@ Direct tab changes animate only source and destination. A chat, profile detail, 
 
 ### Chats
 
-Milk canvas, quiet warm search, Lime selected filters, neutral rows, and a Lime creation action. Saved Messages may use Soft Violet. No random per-row palette and no outlined card around every conversation.
+Neutral canvas and rows with a Lime creation action. The small private deployment does not expose global chat-list search, folders, or archive filters; search remains available inside an opened conversation. Saved Messages may use Soft Violet. No random per-row palette and no outlined card around every conversation.
 
 ### Chat
 
@@ -131,7 +131,7 @@ Milk canvas with one Pink identity/portrait stage as the dominant expressive are
 
 ### Settings
 
-Milk canvas and soft color by section group—not by individual row. Appearance may be Soft Violet, storage Soft Lime, voice/video Soft Sky, privacy Soft Pink/Mint, and destructive sign-out a quiet danger surface. Accent color selection is absent.
+Settings use one neutral card surface throughout, Violet icons, Lime selection controls, and quiet semantic danger only where needed. Density, contrast, reduced-animation, and message-radius controls are not exposed: Snezhok owns these values as part of its design system. Accent color selection is absent.
 
 ### Authentication
 
@@ -160,7 +160,7 @@ Use gentle ease-out with a small overshoot only where it improves tactility. Rea
 
 Copy is warm, short, and specific. It never shames inactivity, diagnoses a relationship, or makes therapeutic claims. Romantic/18+ content is explicit and consensual and is never selected by Surprise unless both people enabled it.
 
-Support Android font scaling without hiding primary actions. Controls expose labels, roles, checked/selected/disabled state, and predictable traversal. Color is never the only state signal. Verify 360×800 and 412×915 layouts, Russian expansion, keyboard open/closed, gesture and three-button navigation.
+Support Android font scaling without hiding primary actions. Controls expose labels, roles, checked/selected/disabled state, and predictable traversal. Color is never the only state signal. Every bottom action surface reserves at least 16 dp beyond a zero inset and adds space to reported three-button-navigation insets. Text-entry sheets move as one unit with the synchronized keyboard animation so the focused field and primary action remain visible. Verify 360×800 and 412×915 layouts, Russian expansion, keyboard open/closed, gesture and three-button navigation.
 
 Cached content paints first. Navigation and optimistic feedback remain immediate. Decorative work must be compositor-cheap. Physical Samsung A12-class testing remains required before calling performance or native media behavior verified.
 

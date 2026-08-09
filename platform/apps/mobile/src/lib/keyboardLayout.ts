@@ -1,4 +1,5 @@
 export function composerBottomPadding(safeAreaBottom: number, keyboardVisible: boolean): number {
-  const composerGap = 7;
-  return keyboardVisible ? composerGap : Math.max(composerGap, safeAreaBottom + composerGap);
+  const keyboardGap = 8;
+  const navigationGap = 16;
+  return keyboardVisible ? keyboardGap : Math.max(navigationGap, safeAreaBottom + keyboardGap);
 }

@@ -26,7 +26,7 @@ export const ForwardPickerModal = memo(function ForwardPickerModal({ visible, bu
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent={false} onRequestClose={onClose}>
       <View style={styles.layer}>
         <Pressable accessibilityLabel={russian ? "Закрыть" : "Close"} style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]} onPress={onClose} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 4, 12), backgroundColor: palette.elevated, borderColor: palette.border }]}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 8, 20), backgroundColor: palette.elevated, borderColor: palette.border }]}>
           <View style={[styles.handle, { backgroundColor: palette.faintText }]} />
           <View style={styles.header}>
             <Pressable onPress={onClose} style={styles.headerButton}><AppIcon name="close" size={24} color={palette.accent} /></Pressable>

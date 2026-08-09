@@ -30,7 +30,7 @@ export function UpdateBanner() {
 }
 
 const styles = StyleSheet.create({
-  banner: { position: "absolute", right: 10, left: 10, zIndex: 200, minHeight: 68, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1, borderRadius: 14, shadowColor: "#000", shadowOpacity: 0.22, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 10 },
+  banner: { position: "absolute", right: 10, left: 10, zIndex: 200, minHeight: 68, flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderWidth: 1, borderRadius: 14 },
   copy: { flex: 1, gap: 2 },
   title: { fontSize: 14, fontWeight: "800" },
   message: { fontSize: 12, lineHeight: 16 },

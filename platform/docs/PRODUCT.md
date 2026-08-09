@@ -182,7 +182,7 @@ Reactions render below the message as compact emoji chips without numeric counts
 
 ### Search
 
-Global search covers people, chats, messages, and files with grouped results. Conversation search supports sender, date range, media type, and channel or chat filters. Selecting a result opens the exact message in surrounding context.
+Conversation search supports sender, date range, media type, and chat filters. Selecting a result opens the exact message in surrounding context. Global search, folders, and archive controls are currently hidden from the Chats screen for the small private deployment; their implementation remains dormant.
 
 ## Voice notes and video notes
 
@@ -209,7 +209,7 @@ Selecting the attachment control immediately opens a Telegram-style recent-media
 
 Recent photos and videos use adaptive compression by default. A single **HQ** toggle raises media quality and gives immediate localized enabled/disabled feedback. Sending through **Upload file** is the explicit byte-for-byte original path and retains the original filename.
 
-Documents are never automatically compressed. Compressed media preserves orientation and strips embedded location metadata by default. The client presents progress, cancellation, retry, and resumable background transfer. Android continues eligible uploads through a foreground worker when the application leaves the foreground.
+Documents are never automatically compressed. Compressed media preserves orientation and strips embedded location metadata by default. The client presents progress, cancellation, retry, and resumable transfer. During the private Android stabilization phase, attachments use the in-process resumable protocol; the audited WorkManager transport remains dormant until physical-device crash validation is complete.
 
 One to ten media items are sent as one album with a single caption and a predictable tile layout. Larger selections are split deterministically into groups of ten, so 23 items become 10 + 10 + 3. A single image or video preserves its source aspect ratio within safe viewport bounds. Media viewers expose pinch and double-tap zoom, pan, download/save, open externally, and message navigation.
 
@@ -291,7 +291,7 @@ Settings are full-screen on Android and searchable two-pane navigation on deskto
 3. **Privacy and safety**: friend requests, blocked users, read receipts, last seen, online state, media metadata, link previews.
 4. **Notifications and sounds**: message and call toggles, previews, sounds, quiet hours.
 5. **Data and storage**: mobile and Wi-Fi auto-download rules, maximum sizes, default upload quality, cache size, clear cache, media retention, streaming.
-6. **Appearance**: system, light, dark, fixed Snezhok palette, font size, density, message radius, direct-chat wallpaper, reduced motion. Accent selection is not user-configurable.
+6. **Appearance**: system, light, dark, fixed Snezhok palette, and font size. Accent, density, contrast, animation, and message-radius values are product-owned and not user-configurable.
 7. **Voice and video**: devices, processing, sensitivity, quality, camera preview, push-to-talk.
 8. **Accessibility**: reduced motion, higher contrast, saturation, screen-reader descriptions, caption preference.
 9. **Language**: English and Russian initially.

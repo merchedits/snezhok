@@ -1,5 +1,7 @@
 # Android background transfers
 
+> Stabilization status (2026-08-09): the WorkManager implementation below remains compiled and preserved, but user-initiated chat attachments currently select the foreground resumable fallback. Re-enable durable work only after photo, video, document, and voice batches pass repeated physical-device crash testing. This temporary gate does not change the server upload protocol or cleanup guarantees.
+
 Snezhok uploads attachments through a durable, resumable Android pipeline. The
 JavaScript process remains responsible for creating the eventual message, but
 the file transfer itself survives navigation, process death, network changes,

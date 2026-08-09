@@ -147,24 +147,24 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
       <PlayfulBackdrop variant="profile" />
       <ScreenHeader tone="profile" prominent={embedded} title={t("profile")} {...(!embedded && onBack ? { left: { icon: "chevron-back" as const, label: t("back"), onPress: onBack } } : {})} right={own ? [{ icon: editing ? "checkmark" : "create-outline", label: editing ? t("save") : t("editProfile"), onPress: editing ? () => void saveProfile() : () => setEditing(true) }] : []} />
       <ScrollView contentContainerStyle={[styles.content, !embedded && { paddingBottom: Math.max(insets.bottom + 16, 34) }]} keyboardShouldPersistTaps="handled">
-        <View style={[styles.hero, { backgroundColor: palette.moment.butter, borderColor: palette.outline, shadowColor: palette.outline }]}>
+        <View style={[styles.hero, { backgroundColor: palette.group.lime, borderColor: palette.border }]}>
           <Avatar uri={heroUri} label={user.displayName} color={user.avatarColor} online={user.presence === "online"} size={112} />
-          {own ? <Pressable disabled={busy} onPress={() => void addPhoto()} style={[styles.camera, { backgroundColor: palette.accent, borderColor: palette.moment.butter }]}><AppIcon name="camera" size={19} color={palette.onAccent} /></Pressable> : null}
+          {own ? <Pressable disabled={busy} onPress={() => void addPhoto()} style={[styles.camera, { backgroundColor: palette.accent, borderColor: palette.group.lime }]}><AppIcon name="camera" size={19} color={palette.onAccent} /></Pressable> : null}
         </View>
-        {editing ? <View style={[styles.form, { backgroundColor: palette.moment.pink, borderColor: palette.outline, shadowColor: palette.outline }]}>
+        {editing ? <View style={[styles.form, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
           <ProfileInput label={t("displayName")} value={displayName} onChangeText={setDisplayName} maxLength={48} />
           <ProfileInput label={t("status")} value={statusText} onChangeText={setStatusText} maxLength={128} />
           <ProfileInput label={t("bio")} value={bio} onChangeText={setBio} maxLength={512} multiline />
-          <Pressable disabled={busy || !displayName.trim()} onPress={() => void saveProfile()} style={[styles.primaryButton, { backgroundColor: palette.accent, borderColor: palette.outline, shadowColor: palette.outline, opacity: busy || !displayName.trim() ? 0.55 : 1 }]}>{busy ? <ActivityIndicator color={palette.onAccent} /> : <Text style={[styles.primaryButtonText, { color: palette.onAccent }]}>{t("save")}</Text>}</Pressable>
-        </View> : <View style={[styles.identity, { backgroundColor: palette.moment.pink, borderColor: palette.outline, shadowColor: palette.outline }]}>
+          <Pressable disabled={busy || !displayName.trim()} onPress={() => void saveProfile()} style={[styles.primaryButton, { backgroundColor: palette.accent, borderColor: palette.border, opacity: busy || !displayName.trim() ? 0.55 : 1 }]}>{busy ? <ActivityIndicator color={palette.onAccent} /> : <Text style={[styles.primaryButtonText, { color: palette.onAccent }]}>{t("save")}</Text>}</Pressable>
+        </View> : <View style={[styles.identity, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
           <Text style={[styles.name, { color: palette.text }]}>{user.displayName}</Text>
           <Text style={[styles.username, { color: palette.secondaryText }]}>@{user.username}</Text>
           {user.statusText ? <Text style={[styles.status, { color: palette.accent }]}>{user.statusText}</Text> : null}
           {user.bio ? <Text style={[styles.bio, { color: palette.text }]}>{user.bio}</Text> : null}
         </View>}
-        {!own ? <Pressable onPress={() => void openChat()} style={[styles.primaryButton, { backgroundColor: palette.accent, borderColor: palette.outline, shadowColor: palette.outline }]}><AppIcon name="chatbubble-outline" size={18} color={palette.onAccent} /><Text style={[styles.primaryButtonText, { color: palette.onAccent }]}>{t("messageUser")}</Text></Pressable> : null}
+        {!own ? <Pressable onPress={() => void openChat()} style={[styles.primaryButton, { backgroundColor: palette.accent, borderColor: palette.border }]}><AppIcon name="chatbubble-outline" size={18} color={palette.onAccent} /><Text style={[styles.primaryButtonText, { color: palette.onAccent }]}>{t("messageUser")}</Text></Pressable> : null}
 
-        {(own || profile.photos.length > 0) ? <View style={[styles.section, styles.colorSection, { backgroundColor: palette.moment.lavender, borderColor: palette.outline }]}>
+        {(own || profile.photos.length > 0) ? <View style={[styles.section, styles.colorSection, { backgroundColor: palette.group.violet, borderColor: palette.border }]}>
           <View style={styles.sectionHeader}><Text style={[styles.sectionTitle, { color: palette.text }]}>{t("profilePhotos")}</Text>{own ? <Pressable disabled={busy} onPress={() => void addPhoto()}><Text style={[styles.sectionAction, { color: palette.accent }]}>{t("addPhoto")}</Text></Pressable> : null}</View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoStrip}>
             {profile.photos.map((photo, index) => <PhotoThumbnail key={photo.id} photo={photo} selected={(selectedPhoto?.id ?? profile.photos[0]?.id) === photo.id} primary={index === 0} onPress={() => setSelectedPhotoId(photo.id)} {...(own ? { onLongPress: () => confirmDelete(photo) } : {})} />)}
@@ -174,7 +174,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
 
         {own && contactEntries.length > 0 ? <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: palette.text }]}>{t("contacts")}</Text>
-          {contactEntries.map((entry) => <Pressable key={entry.user.id} onPress={() => openContact(entry.user.id)} style={[styles.contact, { backgroundColor: palette.moment.butter, borderColor: palette.outline }]}><Avatar uri={entry.user.avatarUrl} label={entry.user.displayName} color={entry.user.avatarColor} size={46} /><View style={styles.contactCopy}><Text style={[styles.contactName, { color: palette.text }]}>{entry.user.displayName}</Text><Text style={[styles.contactUsername, { color: palette.secondaryText }]}>@{entry.user.username}</Text></View><AppIcon name="chevron-forward" size={18} color={palette.faintText} /></Pressable>)}
+          {contactEntries.map((entry) => <Pressable key={entry.user.id} onPress={() => openContact(entry.user.id)} style={[styles.contact, { backgroundColor: palette.surface, borderColor: palette.border }]}><Avatar uri={entry.user.avatarUrl} label={entry.user.displayName} color={entry.user.avatarColor} size={46} /><View style={styles.contactCopy}><Text style={[styles.contactName, { color: palette.text }]}>{entry.user.displayName}</Text><Text style={[styles.contactUsername, { color: palette.secondaryText }]}>@{entry.user.username}</Text></View><AppIcon name="chevron-forward" size={18} color={palette.faintText} /></Pressable>)}
         </View> : null}
       </ScrollView>
       {busy && !editing ? <View style={[styles.busyOverlay, { backgroundColor: palette.overlay }]}><ActivityIndicator color="white" /></View> : null}
@@ -196,7 +196,7 @@ function PhotoThumbnail({ photo, selected, primary, onPress, onLongPress }: { ph
 
 const styles = StyleSheet.create({
   screen: { flex: 1 }, loading: { flex: 1, alignItems: "center", justifyContent: "center" }, content: { paddingBottom: 34 },
-  hero: { alignSelf: "center", marginTop: 20, padding: 14, borderRadius: 42 }, camera: { position: "absolute", right: 6, bottom: 6, width: 38, height: 38, borderRadius: 19, borderWidth: 3, alignItems: "center", justifyContent: "center", elevation: 4 },
+  hero: { alignSelf: "center", marginTop: 20, padding: 14, borderRadius: 42 }, camera: { position: "absolute", right: 6, bottom: 6, width: 38, height: 38, borderRadius: 19, borderWidth: 3, alignItems: "center", justifyContent: "center" },
   identity: { alignItems: "center", paddingHorizontal: 22, paddingVertical: 18, marginHorizontal: 20, marginTop: 18, borderRadius: 24 }, name: { fontSize: 27, fontWeight: "800", letterSpacing: -0.7, textAlign: "center" }, username: { fontSize: 14, marginTop: 3 }, status: { fontSize: 14, fontWeight: "700", marginTop: 9 }, bio: { fontSize: 15, lineHeight: 21, textAlign: "center", marginTop: 12, maxWidth: 420 },
   form: { marginHorizontal: 20, marginTop: 18, padding: 16, gap: 12, borderRadius: 24 }, inputLabel: { fontSize: 12, fontWeight: "800", marginBottom: 6, marginLeft: 3 }, input: { minHeight: 48, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, fontSize: 16 }, multiline: { minHeight: 96, paddingTop: 12, textAlignVertical: "top" },
   primaryButton: { minHeight: 50, borderRadius: 12, marginHorizontal: 20, marginTop: 18, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" }, primaryButtonText: { fontSize: 15, fontWeight: "800" },

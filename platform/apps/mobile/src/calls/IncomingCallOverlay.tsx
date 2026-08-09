@@ -67,7 +67,7 @@ function IncomingAction({ icon, label, background, rotation = 0, onPress }: { ic
 
 const styles = StyleSheet.create({
   layer: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 20 },
-  card: { width: "100%", maxWidth: 390, borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", paddingHorizontal: 20, paddingTop: 30, paddingBottom: 24, elevation: 24, shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 30, shadowOffset: { width: 0, height: 18 } },
+  card: { width: "100%", maxWidth: 390, borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", paddingHorizontal: 20, paddingTop: 30, paddingBottom: 24, elevation: 24 },
   pulse: { width: 104, height: 104, borderRadius: 52, borderWidth: 7, alignItems: "center", justifyContent: "center" },
   eyebrow: { fontSize: 13, lineHeight: 17, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase", marginTop: 20 },
   title: { maxWidth: "100%", fontSize: 25, lineHeight: 31, fontWeight: "800", marginTop: 7 },

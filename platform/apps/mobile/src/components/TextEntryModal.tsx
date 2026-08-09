@@ -34,7 +34,7 @@ export function TextEntryModal({ visible, title, placeholder, submitLabel, onClo
   };
   return (
     <Modal visible={visible} transparent animationType="fade" navigationBarTranslucent={false} onRequestClose={busy ? undefined : onClose}>
-      <KeyboardAvoidingView style={[styles.overlay, { backgroundColor: palette.overlay, paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 4, 24) }]} behavior="height" automaticOffset>
+      <KeyboardAvoidingView style={[styles.overlay, { backgroundColor: palette.overlay, paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 8, 24) }]} behavior="translate-with-padding" automaticOffset>
         <View style={[styles.card, { backgroundColor: palette.elevated }]}> 
           <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
           <TextInput autoFocus autoCapitalize="none" value={value} onChangeText={setValue} placeholder={placeholder} placeholderTextColor={palette.faintText} onSubmitEditing={() => void submit()} style={[styles.input, { color: palette.text, backgroundColor: palette.surface, borderColor: palette.border }]} />

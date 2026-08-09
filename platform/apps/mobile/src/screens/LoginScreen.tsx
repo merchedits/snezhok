@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   eye: { width: 38, height: 44, alignItems: "center", justifyContent: "center" },
   error: { textAlign: "center", fontSize: 13, lineHeight: 18 },
   fieldHint: { fontSize: 11, lineHeight: 15, marginHorizontal: 6, marginTop: -6 },
-  submit: { height: 54, borderRadius: 15, alignItems: "center", justifyContent: "center", marginTop: 3, elevation: 2 },
+  submit: { height: 54, borderRadius: 15, alignItems: "center", justifyContent: "center", marginTop: 3 },
   submitText: { fontSize: 16, fontWeight: "800" },
   switchMode: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   switchModeText: { fontSize: 14, fontWeight: "700" },

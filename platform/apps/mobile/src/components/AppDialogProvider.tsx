@@ -100,7 +100,7 @@ function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; on
           onPress={dismissOnce}
           style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]}
         />
-        {dialog ? <View style={[styles.card, { backgroundColor: palette.elevated, shadowColor: palette.outline }]}>
+        {dialog ? <View style={[styles.card, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
           <View style={[styles.accent, { backgroundColor: palette.pop }]} />
           <Text accessibilityRole="header" style={[styles.title, { color: palette.text }]}>{dialog.title}</Text>
           {dialog.message ? <Text style={[styles.message, { color: palette.secondaryText }]}>{dialog.message}</Text> : null}
@@ -132,7 +132,7 @@ function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; on
 
 const styles = StyleSheet.create({
   layer: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
-  card: { width: "100%", maxWidth: 390, borderRadius: 24, overflow: "hidden", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 18, elevation: 16 },
+  card: { width: "100%", maxWidth: 390, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   accent: { width: 52, height: 7, borderRadius: 4, alignSelf: "center", marginTop: 13 },
   title: { paddingHorizontal: 22, paddingTop: 18, fontSize: 21, lineHeight: 26, fontWeight: "800", textAlign: "center" },
   message: { paddingHorizontal: 22, paddingTop: 9, paddingBottom: 19, fontSize: 14, lineHeight: 20, textAlign: "center" },

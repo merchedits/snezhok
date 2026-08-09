@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePalette } from "../hooks/usePalette";
@@ -86,7 +87,7 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
 
   return <>
     <Modal transparent visible statusBarTranslucent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.root}>
+      <KeyboardAvoidingView style={styles.root} behavior="translate-with-padding" automaticOffset>
         <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]} onPress={busy ? undefined : onClose} />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 14), backgroundColor: palette.elevated }]}>
           <View style={styles.header}><View><Text style={[styles.eyebrow, { color: palette.accent }]}>{typeLabel(activity.type, language)}</Text><Text style={[styles.title, { color: palette.text }]}>{promptText(activity.config, language) || typeLabel(activity.type, language)}</Text></View><Pressable disabled={busy} onPress={onClose} style={[styles.close, { backgroundColor: palette.surface }]}><AppIcon name="close" size={21} color={palette.secondaryText} /></Pressable></View>
@@ -103,7 +104,7 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
             {!["completed", "locked", "declined", "cancelled", "expired"].includes(activity.state) ? <View style={styles.quietActions}><Pressable disabled={busy} onPress={() => void run("decline")}><Text style={[styles.quietText, { color: palette.secondaryText }]}>{language === "ru" ? "Не сейчас" : "Not now"}</Text></Pressable>{activity.createdBy === meId ? <Pressable disabled={busy} onPress={() => void run("cancel")}><Text style={[styles.quietText, { color: palette.danger }]}>{language === "ru" ? "Отменить для обоих" : "Cancel for both"}</Text></Pressable> : null}</View> : null}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
     <AttachmentSheet visible={picker} busy={busy} progress={uploadProgress} onClose={() => setPicker(false)} onSelect={uploadSelection} />
   </>;

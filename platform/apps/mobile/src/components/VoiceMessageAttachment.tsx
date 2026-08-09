@@ -1,8 +1,6 @@
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, type GestureResponderEvent, Pressable, StyleSheet, Text, View } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import Svg, { Path } from "react-native-svg";
 
 import type { Attachment } from "@snezhok/contracts";
 
@@ -12,7 +10,6 @@ import { useTranslation } from "../i18n";
 import {
   VOICE_WAVEFORM_HEIGHT,
   voiceWaveformBars,
-  voiceWaveformPath,
 } from "../lib/voiceWaveform";
 import {
   completeVoicePlayback,
@@ -156,25 +153,7 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, pla
   const palette = usePalette();
   const { t } = useTranslation();
   const [waveformWidth, setWaveformWidth] = useState(DEFAULT_WAVEFORM_WIDTH);
-  const waveformPath = useMemo(
-    () => voiceWaveformPath(bars, waveformWidth, VOICE_WAVEFORM_HEIGHT),
-    [bars, waveformWidth],
-  );
-  const revealedProgress = useSharedValue(0);
-
-  useEffect(() => {
-    // Updating an SVG ClipPath does not reliably invalidate on older Android
-    // renderers. Animate a clipped native View instead: audio status can stay
-    // inexpensive while Reanimated fills the gaps at the display refresh rate.
-    revealedProgress.value = withTiming(clamp(progress, 0, 1), {
-      duration: playing ? 150 : 80,
-      easing: Easing.linear,
-    });
-  }, [playing, progress, revealedProgress]);
-
-  const revealedStyle = useAnimatedStyle(() => ({
-    width: waveformWidth * revealedProgress.value,
-  }));
+  const playedBars = Math.round(clamp(progress, 0, 1) * bars.length);
 
   const seekFromEvent = (event: GestureResponderEvent) => {
     if (!onSeek || waveformWidth <= 0) return;
@@ -212,14 +191,7 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, pla
           style={styles.waveform}
         >
           <View pointerEvents="none" style={styles.waveformCanvas}>
-            <Svg height={VOICE_WAVEFORM_HEIGHT} pointerEvents="none" width={waveformWidth}>
-              <Path d={waveformPath} fill="none" stroke={palette.faintText} strokeLinecap="round" strokeWidth={2} />
-            </Svg>
-            <Animated.View style={[styles.waveformReveal, revealedStyle]}>
-              <Svg height={VOICE_WAVEFORM_HEIGHT} pointerEvents="none" width={waveformWidth}>
-                <Path d={waveformPath} fill="none" stroke={palette.accent} strokeLinecap="round" strokeWidth={2} />
-              </Svg>
-            </Animated.View>
+            {bars.map((height, index) => <View key={index} style={[styles.waveformBar, { height, backgroundColor: index < playedBars ? palette.accent : palette.faintText }]} />)}
           </View>
         </Pressable>
         <View style={styles.meta}>
@@ -279,15 +251,12 @@ const styles = StyleSheet.create({
   waveformCanvas: {
     width: "100%",
     height: VOICE_WAVEFORM_HEIGHT,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     overflow: "hidden",
   },
-  waveformReveal: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    bottom: 0,
-    overflow: "hidden",
-  },
+  waveformBar: { width: 2, minHeight: 3, borderRadius: 1 },
   time: {
     minHeight: 14,
     marginTop: 1,
