@@ -6,7 +6,15 @@
 
 For the sideloaded updater, build the production-like `preview` APK with the protected Snezhok signing environment. The Play-style `production` profile emits an AAB. Do not promote an AAB until a universal APK generated from it passes the same inspection.
 
+Before an Android-only release, compare it with the exact revision currently
+reported by server health. The mobile-only verifier permits client and release
+documentation changes plus the required mobile version bump; it rejects all
+server, shared-contract, dependency, migration, and infrastructure changes.
+This avoids an unnecessary production backup and container rebuild without
+weakening APK provenance or publication checks.
+
 ```bash
+npm run release:verify-mobile-only -- --base "$SERVER_REVISION" --revision "$SOURCE_REVISION"
 npm run release:verify-config
 npm run release:verify-production-env
 npm run build:apk --workspace=@snezhok/mobile

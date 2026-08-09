@@ -19,6 +19,7 @@
     "compliance:verify-android": "node scripts/compliance/validate-android-evidence.mjs",
     "release:verify-source": "node scripts/compliance/verify-public-source.mjs",
     "release:verify-config": "node scripts/android/verify-release-config.mjs",
+    "release:verify-mobile-only": "node scripts/android/verify-mobile-only-revision.mjs",
     "release:verify-production-env": "node scripts/android/verify-production-environment.mjs",
     "release:verify-apk": "node scripts/android/verify-release-artifact.mjs",
     "test": "npm run test --workspaces --if-present",

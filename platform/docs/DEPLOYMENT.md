@@ -71,6 +71,16 @@ The internal APK is signed with one stable release key and copied to an authenti
 
 APK releases include version code, semantic version, source revision, API compatibility version and SHA-256 in a release manifest.
 
+Android-only releases use a bounded fast path. Run
+`npm run release:verify-mobile-only -- --base "$SERVER_REVISION" --revision
+"$SOURCE_REVISION"` before building. When it passes, keep the running server,
+maintenance revision, containers, database, and backups unchanged and publish
+only the verified signed APK and manifest. The gate fails closed if the
+revision touches the API, shared contracts, dependency graph, migrations,
+containers, infrastructure, or deployment scripts. Only the verifier's own
+entrypoint and tests are bootstrap exceptions; all other rejected releases must
+use `deploy-production.sh` and its full synchronized backup cycle.
+
 After the APK passes the artifact, signing, public-source, and supply-chain
 checks, publish it on the host with temporary files on the same filesystem:
 

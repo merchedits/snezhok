@@ -23,6 +23,23 @@ Release 4.0.2 hardens attachment messages before they enter FlashList. Cached, o
 
 ## Publishing a release
 
+0. Classify the release before touching production. If the running server is
+   `SERVER_REVISION`, prove that the candidate changes only the Android client,
+   release documentation, and the mobile version fields:
+
+   ```bash
+   npm run release:verify-mobile-only -- \
+     --base "$SERVER_REVISION" \
+     --revision "$SOURCE_REVISION"
+   ```
+
+   A passing mobile-only release does not redeploy the API, worker, PostgreSQL,
+   LiveKit, maintenance units, or backups. Any API, contract, dependency,
+   migration, Compose, infrastructure, or operational-script change (apart
+   from this verifier's own bootstrap files) requires the complete coordinated
+   deployment. The production checkout and
+   maintenance revision continue to describe the running server; the Android
+   manifest independently names the exact public mobile source revision.
 1. Increase both `version` and `android.versionCode` in `apps/mobile/app.config.ts`; version codes must never decrease or be reused.
 2. Run the monorepo type checks and tests.
 3. In a clean checkout, run `npm ci --omit=dev`, Expo prebuild with `--clean --no-install`, then build `assembleRelease` with the protected Snezhok signing environment. The local config plugin injects release signing from `SNEZHOK_KEYSTORE_FILE`, `SNEZHOK_KEYSTORE_PASSWORD`, `SNEZHOK_KEY_ALIAS`, and `SNEZHOK_KEY_PASSWORD`.
