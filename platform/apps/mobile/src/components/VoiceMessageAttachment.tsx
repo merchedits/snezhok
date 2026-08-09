@@ -1,11 +1,11 @@
-import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, type GestureResponderEvent, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { Attachment } from "@snezhok/contracts";
 
 import { usePalette } from "../hooks/usePalette";
-import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
+import { useCachedAuthorizedMedia } from "../hooks/useCachedAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import {
   VOICE_WAVEFORM_HEIGHT,
@@ -29,6 +29,9 @@ const SEEK_STEP_SECONDS = 5;
 export interface VoiceMessageAttachmentProps {
   attachment: Attachment;
   streamId: string;
+  mine: boolean;
+  foreground: string;
+  mutedForeground: string;
 }
 
 /**
@@ -37,14 +40,13 @@ export interface VoiceMessageAttachmentProps {
  * The native audio player is only allocated after the first play request. That
  * matters in long chat lists and on memory-constrained devices such as the A12.
  */
-export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ attachment, streamId }: VoiceMessageAttachmentProps) {
+export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ attachment, streamId, mine, foreground, mutedForeground }: VoiceMessageAttachmentProps) {
   const playback = useSyncExternalStore(subscribeVoicePlayback, voicePlaybackSnapshot, voicePlaybackSnapshot);
   const activated = playback.requestedKey === `${streamId}:${attachment.id}`;
-  const source = useAuthorizedMedia(attachment.url);
   const bars = useMemo(() => voiceWaveformBars(attachment.waveform), [attachment.waveform]);
 
   if (activated) {
-    return <ActiveVoiceMessage attachment={attachment} bars={bars} source={source} speed={playback.speed} streamId={streamId} />;
+    return <ActiveVoiceMessage attachment={attachment} bars={bars} speed={playback.speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
   }
   return (
     <VoiceMessageFrame
@@ -55,6 +57,9 @@ export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ att
       playing={false}
       progress={0}
       speed={playback.speed}
+      mine={mine}
+      foreground={foreground}
+      mutedForeground={mutedForeground}
       onSpeedChange={cycleVoicePlaybackSpeed}
       onToggle={() => requestVoicePlayback(streamId, attachment.id)}
     />
@@ -64,29 +69,49 @@ export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ att
 interface ActiveVoiceMessageProps {
   attachment: Attachment;
   bars: readonly number[];
-  source: ReturnType<typeof useAuthorizedMedia>;
   speed: VoicePlaybackSpeed;
   streamId: string;
+  mine: boolean;
+  foreground: string;
+  mutedForeground: string;
 }
 
-function ActiveVoiceMessage({ attachment, bars, source, speed, streamId }: ActiveVoiceMessageProps) {
+function ActiveVoiceMessage({ attachment, bars, speed, streamId, mine, foreground, mutedForeground }: ActiveVoiceMessageProps) {
+  const media = useCachedAuthorizedMedia(attachment.url, attachment.primaryChecksum ?? attachment.checksum ?? attachment.id, attachment.mimeType);
+  if (!media.uri) {
+    return <VoiceMessageFrame bars={bars} currentSeconds={attachmentDuration(attachment)} durationSeconds={attachmentDuration(attachment)} loading={media.loading} failed={media.failed} playing={false} progress={0} speed={speed} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onSpeedChange={cycleVoicePlaybackSpeed} onToggle={media.failed ? media.retry : () => undefined} />;
+  }
+  return <LoadedVoiceMessage attachment={attachment} bars={bars} localUri={media.uri} speed={speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
+}
+
+function LoadedVoiceMessage({ attachment, bars, localUri, speed, streamId, mine, foreground, mutedForeground }: Omit<ActiveVoiceMessageProps, "source"> & { localUri: string }) {
   // 120ms is smooth enough for a continuously clipped fill without making a
   // low-end device reconcile the entire message row every animation frame.
-  const player = useAudioPlayer(source, { updateInterval: 120 });
+  const player = useAudioPlayer(localUri, { updateInterval: 120 });
   const status = useAudioPlayerStatus(player);
   const fallbackDuration = attachmentDuration(attachment);
   const duration = positiveOr(status.duration, fallbackDuration);
   const currentTime = clamp(status.currentTime, 0, duration || Number.MAX_SAFE_INTEGER);
   const progress = duration > 0 ? clamp(currentTime / duration, 0, 1) : 0;
   const completed = useRef(false);
+  const autoStarted = useRef(false);
+  const play = useCallback(() => {
+    void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).then(() => player.play()).catch(() => undefined);
+  }, [player]);
 
   useEffect(() => {
     return registerVoiceController(streamId, attachment.id, {
       pause: () => player.pause(),
-      play: () => player.play(),
+      play,
       setRate: (rate) => player.setPlaybackRate(rate),
     });
-  }, [attachment.id, player, streamId]);
+  }, [attachment.id, play, player, streamId]);
+
+  useEffect(() => {
+    if (!status.isLoaded || status.error || autoStarted.current) return;
+    autoStarted.current = true;
+    play();
+  }, [play, status.error, status.isLoaded]);
 
   useEffect(() => {
     player.setPlaybackRate(speed);
@@ -126,9 +151,13 @@ function ActiveVoiceMessage({ attachment, bars, source, speed, streamId }: Activ
       currentSeconds={displayedTime}
       durationSeconds={duration}
       loading={status.isBuffering && !status.playing}
+      failed={Boolean(status.error)}
       playing={status.playing}
       progress={progress}
       speed={speed}
+      mine={mine}
+      foreground={foreground}
+      mutedForeground={mutedForeground}
       onSpeedChange={cycleVoicePlaybackSpeed}
       onSeek={seekToProgress}
       onToggle={toggle}
@@ -141,19 +170,26 @@ interface VoiceMessageFrameProps {
   currentSeconds: number;
   durationSeconds: number;
   loading: boolean;
+  failed?: boolean;
   playing: boolean;
   progress: number;
   speed: VoicePlaybackSpeed;
+  mine: boolean;
+  foreground: string;
+  mutedForeground: string;
   onToggle: () => void;
   onSpeedChange: () => void;
   onSeek?: (progress: number) => void;
 }
 
-function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, playing, progress, speed, onToggle, onSpeedChange, onSeek }: VoiceMessageFrameProps) {
+function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, failed = false, playing, progress, speed, mine, foreground, mutedForeground, onToggle, onSpeedChange, onSeek }: VoiceMessageFrameProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const [waveformWidth, setWaveformWidth] = useState(DEFAULT_WAVEFORM_WIDTH);
   const playedBars = Math.round(clamp(progress, 0, 1) * bars.length);
+  const controlColor = mine ? palette.pop : palette.accent;
+  const controlForeground = mine ? palette.onPop : palette.onAccent;
+  const idleWaveform = mine ? "rgba(255,255,255,0.72)" : palette.faintText;
 
   const seekFromEvent = (event: GestureResponderEvent) => {
     if (!onSeek || waveformWidth <= 0) return;
@@ -171,11 +207,11 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, pla
         accessibilityLabel={t("voiceMessage")}
         accessibilityRole="button"
         onPress={onToggle}
-        style={[styles.playButton, { backgroundColor: palette.accent }]}
+        style={[styles.playButton, { backgroundColor: controlColor }]}
       >
         {loading
-          ? <ActivityIndicator color="white" size="small" />
-          : <AppIcon name={playing ? "pause" : "play"} size={19} color="white" />}
+          ? <ActivityIndicator color={controlForeground} size="small" />
+          : <AppIcon name={failed ? "refresh-outline" : playing ? "pause" : "play"} size={19} color={controlForeground} />}
       </Pressable>
       <View style={styles.content}>
         <Pressable
@@ -191,13 +227,13 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, pla
           style={styles.waveform}
         >
           <View pointerEvents="none" style={styles.waveformCanvas}>
-            {bars.map((height, index) => <View key={index} style={[styles.waveformBar, { height, backgroundColor: index < playedBars ? palette.accent : palette.faintText }]} />)}
+            {bars.map((height, index) => <View key={index} style={[styles.waveformBar, { height, backgroundColor: index < playedBars ? controlColor : idleWaveform }]} />)}
           </View>
         </Pressable>
         <View style={styles.meta}>
-          <Text style={[styles.time, { color: palette.secondaryText }]}>{formatDuration(currentSeconds || durationSeconds)}</Text>
+          <Text style={[styles.time, { color: mutedForeground }]}>{formatDuration(currentSeconds || durationSeconds)}</Text>
           <Pressable accessibilityRole="button" accessibilityLabel={t("playbackSpeed")} onPress={onSpeedChange} hitSlop={7}>
-            <Text style={[styles.speed, { color: palette.accent }]}>{speed}x</Text>
+            <Text style={[styles.speed, { color: mine ? foreground : palette.accent }]}>{speed}x</Text>
           </Pressable>
         </View>
       </View>

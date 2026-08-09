@@ -131,10 +131,11 @@ function AppRoot() {
 
 function SafeChatScreen(props: ComponentProps<typeof ChatScreen>) {
   const { t } = useTranslation();
-  return <ChatErrorBoundary key={props.route.params.streamId} onBack={props.navigation.goBack} title={t("openChatFailed")} message={t("tryAgain")} backLabel={t("back")}><ChatScreen {...props} /></ChatErrorBoundary>;
+  const palette = usePalette();
+  return <ChatErrorBoundary key={props.route.params.streamId} onBack={props.navigation.goBack} title={t("openChatFailed")} message={t("tryAgain")} backLabel={t("back")} colors={{ background: palette.background, text: palette.text, secondaryText: palette.secondaryText, button: palette.pop, buttonText: palette.onPop }}><ChatScreen {...props} /></ChatErrorBoundary>;
 }
 
-class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => void; title: string; message: string; backLabel: string }, { failed: boolean }> {
+class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => void; title: string; message: string; backLabel: string; colors: { background: string; text: string; secondaryText: string; button: string; buttonText: string } }, { failed: boolean }> {
   state = { failed: false };
 
   static getDerivedStateFromError() { return { failed: true }; }
@@ -145,28 +146,32 @@ class ChatErrorBoundary extends Component<{ children: ReactNode; onBack: () => v
     // Logcat or the client report buffer.
     recordDiagnostic("error", "crash", "Unhandled JavaScript error", {
       name: error.name || "Error",
-      hasComponentStack: Boolean(info.componentStack),
+      description: firstComponentName(info.componentStack),
     });
   }
 
   render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <SafeAreaView style={styles.crash}>
-        <Text style={styles.crashTitle}>{this.props.title}</Text>
-        <Text style={styles.crashText}>{this.props.message}</Text>
-        <Pressable onPress={this.props.onBack} style={styles.crashButton}><Text style={styles.crashButtonText}>{this.props.backLabel}</Text></Pressable>
+      <SafeAreaView style={[styles.crash, { backgroundColor: this.props.colors.background }]}>
+        <Text style={[styles.crashTitle, { color: this.props.colors.text }]}>{this.props.title}</Text>
+        <Text style={[styles.crashText, { color: this.props.colors.secondaryText }]}>{this.props.message}</Text>
+        <Pressable onPress={this.props.onBack} style={[styles.crashButton, { backgroundColor: this.props.colors.button }]}><Text style={[styles.crashButtonText, { color: this.props.colors.buttonText }]}>{this.props.backLabel}</Text></Pressable>
       </SafeAreaView>
     );
   }
 }
 
+function firstComponentName(componentStack?: string | null): string {
+  return componentStack?.match(/\bat ([A-Za-z][A-Za-z0-9_]*)\b/)?.[1] ?? "UnknownComponent";
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   loader: { flex: 1, alignItems: "center", justifyContent: "center" },
-  crash: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, backgroundColor: "#0b1422" },
-  crashTitle: { color: "#f4f7fb", fontSize: 20, fontWeight: "800" },
-  crashText: { color: "#96a5b8", fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 8 },
-  crashButton: { minWidth: 120, height: 46, borderRadius: 12, alignItems: "center", justifyContent: "center", marginTop: 20, backgroundColor: "#35b9ef" },
-  crashButtonText: { color: "white", fontSize: 15, fontWeight: "800" },
+  crash: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28 },
+  crashTitle: { fontSize: 20, fontWeight: "800" },
+  crashText: { fontSize: 14, lineHeight: 20, textAlign: "center", marginTop: 8 },
+  crashButton: { minWidth: 120, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", marginTop: 20 },
+  crashButtonText: { fontSize: 15, fontWeight: "800" },
 });

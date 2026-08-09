@@ -4,6 +4,11 @@ import { Image } from "expo-image";
 import { API_URL } from "../lib/api";
 import { getRuntimeSession, subscribeToSession } from "../lib/secureSession";
 
+export interface AuthenticatedMediaSource {
+  uri: string;
+  headers: Record<string, string>;
+}
+
 export function resolveMediaUrl(uri: string): string {
   if (/^https?:\/\//i.test(uri)) return uri;
   const apiMarker = API_URL.indexOf("/api/v1");
@@ -11,7 +16,7 @@ export function resolveMediaUrl(uri: string): string {
   return `${deploymentBase}${uri.startsWith("/") ? uri : `/${uri}`}`;
 }
 
-export function useAuthorizedMedia(uri: string) {
+export function useAuthorizedMedia(uri: string): AuthenticatedMediaSource {
   const token = useSyncExternalStore(
     subscribeToSession,
     () => getRuntimeSession()?.accessToken ?? "",

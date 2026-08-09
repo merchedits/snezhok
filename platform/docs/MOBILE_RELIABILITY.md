@@ -14,6 +14,8 @@ Snezhok treats the Android application as the product authority. Changes to chat
 - Cached, optimistic, HTTP, and realtime attachment arrays are normalized before list classification or rendering. One malformed nested record must never unmount a chat.
 - Stateful native media children use the durable attachment ID as their React identity. Recycler-position keys are not permitted for image, video, audio, or document subtrees.
 - Every attachment subtree has a local JavaScript error boundary. A render failure records privacy-safe structural diagnostics and displays a compact fallback instead of reaching the application-level crash handler.
+- Authenticated image thumbnails and voice-note renditions are downloaded into Snezhok's bounded local media cache before they are handed to Android image/audio decoders. Native playback and bitmap surfaces must not depend on authorization headers surviving decoder redirects, retries, or token rotation.
+- Voice playback allocates its native player only after the local rendition is complete, starts after the player reports loaded, and uses the outgoing bubble's foreground/control colors rather than global secondary text colors.
 
 ## Samsung A12 performance budgets
 

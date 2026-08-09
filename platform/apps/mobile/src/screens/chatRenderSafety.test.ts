@@ -38,10 +38,13 @@ test("small-deployment chats hide global search, folders, and archive controls",
 });
 
 test("chat rows avoid optional native thumbnail and waveform surfaces", () => {
-  assert.match(messageBubbleSource, /Image as NativeImage/);
+  assert.match(messageBubbleSource, /AuthenticatedImage/);
   assert.doesNotMatch(messageBubbleSource, /from "expo-image"|cachePolicy=|recyclingKey=/);
   assert.doesNotMatch(voiceAttachmentSource, /react-native-svg|<Svg|<Path/);
   assert.match(voiceAttachmentSource, /styles\.waveformBar/);
+  assert.match(voiceAttachmentSource, /useCachedAuthorizedMedia/);
+  assert.match(voiceAttachmentSource, /useAudioPlayer\(localUri/);
+  assert.match(voiceAttachmentSource, /idleWaveform = mine \? "rgba\(255,255,255,0\.72\)"/);
 });
 
 test("fixed visual language removes configurable density, contrast, motion, and radii", () => {

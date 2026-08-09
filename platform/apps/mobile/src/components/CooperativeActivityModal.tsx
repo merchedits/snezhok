@@ -1,19 +1,18 @@
 import type { CooperativeActivityEntry, CooperativeActivityParticipant, Message } from "@snezhok/contracts";
 import * as Haptics from "expo-haptics";
-import { Image } from "expo-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Linking, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePalette } from "../hooks/usePalette";
-import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import type { UploadInput } from "../types";
 import { AppIcon } from "./AppIcon";
+import { AuthenticatedImage } from "./AuthenticatedImage";
 import { AttachmentSheet } from "./AttachmentSheet";
 
 export function CooperativeActivityModal({ message, onClose }: { message: Message | null; onClose: () => void }) {
@@ -184,7 +183,7 @@ function BlitzResult({ entries, prompts, language }: { entries: CooperativeActiv
   return <><Text style={[styles.resultTitle, { color: palette.text }]}>{language === "ru" ? `${matches} одинаково · ${list.length - matches} по-разному` : `${matches} same · ${list.length - matches} different`}</Text><Text style={[styles.explainer, { color: palette.secondaryText, marginBottom: 10 }]}>{language === "ru" ? "Различия — тоже интересная часть результата." : "Different picks are an interesting part of the result too."}</Text>{list.map((prompt, index) => { const same = first[index] === second[index]; const chosen = first[index] === "left" ? localized(prompt.left, language) : localized(prompt.right, language); return <View key={String(prompt.id ?? index)} style={[styles.blitzResult, { backgroundColor: same ? palette.accentSoft : palette.surface }]}><AppIcon name={same ? "checkmark-done" : "swap-horizontal-outline"} size={18} color={same ? palette.accent : palette.secondaryText} /><Text style={[styles.flex, styles.itemTitle, { color: palette.text }]}>{same ? chosen : `${first[index] === "left" ? localized(prompt.left, language) : localized(prompt.right, language)} · ${second[index] === "left" ? localized(prompt.left, language) : localized(prompt.right, language)}`}</Text></View>; })}</>;
 }
 
-function ResultPhoto({ url }: { url: string }) { const source = useAuthorizedMedia(url); return <Image source={source} cachePolicy="memory-disk" contentFit="cover" style={styles.resultPhoto} />; }
+function ResultPhoto({ url }: { url: string }) { return <AuthenticatedImage uri={url} cacheKey={url} mimeType="image/webp" style={styles.resultPhoto} />; }
 function ReadOnlyDrawing({ strokes }: { strokes: number[][][] }) { return <View style={styles.canvas}><Svg width="100%" height="100%" viewBox="0 0 300 240">{strokes.map((stroke, index) => <Path key={index} d={stroke.map((point, i) => `${i ? "L" : "M"}${point[0] ?? 0} ${point[1] ?? 0}`).join(" ")} stroke="#19202A" strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" fill="none" />)}</Svg></View>; }
 function Waiting({ text }: { text: string }) { const palette = usePalette(); return <View style={[styles.waiting, { backgroundColor: palette.surface }]}><AppIcon name="time-outline" size={25} color={palette.accent} /><Text style={[styles.explainer, { color: palette.secondaryText }]}>{text}</Text></View>; }
 function Primary({ label, disabled, busy, onPress }: { label: string; disabled: boolean; busy: boolean; onPress: () => void }) { const palette = usePalette(); return <Pressable accessibilityRole="button" accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primary, { backgroundColor: palette.accent, opacity: disabled ? 0.45 : pressed ? 0.82 : 1 }]}>{busy ? <ActivityIndicator color="#FFF" /> : <Text style={styles.actionText}>{label}</Text>}</Pressable>; }

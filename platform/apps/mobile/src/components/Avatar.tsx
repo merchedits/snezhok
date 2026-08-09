@@ -1,9 +1,8 @@
 import { memo } from "react";
-import { Image } from "expo-image";
 import { StyleSheet, Text, View } from "react-native";
 
 import { usePalette } from "../hooks/usePalette";
-import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
+import { AuthenticatedImage } from "./AuthenticatedImage";
 
 interface AvatarProps {
   uri: string | null;
@@ -15,12 +14,11 @@ interface AvatarProps {
 
 export const Avatar = memo(function Avatar({ uri, label, color = "#637184", size = 48, online = false }: AvatarProps) {
   const palette = usePalette();
-  const source = useAuthorizedMedia(uri ?? "");
   const initial = label.trim().charAt(0).toUpperCase() || "?";
   return (
     <View style={{ width: size, height: size }}>
       {uri ? (
-        <Image source={source} cachePolicy="memory-disk" contentFit="cover" recyclingKey={uri} style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]} />
+        <AuthenticatedImage uri={uri} cacheKey={uri} style={[styles.image, { width: size, height: size, borderRadius: size / 2 }]} />
       ) : (
         <View style={[styles.fallback, { width: size, height: size, borderRadius: size / 2, backgroundColor: color }]}>
           <Text style={[styles.initial, { fontSize: size * 0.4 }]}>{initial}</Text>

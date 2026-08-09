@@ -1,12 +1,11 @@
 import type { CooperativeActivity, CooperativeActivityType } from "@snezhok/contracts";
-import { Image } from "expo-image";
 import { memo } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useAppStore } from "../store/useAppStore";
 import { AppIcon, type AppIconName } from "./AppIcon";
+import { AuthenticatedImage } from "./AuthenticatedImage";
 import { Avatar } from "./Avatar";
 
 const meta: Record<CooperativeActivityType, { fill: string; ink: string; icon: AppIconName; ru: string; en: string }> = {
@@ -67,11 +66,10 @@ function ActivityPreview({ activity, ink, language }: { activity: CooperativeAct
 }
 
 function Photo({ url, wide = false }: { url: string; wide?: boolean }) {
-  const source = useAuthorizedMedia(url);
-  return <Image source={source} cachePolicy="memory-disk" contentFit="cover" style={wide ? styles.widePhoto : styles.photo} />;
+  return <AuthenticatedImage uri={url} cacheKey={url} mimeType="image/webp" style={wide ? styles.widePhoto : styles.photo} />;
 }
 
-function MiniPhoto({ url }: { url: string }) { const source = useAuthorizedMedia(url); return <Image source={source} cachePolicy="memory-disk" contentFit="cover" style={styles.miniPhoto} />; }
+function MiniPhoto({ url }: { url: string }) { return <AuthenticatedImage uri={url} cacheKey={url} mimeType="image/webp" style={styles.miniPhoto} />; }
 
 function actionLabel(activity: CooperativeActivity, ownEntry: boolean, language: "ru" | "en") {
   if (activity.state === "completed") return language === "ru" ? "Посмотреть результат" : "See result";

@@ -1,6 +1,6 @@
 import { AppIcon } from "./AppIcon";
 import { Component, memo, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
-import { Image as NativeImage, type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 import type { Attachment, Message } from "@snezhok/contracts";
@@ -14,6 +14,7 @@ import { messageMediaSize } from "../lib/mediaLayout";
 import { mediaAlbumRows } from "../lib/mediaAlbums";
 import { renderableAttachments, renderableReactions } from "../lib/messagePayload";
 import { Avatar } from "./Avatar";
+import { AuthenticatedImage } from "./AuthenticatedImage";
 import { ImageViewer } from "./ImageViewer";
 import { VideoViewer } from "./VideoViewer";
 import { VoiceMessageAttachment } from "./VoiceMessageAttachment";
@@ -172,7 +173,7 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
       ) : null}
       {message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}
       {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
-      {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} />)}
+      {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />)}
       {message.text ? <Text selectable={false} style={[styles.text, { color: foreground, fontSize: ui.font(16), lineHeight: ui.font(21) }]}>{message.text}</Text> : null}
       {showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? (
         <View style={[styles.meta, !showTime && styles.channelMeta]}>
@@ -193,10 +194,10 @@ function MediaAlbum({ attachments }: { attachments: Attachment[] }) {
   return <View style={styles.album}>{rows.map((row) => <View key={row.map((attachment) => attachment.id).join(":")} style={[styles.albumRow, { height: rowHeight }]}>{row.map((attachment) => <SafeAlbumMediaTile key={attachment.id} attachment={attachment} />)}</View>)}</View>;
 }
 
-function SafeAttachmentView({ attachment, streamId }: { attachment: Attachment; streamId: string }) {
+function SafeAttachmentView({ attachment, streamId, mine, foreground, mutedForeground }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string }) {
   const palette = usePalette();
   const { t } = useTranslation();
-  return <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}><AttachmentView attachment={attachment} streamId={streamId} /></AttachmentFailureBoundary>;
+  return <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}><AttachmentView attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} /></AttachmentFailureBoundary>;
 }
 
 function SafeAlbumMediaTile({ attachment }: { attachment: Attachment }) {
@@ -221,8 +222,8 @@ class AttachmentFailureBoundary extends Component<AttachmentFailureBoundaryProps
     return { failed: true };
   }
 
-  componentDidCatch(error: Error, _info: ErrorInfo) {
-    recordDiagnostic("error", "crash", "Unhandled JavaScript error", { name: error.name });
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    recordDiagnostic("error", "crash", "Unhandled JavaScript error", { name: error.name, description: attachmentComponentName(info.componentStack) });
   }
 
   componentDidUpdate(previous: AttachmentFailureBoundaryProps) {
@@ -235,24 +236,27 @@ class AttachmentFailureBoundary extends Component<AttachmentFailureBoundaryProps
   }
 }
 
+function attachmentComponentName(componentStack?: string | null): string {
+  return componentStack?.match(/\bat ([A-Za-z][A-Za-z0-9_]*)\b/)?.[1] ?? "AttachmentComponent";
+}
+
 function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
-  const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={styles.albumTile}>
-      <NativeImage source={thumbnailSource} resizeMode="cover" style={StyleSheet.absoluteFill} />
+      <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </Pressable>
     {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
   </>;
 }
 
-function AttachmentView({ attachment, streamId }: { attachment: Attachment; streamId: string }) {
+function AttachmentView({ attachment, streamId, mine, foreground, mutedForeground }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string }) {
   const palette = usePalette();
   if (attachment.kind === "image") return <ImageAttachment attachment={attachment} />;
   if (attachment.kind === "video") return <InlineVideo attachment={attachment} />;
-  if (attachment.kind === "audio") return <VoiceMessageAttachment attachment={attachment} streamId={streamId} />;
+  if (attachment.kind === "audio") return <VoiceMessageAttachment attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
   return (
     <Pressable onPress={() => void Linking.openURL(attachment.url)} style={[styles.file, { backgroundColor: palette.surface }]}> 
       <View style={[styles.fileIcon, { backgroundColor: palette.accentSoft }]}><AppIcon name="document-outline" size={23} color={palette.accent} /></View>
@@ -265,19 +269,17 @@ function AttachmentView({ attachment, streamId }: { attachment: Attachment; stre
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
-  const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? attachment.url);
   const size = messageMediaSize(attachment.width, attachment.height);
-  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><NativeImage source={thumbnailSource} resizeMode="cover" style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
+  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} showLoader style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
-  const thumbnailSource = useAuthorizedMedia(attachment.thumbnailUrl ?? "");
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
   const size = messageMediaSize(attachment.width, attachment.height);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={[styles.videoPreview, size]}>
-      {attachment.thumbnailUrl ? <NativeImage source={thumbnailSource} resizeMode="cover" style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
+      {attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
       <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
       {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
     </Pressable>

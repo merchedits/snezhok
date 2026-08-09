@@ -2,7 +2,7 @@ import { AppIcon } from "./AppIcon";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTranslation } from "../i18n";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppDialog } from "./AppDialogProvider";
+import { AuthenticatedImage } from "./AuthenticatedImage";
 
 type AuthorizedImageSource = {
   uri: string;
@@ -162,7 +163,7 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
         >
           <GestureDetector gesture={gesture}>
             <Animated.View collapsable={false} style={[styles.imageStage, imageStyle]}>
-              <Image accessibilityLabel={filename} source={source} style={styles.image} resizeMode="contain" />
+              <AuthenticatedImage uri={source.uri} cacheKey={`${filename}-viewer`} mimeType={mimeType} resizeMode="contain" showLoader style={styles.image} />
             </Animated.View>
           </GestureDetector>
           <Pressable accessibilityRole="button" accessibilityLabel={t("closePhoto")} onPress={onClose} style={[styles.control, styles.close, { top: insets.top + 10 }]}>

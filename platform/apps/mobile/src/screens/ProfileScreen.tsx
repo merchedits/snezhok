@@ -1,5 +1,5 @@
 import { AppIcon } from "../components/AppIcon";
-import { Image } from "expo-image";
+import { AuthenticatedImage } from "../components/AuthenticatedImage";
 import * as ImagePicker from "expo-image-picker";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -13,7 +13,6 @@ import { Avatar } from "../components/Avatar";
 import { useAppDialog } from "../components/AppDialogProvider";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { PlayfulBackdrop } from "../components/PlayfulBackdrop";
-import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
 import { api } from "../lib/api";
@@ -190,8 +189,7 @@ function ProfileInput({ label, ...props }: { label: string; value: string; onCha
 
 function PhotoThumbnail({ photo, selected, primary, onPress, onLongPress }: { photo: ProfilePhoto; selected: boolean; primary: boolean; onPress: () => void; onLongPress?: () => void }) {
   const palette = usePalette();
-  const source = useAuthorizedMedia(photo.thumbnailUrl ?? photo.url);
-  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><Image source={source} cachePolicy="memory-disk" contentFit="cover" recyclingKey={photo.id} style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><AppIcon name="checkmark" size={11} color={palette.onAccent} strokeWidth={2} /></View> : null}</Pressable>;
+  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><AuthenticatedImage uri={photo.thumbnailUrl ?? photo.url} cacheKey={`${photo.id}-thumbnail`} mimeType="image/webp" style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><AppIcon name="checkmark" size={11} color={palette.onAccent} strokeWidth={2} /></View> : null}</Pressable>;
 }
 
 const styles = StyleSheet.create({
