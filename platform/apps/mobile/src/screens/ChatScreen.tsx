@@ -32,6 +32,7 @@ import { useUiPreferences } from "../hooks/useUiPreferences";
 import { useTranslation } from "../i18n";
 import { recordDiagnostic, recordPerformance } from "../diagnostics/diagnostics";
 import { composerBottomPadding } from "../lib/keyboardLayout";
+import { renderableAttachments } from "../lib/messagePayload";
 import { activeMentionQuery, insertMention, mentionSuggestions } from "../lib/mentionAutocomplete";
 import { selectedMessageText } from "../lib/messageSelection";
 import { isUploadCancelled } from "../lib/uploadPolicy";
@@ -55,8 +56,9 @@ const emptyMessages: Message[] = [];
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
   if (message.activity) return `activity-${message.activity.type}`;
-  if (message.kind === "voice" || message.attachments.some((attachment) => attachment.kind === "audio")) return "voice";
-  if (message.attachments.some((attachment) => attachment.kind === "image" || attachment.kind === "video")) return "media";
+  const attachments = renderableAttachments(message.attachments);
+  if (message.kind === "voice" || attachments.some((attachment) => attachment.kind === "audio")) return "voice";
+  if (attachments.some((attachment) => attachment.kind === "image" || attachment.kind === "video")) return "media";
   return message.kind;
 };
 type VoiceRecordCommand = "idle" | "holding" | "locked" | "finish" | "cancel";
@@ -249,7 +251,7 @@ export function ChatScreen({ navigation, route }: Props) {
     if (me) users.delete(me.id);
     return [...users.values()];
   }, [channel?.connectedMembers, conversation?.participants, me, messages]);
-  const voiceAttachmentIds = useMemo(() => displayMessages.flatMap((message) => message.attachments
+  const voiceAttachmentIds = useMemo(() => displayMessages.flatMap((message) => renderableAttachments(message.attachments)
     .filter((attachment) => attachment.kind === "audio")
     .map((attachment) => attachment.id)), [displayMessages]);
   const voiceAttachmentKey = voiceAttachmentIds.join(",");

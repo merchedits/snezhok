@@ -1,18 +1,19 @@
 import { AppIcon } from "./AppIcon";
-import { useMappingHelper } from "@shopify/flash-list";
 import { Image } from "expo-image";
-import { memo, useEffect, useRef, useState } from "react";
+import { Component, memo, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
 import type { Attachment, Message } from "@snezhok/contracts";
 
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { usePalette } from "../hooks/usePalette";
 import { useUiPreferences } from "../hooks/useUiPreferences";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import { messageMediaSize } from "../lib/mediaLayout";
 import { mediaAlbumRows } from "../lib/mediaAlbums";
+import { renderableAttachments, renderableReactions } from "../lib/messagePayload";
 import { Avatar } from "./Avatar";
 import { ImageViewer } from "./ImageViewer";
 import { VideoViewer } from "./VideoViewer";
@@ -156,11 +157,10 @@ function MessageContent({ streamId, message, mine, showSender, showTime, interac
   const palette = usePalette();
   const ui = useUiPreferences();
   const { t } = useTranslation();
-  const { getMappingKey } = useMappingHelper();
-  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  const attachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
   const mediaAttachments = attachments.filter((attachment) => attachment.kind === "image" || attachment.kind === "video");
   const otherAttachments = mediaAttachments.length > 1 ? attachments.filter((attachment) => attachment.kind !== "image" && attachment.kind !== "video") : attachments;
-  const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+  const reactions = useMemo(() => renderableReactions(message.reactions), [message.reactions]);
   if (message.activity) return <CooperativeActivityCard activity={message.activity} onOpen={() => onOpenActivity?.()} />;
   return (
     <View pointerEvents={interactionDisabled ? "none" : "auto"}>
@@ -173,7 +173,7 @@ function MessageContent({ streamId, message, mine, showSender, showTime, interac
       ) : null}
       {message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}
       {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
-      {otherAttachments.map((attachment, index) => <AttachmentView key={getMappingKey(attachment.id, index)} attachment={attachment} streamId={streamId} />)}
+      {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} />)}
       {message.text ? <Text selectable={false} style={[styles.text, { color: palette.text, fontSize: ui.font(16), lineHeight: ui.font(21) }]}>{message.text}</Text> : null}
       {showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? (
         <View style={[styles.meta, !showTime && styles.channelMeta]}>
@@ -183,16 +183,57 @@ function MessageContent({ streamId, message, mine, showSender, showTime, interac
           {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}
         </View>
       ) : null}
-      {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction, index) => <Pressable accessibilityLabel={reaction.emoji} key={getMappingKey(reaction.emoji, index)} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink, borderColor: reaction.reacted ? palette.accent : palette.outline }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
+      {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink, borderColor: reaction.reacted ? palette.accent : palette.outline }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
     </View>
   );
 }
 
 function MediaAlbum({ attachments }: { attachments: Attachment[] }) {
   const rows = mediaAlbumRows(attachments);
-  const { getMappingKey } = useMappingHelper();
   const rowHeight = rows.length === 1 ? 178 : rows.length === 2 ? 126 : 94;
-  return <View style={styles.album}>{rows.map((row, rowIndex) => <View key={getMappingKey(row[0]?.id ?? rowIndex, rowIndex)} style={[styles.albumRow, { height: rowHeight }]}>{row.map((attachment, attachmentIndex) => <AlbumMediaTile key={getMappingKey(attachment.id, attachmentIndex)} attachment={attachment} />)}</View>)}</View>;
+  return <View style={styles.album}>{rows.map((row) => <View key={row.map((attachment) => attachment.id).join(":")} style={[styles.albumRow, { height: rowHeight }]}>{row.map((attachment) => <SafeAlbumMediaTile key={attachment.id} attachment={attachment} />)}</View>)}</View>;
+}
+
+function SafeAttachmentView({ attachment, streamId }: { attachment: Attachment; streamId: string }) {
+  const palette = usePalette();
+  const { t } = useTranslation();
+  return <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}><AttachmentView attachment={attachment} streamId={streamId} /></AttachmentFailureBoundary>;
+}
+
+function SafeAlbumMediaTile({ attachment }: { attachment: Attachment }) {
+  const palette = usePalette();
+  const { t } = useTranslation();
+  return <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")} compact><AlbumMediaTile attachment={attachment} /></AttachmentFailureBoundary>;
+}
+
+interface AttachmentFailureBoundaryProps {
+  attachmentId: string;
+  backgroundColor: string;
+  color: string;
+  label: string;
+  compact?: boolean;
+  children: ReactNode;
+}
+
+class AttachmentFailureBoundary extends Component<AttachmentFailureBoundaryProps, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    recordDiagnostic("error", "media", "Attachment renderer was contained", { name: error.name });
+  }
+
+  componentDidUpdate(previous: AttachmentFailureBoundaryProps) {
+    if (previous.attachmentId !== this.props.attachmentId && this.state.failed) this.setState({ failed: false });
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <View style={[this.props.compact ? styles.failedAttachmentCompact : styles.failedAttachment, { backgroundColor: this.props.backgroundColor }]}><AppIcon name="document-outline" size={20} color={this.props.color} /><Text numberOfLines={1} style={[styles.failedAttachmentText, { color: this.props.color }]}>{this.props.label}</Text></View>;
+  }
 }
 
 function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
@@ -256,9 +297,10 @@ function AttachmentViewer({ attachment, onClose }: { attachment: Attachment; onC
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  const safeBytes = Number.isFinite(bytes) && bytes >= 0 ? bytes : 0;
+  if (safeBytes < 1024) return `${safeBytes} B`;
+  if (safeBytes < 1024 * 1024) return `${Math.round(safeBytes / 1024)} KB`;
+  return `${(safeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatDuration(seconds: number): string {
@@ -314,4 +356,7 @@ const styles = StyleSheet.create({
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 5 },
   reaction: { borderWidth: 1, borderRadius: 11, minWidth: 27, minHeight: 23, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
   emoji: { fontSize: 13 },
+  failedAttachment: { width: 238, minHeight: 48, borderRadius: 11, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+  failedAttachmentCompact: { flex: 1, minWidth: 0, height: "100%", alignItems: "center", justifyContent: "center" },
+  failedAttachmentText: { flexShrink: 1, fontSize: 12, fontWeight: "700" },
 });

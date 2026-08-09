@@ -1,5 +1,7 @@
 import type { Message } from "@snezhok/contracts";
 
+import { normalizeMessagePayload } from "../lib/messagePayload";
+
 /**
  * Merges server history, realtime events and local optimistic messages.
  * A server message has a different database id than its optimistic placeholder,
@@ -10,7 +12,8 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
   const byId = new Map<string, number>();
   const byClientId = new Map<string, number>();
 
-  const append = (message: Message) => {
+  const append = (rawMessage: Message) => {
+    const message = normalizeMessagePayload(rawMessage);
     const clientId = message.clientId ?? (message.pending || message.failed ? message.id : null);
     const index = byId.get(message.id) ?? (clientId ? byClientId.get(clientId) : undefined);
     if (index !== undefined) {

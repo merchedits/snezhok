@@ -19,6 +19,8 @@ Release 4.0 introduces durable cooperative activity payloads on system-message a
 
 Release 4.0.1 removes user-selectable accent colors and applies the fixed whimsical Snezhok palette across primary Android destinations and shared menus. The legacy `accent` wire field is retained and normalized to `blue` so 3.x clients and cached settings can cross the update without a schema break.
 
+Release 4.0.2 hardens attachment messages before they enter FlashList. Cached, optimistic, HTTP, and realtime payloads are normalized centrally; malformed nested attachment records cannot reach native media views; attachment children use their durable IDs rather than recycler indexes; and a per-attachment render boundary contains a JavaScript media failure without unmounting the chat.
+
 ## Publishing a release
 
 1. Increase both `version` and `android.versionCode` in `apps/mobile/app.config.ts`; version codes must never decrease or be reused.

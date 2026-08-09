@@ -48,6 +48,15 @@ test("reconciles cached legacy optimistic messages whose clientId is absent", ()
   assert.deepEqual(mergeMessages([optimistic], [saved]), [saved]);
 });
 
+test("message reconciliation quarantines malformed nested attachments before rendering", () => {
+  const damaged = message("damaged", {
+    kind: "media",
+    attachments: [null, { id: "missing-url", kind: "image" }] as unknown as Message["attachments"],
+  });
+  const [normalized] = mergeMessages([], [damaged]);
+  assert.deepEqual(normalized?.attachments, []);
+});
+
 test("reconciles realtime deletion without removing message order", () => {
   const first = message("first", { sequence: 1 });
   const second = message("second", { sequence: 2, text: "remove", editedAt: 5, pinnedAt: 6 });

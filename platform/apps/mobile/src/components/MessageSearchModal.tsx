@@ -7,6 +7,7 @@ import type { Message, UserSummary } from "@snezhok/contracts";
 import { isUserVisibleStreamKind, productCapabilities } from "../config/productCapabilities";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
+import { renderableAttachments } from "../lib/messagePayload";
 import { api } from "../lib/api";
 import { AppIcon } from "./AppIcon";
 
@@ -57,7 +58,7 @@ export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage, 
       <FlatList data={rows} keyExtractor={(item) => item.type === "user" ? `u:${item.user.id}` : item.type === "message" ? `m:${item.message.id}` : `f:${item.id}`} contentContainerStyle={styles.results} renderItem={({ item }) => item.type === "user"
         ? <Pressable disabled={!onOpenUser} onPress={() => onOpenUser?.(item.user)} style={[styles.row, { borderColor: palette.border }]}><AppIcon name="person-outline" size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.user.displayName}</Text><Text numberOfLines={1} style={[styles.subtitle, { color: palette.secondaryText }]}>@{item.user.username}</Text></View></Pressable>
         : item.type === "message"
-        ? <Pressable onPress={() => onOpenMessage(item.message)} style={[styles.row, { borderColor: palette.border }]}><AppIcon name={item.message.attachments.length ? "document-outline" : "chatbubble-outline"} size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.message.sender.displayName}</Text><Text numberOfLines={2} style={[styles.subtitle, { color: palette.secondaryText }]}>{item.message.text || t("attachment")}</Text></View><Text style={[styles.time, { color: palette.faintText }]}>{new Date(item.message.createdAt).toLocaleDateString()}</Text></Pressable>
+        ? <Pressable onPress={() => onOpenMessage(item.message)} style={[styles.row, { borderColor: palette.border }]}><AppIcon name={renderableAttachments(item.message.attachments).length ? "document-outline" : "chatbubble-outline"} size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.message.sender.displayName}</Text><Text numberOfLines={2} style={[styles.subtitle, { color: palette.secondaryText }]}>{item.message.text || t("attachment")}</Text></View><Text style={[styles.time, { color: palette.faintText }]}>{new Date(item.message.createdAt).toLocaleDateString()}</Text></Pressable>
         : <View style={[styles.row, { borderColor: palette.border }]}><AppIcon name="document-outline" size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.filename}</Text><Text style={[styles.subtitle, { color: palette.secondaryText }]}>{item.kind} · {formatBytes(item.bytes)}</Text></View></View>} ListEmptyComponent={!loading ? <Text style={[styles.empty, { color: palette.secondaryText }]}>{query || scope !== "all" ? t("nothingFound") : t("searchPromptGlobal")}</Text> : null} />
     </View>
   </Modal>;
