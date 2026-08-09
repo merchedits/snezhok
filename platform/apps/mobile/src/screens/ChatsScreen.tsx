@@ -12,6 +12,7 @@ import { Avatar } from "../components/Avatar";
 import { ConversationActionsSheet } from "../components/ConversationActionsSheet";
 import { NewConversationModal } from "../components/NewConversationModal";
 import { MessageSearchModal } from "../components/MessageSearchModal";
+import { PlayfulBackdrop } from "../components/PlayfulBackdrop";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { TextEntryModal } from "../components/TextEntryModal";
 import { usePalette } from "../hooks/usePalette";
@@ -131,9 +132,10 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
+      <PlayfulBackdrop variant="chats" />
       <ScreenHeader prominent title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
-      <View style={[styles.search, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
-        <AppIcon name="search" size={18} color={palette.faintText} />
+      <View style={[styles.search, { backgroundColor: palette.moment.pink, borderColor: palette.outline, shadowColor: palette.outline }]}>
+        <AppIcon name="search" size={18} color={palette.text} />
         <TextInput value={search} onChangeText={setSearch} placeholder={t("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} />
         <Pressable accessibilityLabel={t("globalSearch")} onPress={() => setGlobalSearch(true)}><AppIcon name="options-outline" size={19} color={palette.accent} /></Pressable>
       </View>
@@ -161,7 +163,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         renderItem={renderConversation}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}
       />
-      <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.accent, opacity: pressed ? 0.78 : 1 }]}><AppIcon name="create-outline" size={24} color="white" /></Pressable>
+      <Pressable accessibilityLabel={t("newMessage")} onPress={() => setNewMessage(true)} style={({ pressed }) => [styles.fab, { bottom: 16, backgroundColor: palette.moment.tangerine, borderColor: palette.outline, shadowColor: palette.outline, transform: [{ translateY: pressed ? 3 : 0 }] }]}><AppIcon name="create-outline" size={24} color={palette.text} /></Pressable>
       <NewConversationModal
         visible={newMessage}
         onClose={() => setNewMessage(false)}
@@ -224,27 +226,28 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
   const { language, t } = useTranslation();
   const title = conversationTitle(conversation, language);
   const peer = directPeer(conversation, currentUserId);
+  const rowBackground = palette.moment[conversationTone(conversation.id, conversation.saved)];
   return (
     <Pressable
       delayLongPress={320}
       onPress={() => onPress(conversation)}
       onLongPress={() => onLongPress(conversation)}
-      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(68, 58), backgroundColor: pressed ? palette.surface : palette.elevated }]}
+      style={({ pressed }) => [styles.row, sectionBreak && styles.sectionBreak, { height: ui.dense(68, 58), backgroundColor: pressed ? palette.accentSoft : rowBackground, borderColor: palette.outline }]}
     >
       {conversation.saved
-        ? <View style={[styles.savedAvatar, { width: ui.dense(52, 46), height: ui.dense(52, 46), borderRadius: ui.dense(26, 23), backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color="white" /></View>
+        ? <View style={[styles.savedAvatar, { width: ui.dense(52, 46), height: ui.dense(52, 46), borderRadius: ui.dense(26, 23), backgroundColor: palette.accent }]}><AppIcon name="bookmark" size={24} color={palette.onAccent} /></View>
         : <Avatar uri={conversation.avatarUrl ?? peer?.avatarUrl ?? null} label={title} color={peer?.avatarColor} online={peer?.presence === "online"} size={ui.dense(52, 46)} />}
       <View style={styles.rowBody}>
         <View style={styles.rowTop}>
           <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.text, fontSize: ui.font(16) }]}>{title}</Text>
-          <Text style={[styles.time, { color: conversation.unreadCount ? palette.accent : palette.faintText, fontSize: ui.font(12) }]}>{formatListTime(conversation.updatedAt)}</Text>
+          <Text style={[styles.time, { color: conversation.unreadCount ? palette.text : palette.faintText, fontSize: ui.font(12), fontWeight: conversation.unreadCount ? "800" : "500" }]}>{formatListTime(conversation.updatedAt)}</Text>
         </View>
         <View style={styles.rowBottom}>
           <Text numberOfLines={1} style={[styles.preview, { color: conversation.unreadCount ? palette.text : palette.secondaryText, fontSize: ui.font(14) }]}>
             {draft ? `${t("draft")}: ${draft}` : conversation.lastMessage ? `${conversation.lastMessage.senderName}: ${conversation.lastMessage.text || mediaLabel(conversation.lastMessage.kind, t)}` : peer ? `@${peer.username}` : t("noMessagesYet")}
           </Text>
           {conversation.muted ? <AppIcon name="volume-mute" size={14} color={palette.faintText} /> : null}
-          {conversation.unreadCount > 0 ? <View style={[styles.unreadBadge, { backgroundColor: conversation.muted ? palette.faintText : palette.accent }]}><Text style={styles.unreadText}>{conversation.unreadCount}</Text></View> : null}
+          {conversation.unreadCount > 0 ? <View style={[styles.unreadBadge, { backgroundColor: conversation.muted ? palette.faintText : palette.accent }]}><Text style={[styles.unreadText, { color: conversation.muted ? palette.text : palette.onAccent }]}>{conversation.unreadCount}</Text></View> : null}
         </View>
       </View>
     </Pressable>
@@ -254,7 +257,16 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
 function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const palette = usePalette();
   const ui = useUiPreferences();
-  return <Pressable onPress={onPress} style={[styles.filterChip, { minHeight: ui.dense(32, 28), borderRadius: ui.dense(16, 14), backgroundColor: active ? palette.accent : palette.surface }]}><Text style={[styles.filterText, { color: active ? "white" : palette.secondaryText, fontSize: ui.font(13) }]}>{label}</Text></Pressable>;
+  return <Pressable onPress={onPress} style={[styles.filterChip, { minHeight: ui.dense(32, 28), borderRadius: ui.dense(16, 14), backgroundColor: active ? palette.accent : palette.elevated, borderColor: palette.outline }]}><Text style={[styles.filterText, { color: active ? palette.onAccent : palette.text, fontSize: ui.font(13) }]}>{label}</Text></Pressable>;
+}
+
+const conversationTones = ["sky", "mint", "pink", "butter", "lavender"] as const;
+
+function conversationTone(id: string, saved: boolean) {
+  if (saved) return "lavender" as const;
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+  return conversationTones[hash % conversationTones.length]!;
 }
 
 function conversationTitle(conversation: ConversationSummary, language: "en" | "ru"): string {
@@ -280,13 +292,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   list: { flex: 1 },
   listContent: { flexGrow: 1, paddingTop: 2, paddingBottom: 86 },
-  search: { height: 44, marginHorizontal: 12, marginVertical: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 8 },
+  search: { height: 46, marginHorizontal: 12, marginVertical: 9, borderRadius: 17, borderWidth: 1.5, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, gap: 8, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 3 },
   searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   filterStrip: { flexGrow: 0, flexShrink: 0, height: 41 },
   filters: { paddingHorizontal: 12, paddingBottom: 7, gap: 7, alignItems: "center" },
-  filterChip: { minHeight: 32, borderRadius: 16, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
+  filterChip: { minHeight: 32, borderRadius: 16, borderWidth: 1.25, paddingHorizontal: 13, alignItems: "center", justifyContent: "center" },
   filterText: { fontSize: 13, fontWeight: "700" },
-  row: { height: 68, flexDirection: "row", marginHorizontal: 12, marginVertical: 2, paddingHorizontal: 10, borderRadius: 18, alignItems: "center" },
+  row: { height: 68, flexDirection: "row", marginHorizontal: 12, marginVertical: 2, paddingHorizontal: 10, borderRadius: 19, borderWidth: 1.25, alignItems: "center" },
   sectionBreak: { borderTopWidth: 2, borderTopColor: "transparent" },
   savedAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
   rowBody: { flex: 1, alignSelf: "stretch", justifyContent: "center", marginLeft: 12, paddingRight: 4 },
@@ -296,9 +308,9 @@ const styles = StyleSheet.create({
   rowBottom: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 5 },
   preview: { flex: 1, fontSize: 14 },
   unreadBadge: { minWidth: 21, height: 21, borderRadius: 11, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
-  unreadText: { color: "white", fontSize: 11, fontWeight: "800" },
+  unreadText: { fontSize: 11, fontWeight: "800" },
   empty: { paddingTop: 100, alignItems: "center" },
   emptyTitle: { fontSize: 18, fontWeight: "700" },
   emptyText: { fontSize: 14, marginTop: 6 },
-  fab: { position: "absolute", right: 18, width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", elevation: 4 },
+  fab: { position: "absolute", right: 18, width: 56, height: 56, borderRadius: 20, borderWidth: 1.5, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 0, elevation: 5 },
 });

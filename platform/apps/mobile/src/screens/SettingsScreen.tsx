@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { AppSettings } from "@snezhok/contracts";
 
 import { ScreenHeader } from "../components/ScreenHeader";
+import { PlayfulBackdrop } from "../components/PlayfulBackdrop";
 import { useAppDialog } from "../components/AppDialogProvider";
 import { AccountPrivacyModal, type AccountPrivacyPage } from "../components/management/AccountPrivacyModal";
 import { MentionsModal } from "../components/management/MentionsModal";
@@ -30,7 +31,7 @@ import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 import { useAndroidUpdate } from "../updates/UpdateProvider";
 
-type ChoiceSetting = "language" | "theme" | "accent" | "fontScale" | "bubbleRadius" | "defaultUploadQuality" | "microphoneMode" | "noiseSuppression" | "callAudioRoute" | "callQuality" | "screenShareQuality" | "mediaCacheLimit";
+type ChoiceSetting = "language" | "theme" | "fontScale" | "bubbleRadius" | "defaultUploadQuality" | "microphoneMode" | "noiseSuppression" | "callAudioRoute" | "callQuality" | "screenShareQuality" | "mediaCacheLimit";
 
 interface ChoiceRequest {
   key: ChoiceSetting;
@@ -38,14 +39,6 @@ interface ChoiceRequest {
   selected: string;
   options: SettingsChoiceOption[];
 }
-
-const accentColors: Record<AppSettings["accent"], string> = {
-  blue: "#3F6FE5",
-  green: "#39A86B",
-  purple: "#8A63D2",
-  orange: "#E77C33",
-  red: "#D94A57",
-};
 
 export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -86,7 +79,6 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
     switch (choice.key) {
       case "language": patch({ language: value as AppSettings["language"] }); break;
       case "theme": patch({ theme: value as AppSettings["theme"] }); break;
-      case "accent": patch({ accent: value as AppSettings["accent"] }); break;
       case "fontScale": patch({ fontScale: Number(value) }); break;
       case "bubbleRadius": patch({ bubbleRadius: Number(value) }); break;
       case "defaultUploadQuality": patch({ defaultUploadQuality: value as AppSettings["defaultUploadQuality"] }); break;
@@ -108,7 +100,6 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
     { value: "en", label: t("english") },
   ];
   const themeOptions = (["system", "light", "dark"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
-  const accentOptions = (["blue", "green", "purple", "orange", "red"] as const).map((value) => ({ value, label: optionLabel(settings.language, value), color: accentColors[value] }));
   const uploadOptions = (["data-saver", "auto", "high", "original"] as const).map((value) => ({ value, label: optionLabel(settings.language, value) }));
   const fontScaleOptions = [0.9, 1, 1.1, 1.2, 1.35].map((value) => ({ value: String(value), label: `${Math.round(value * 100)}%` }));
   const bubbleRadiusOptions = [8, 12, 16, 20, 24].map((value) => ({ value: String(value), label: `${value} px` }));
@@ -142,22 +133,22 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
   );
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.background }]}>
-      <ScreenHeader prominent={embedded} title={t("settings")} {...(!embedded ? { left: { icon: "chevron-back" as const, label: t("back"), onPress: navigation.goBack } } : {})} />
+    <View style={[styles.screen, { backgroundColor: palette.settingsCanvas }]}>
+      <PlayfulBackdrop variant="settings" />
+      <ScreenHeader tone="settings" prominent={embedded} title={t("settings")} {...(!embedded ? { left: { icon: "chevron-back" as const, label: t("back"), onPress: navigation.goBack } } : {})} />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: embedded ? 24 : Math.max(insets.bottom + 16, 28) }]}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews
       >
         <SettingsSection title={t("appearance")}>
-          <SettingsCard>
+          <SettingsCard tone="lavender">
             <SettingsRow icon="language-outline" label={t("language")} value={settings.language === "ru" ? t("russian") : t("english")} onPress={() => openChoice("language", t("language"), settings.language, languageOptions)} />
             <SettingsRow icon="moon-outline" label={t("theme")} value={optionLabel(settings.language, settings.theme)} onPress={() => openChoice("theme", t("theme"), settings.theme, themeOptions)} />
-            <SettingsRow icon="color-palette-outline" label={t("accent")} value={optionLabel(settings.language, settings.accent)} valueDot={accentColors[settings.accent]} onPress={() => openChoice("accent", t("accent"), settings.accent, accentOptions)} />
             <SettingsRow icon="accessibility-outline" label={t("fontSize")} value={`${Math.round(settings.fontScale * 100)}%`} onPress={() => openChoice("fontScale", t("fontSize"), String(settings.fontScale), fontScaleOptions)} />
             <SettingsRow icon="chatbubble-outline" label={t("messageCorners")} value={`${settings.bubbleRadius} px`} onPress={() => openChoice("bubbleRadius", t("messageCorners"), String(settings.bubbleRadius), bubbleRadiusOptions)} />
           </SettingsCard>
-          <SettingsCard>
+          <SettingsCard tone="pink">
             <SettingsSwitchRow icon="contract-outline" label={t("compactSpacing")} value={settings.density === "compact"} onChange={(compact) => patch({ density: compact ? "compact" : "comfortable" })} />
             <SettingsSwitchRow icon="eye-outline" label={t("highContrast")} value={settings.highContrast} onChange={(highContrast) => patch({ highContrast })} />
             <SettingsSwitchRow icon="accessibility-outline" label={t("reduceMotion")} value={settings.reducedMotion} onChange={(reducedMotion) => patch({ reducedMotion })} />
@@ -165,7 +156,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         </SettingsSection>
 
         <SettingsSection title={t("dataStorage")}>
-          <SettingsCard>
+          <SettingsCard tone="butter">
             <SettingsRow icon="cloud-upload-outline" label={t("uploadQuality")} value={optionLabel(settings.language, settings.defaultUploadQuality)} onPress={() => openChoice("defaultUploadQuality", t("uploadQuality"), settings.defaultUploadQuality, uploadOptions)} />
             <SettingsSwitchRow icon="wifi-outline" label={t("autoWifi")} value={settings.autoDownloadWifi} onChange={(autoDownloadWifi) => patch({ autoDownloadWifi })} />
             <SettingsSwitchRow icon="cellular-outline" label={t("autoMobile")} value={settings.autoDownloadMobile} onChange={(autoDownloadMobile) => patch({ autoDownloadMobile })} />
@@ -176,7 +167,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         </SettingsSection>
 
         <SettingsSection title={t("voiceVideo")} footer={settings.microphoneMode === "speakerphone" ? t("microphoneSpeakerphoneHint") : undefined}>
-          <SettingsCard>
+          <SettingsCard tone="sky">
             <SettingsRow icon="mic-outline" label={t("microphone")} value={microphoneLabel(settings.microphoneMode, t)} onPress={() => openChoice("microphoneMode", t("microphone"), settings.microphoneMode, microphoneOptions)} />
             <SettingsRow icon="ear-outline" label={t("callAudioRoute")} value={callRouteLabel(settings.callAudioRoute, t)} onPress={() => openChoice("callAudioRoute", t("callAudioRoute"), settings.callAudioRoute, callRouteOptions)} />
             <SettingsRow icon="cellular-outline" label={t("callQuality")} value={optionLabel(settings.language, settings.callQuality)} onPress={() => openChoice("callQuality", t("callQuality"), settings.callQuality, callQualityOptions)} />
@@ -189,13 +180,13 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         </SettingsSection>
 
         <SettingsSection title={t("privacy")}>
-          <SettingsCard>
+          <SettingsCard tone="mint">
             <SettingsRow icon="person-circle-outline" label={pc("accountSecurity")} onPress={() => setAccountPage("account")} />
             <SettingsRow icon="shield-checkmark-outline" label={pc("privacyDetails")} onPress={() => setAccountPage("privacy")} />
             <SettingsSwitchRow icon="checkmark-done-outline" label={t("readReceipts")} value={settings.readReceipts} onChange={(readReceipts) => patch({ readReceipts })} />
             <SettingsSwitchRow icon="time-outline" label={t("showLastSeen")} value={settings.showLastSeen} onChange={(showLastSeen) => patch({ showLastSeen })} />
           </SettingsCard>
-          <SettingsCard>
+          <SettingsCard tone="lime">
             <SettingsRow icon="notifications-outline" label={pc("notifications")} onPress={() => setNotificationPreferences(true)} />
             <SettingsRow icon="at-outline" label={pc("mentions")} onPress={() => setMentions(true)} />
             <SettingsSwitchRow icon="sparkles-outline" label={settings.language === "ru" ? "Романтические и 18+ вопросы" : "Romantic and adult prompts"} value={settings.cooperativeMatureContent} onChange={(cooperativeMatureContent) => patch({ cooperativeMatureContent })} />
@@ -203,7 +194,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         </SettingsSection>
 
         {isAdmin ? <SettingsSection title={settings.language === "ru" ? "Администрирование" : "Administration"}>
-          <SettingsCard>
+          <SettingsCard tone="coral">
             <SettingsRow icon="shield-checkmark-outline" label={settings.language === "ru" ? "Управление приложением" : "Application administration"} detail={settings.language === "ru" ? "Участники, разрешения, хранилище и сроки хранения" : "Members, permissions, storage and retention"} onPress={() => setGlobalAdmin(true)} />
           </SettingsCard>
         </SettingsSection> : null}
@@ -216,7 +207,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
             </View>
           ) : undefined}
         >
-          <SettingsCard>
+          <SettingsCard tone="pink">
             <SettingsRow
               icon="phone-portrait-outline"
               label={`Snezhok ${appUpdate.currentVersion}`}
@@ -230,7 +221,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         </SettingsSection>
 
         <SettingsSection title={t("support")}>
-          <SettingsCard>
+          <SettingsCard tone="tangerine">
             {isAdmin ? <SettingsRow icon="alert-circle" label={t("diagnostics")} detail={t("diagnosticsDescription")} onPress={() => navigation.navigate("Diagnostics")} /> : null}
             <SettingsRow icon="globe-outline" label={pc("openSource")} detail={`GPL-3.0-or-later · ${shortSourceRevision()}`} onPress={() => showDialog(pc("openSource"), `${pc("legalNotice")}\n\n${shortSourceRevision()}`, [{ text: t("cancel"), style: "cancel" }, { text: pc("sourceCode"), onPress: () => void Linking.openURL(sourceRevisionUrl()) }])} />
           </SettingsCard>
@@ -240,7 +231,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
           accessibilityRole="button"
           accessibilityLabel={t("signOut")}
           onPress={() => showDialog(t("signOut"), t("signOutQuestion"), [{ text: t("cancel"), style: "cancel" }, { text: t("signOut"), style: "destructive", onPress: () => void signOut() }])}
-          style={({ pressed }) => [styles.signOut, { backgroundColor: palette.dark ? palette.elevated : palette.background, borderColor: palette.border }, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.signOut, { backgroundColor: palette.elevated, borderColor: palette.outline, shadowColor: palette.outline }, pressed && styles.pressed]}
         >
           <Text style={[styles.signOutText, { color: palette.danger }]}>{t("signOut")}</Text>
         </Pressable>
@@ -295,10 +286,10 @@ function callRouteLabel(route: AppSettings["callAudioRoute"], t: ReturnType<type
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { paddingHorizontal: 14, paddingTop: 18, gap: 22 },
+  content: { paddingHorizontal: 14, paddingTop: 18, gap: 24 },
   releaseNotes: { gap: 4 },
   releaseNote: { fontSize: 12, lineHeight: 17 },
-  signOut: { minHeight: 52, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  signOut: { minHeight: 52, borderWidth: 1.5, borderRadius: 18, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 3 },
   signOutText: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
   pressed: { opacity: 0.62 },
 });

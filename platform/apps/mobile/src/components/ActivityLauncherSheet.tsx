@@ -52,7 +52,7 @@ export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visib
             <View style={styles.categoryGrid}>{questionCategories.map((option) => <Pressable accessibilityRole="button" accessibilityState={{ selected: category === option.id }} key={option.id} onPress={() => setCategory(option.id)} style={[styles.category, { backgroundColor: category === option.id ? "#CDB5FF" : palette.surface, borderColor: category === option.id ? "#5D3B93" : palette.border }]}><Text style={{ color: category === option.id ? "#5D3B93" : palette.text, fontWeight: "700", fontSize: 12 }}>{language === "ru" ? option.ru : option.en}</Text></Pressable>)}</View>
             {category === "romantic" || category === "nsfw" ? <Text style={[styles.consentHint, { color: palette.secondaryText }]}>{language === "ru" ? "Эта категория доступна, только если оба человека включили её в Настройках." : "This category works only when both people enable it in Settings."}</Text> : null}
             <Pressable accessibilityRole="switch" accessibilityState={{ checked: secret }} onPress={() => setSecret((value) => !value)} style={[styles.secretToggle, { backgroundColor: palette.surface }]}><AppIcon name={secret ? "lock-closed-outline" : "eye-outline"} size={20} color={palette.accent} /><Text style={[styles.flex, { color: palette.text, fontWeight: "700" }]}>{secret ? (language === "ru" ? "Ответы откроются вместе" : "Answers reveal together") : (language === "ru" ? "Ответы видны сразу" : "Answers appear immediately")}</Text><View style={[styles.toggle, { backgroundColor: secret ? palette.accent : palette.border }]}><View style={[styles.toggleKnob, { transform: [{ translateX: secret ? 18 : 0 }] }]} /></View></Pressable>
-            <Pressable disabled={busy} onPress={() => onStart("question", { category, secret })} style={[styles.startQuestion, { backgroundColor: palette.accent }]}>{busy ? <ActivityIndicator color="#FFF" /> : <Text style={styles.surpriseTitle}>{language === "ru" ? "Задать вопрос" : "Drop the question"}</Text>}</Pressable>
+            <Pressable disabled={busy} onPress={() => onStart("question", { category, secret })} style={[styles.startQuestion, { backgroundColor: palette.accent }]}>{busy ? <ActivityIndicator color={palette.onAccent} /> : <Text style={[styles.surpriseTitle, { color: palette.onAccent }]}>{language === "ru" ? "Задать вопрос" : "Drop the question"}</Text>}</Pressable>
             <Pressable disabled={busy} onPress={() => setQuestionSetup(false)} style={styles.backSetup}><Text style={{ color: palette.secondaryText, fontWeight: "700" }}>{language === "ru" ? "Назад" : "Back"}</Text></Pressable>
           </View> : capsuleSetup ? <View style={styles.setup}>
             <Text style={[styles.setupTitle, { color: palette.text }]}>{language === "ru" ? "Когда открыть капсулу?" : "When should it reopen?"}</Text>
@@ -63,8 +63,8 @@ export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visib
             </View>
             <Pressable disabled={busy} onPress={() => setCapsuleSetup(false)} style={styles.backSetup}><Text style={{ color: palette.secondaryText, fontWeight: "700" }}>{language === "ru" ? "Назад" : "Back"}</Text></Pressable>
           </View> : <><Pressable accessibilityRole="button" disabled={busy} onPress={() => onStart(surprise[Math.floor(Math.random() * surprise.length)]!)} style={({ pressed }) => [styles.surprise, { backgroundColor: palette.accent, opacity: busy ? 0.45 : pressed ? 0.82 : 1 }]}>
-            <AppIcon name="sparkles-outline" size={22} color="#FFFFFF" />
-            <View style={styles.flex}><Text style={styles.surpriseTitle}>{language === "ru" ? "Удиви нас" : "Surprise us"}</Text><Text style={styles.surpriseHint}>{language === "ru" ? "Snezhok сам выберет момент" : "Let Snezhok choose the moment"}</Text></View>
+            <AppIcon name="sparkles-outline" size={22} color={palette.onAccent} />
+            <View style={styles.flex}><Text style={[styles.surpriseTitle, { color: palette.onAccent }]}>{language === "ru" ? "Удиви нас" : "Surprise us"}</Text><Text style={[styles.surpriseHint, { color: palette.onAccent }]}>{language === "ru" ? "Snezhok сам выберет момент" : "Let Snezhok choose the moment"}</Text></View>
           </Pressable>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.grid}>
             {items.map((entry) => <Pressable accessibilityRole="button" key={entry.type} disabled={busy} onPress={() => entry.type === "question" ? setQuestionSetup(true) : entry.type === "memory-capsule" ? setCapsuleSetup(true) : onStart(entry.type)} style={({ pressed }) => [styles.card, { backgroundColor: entry.color, opacity: busy ? 0.5 : pressed ? 0.78 : 1 }]}>
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, lineHeight: 29, fontWeight: "800" },
   subtitle: { fontSize: 14, lineHeight: 19, marginTop: 4, maxWidth: 310 },
   surprise: { minHeight: 64, borderRadius: 20, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
-  surpriseTitle: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" }, surpriseHint: { color: "rgba(255,255,255,0.82)", fontSize: 12, marginTop: 2 },
+  surpriseTitle: { fontSize: 17, fontWeight: "800" }, surpriseHint: { fontSize: 12, marginTop: 2, opacity: 0.78 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingBottom: 8 },
   card: { width: "48%", minHeight: 132, borderRadius: 22, padding: 14 },
   icon: { width: 39, height: 39, borderRadius: 14, alignItems: "center", justifyContent: "center", marginBottom: 12 },

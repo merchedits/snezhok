@@ -291,7 +291,7 @@ Settings are full-screen on Android and searchable two-pane navigation on deskto
 3. **Privacy and safety**: friend requests, blocked users, read receipts, last seen, online state, media metadata, link previews.
 4. **Notifications and sounds**: message and call toggles, previews, sounds, quiet hours.
 5. **Data and storage**: mobile and Wi-Fi auto-download rules, maximum sizes, default upload quality, cache size, clear cache, media retention, streaming.
-6. **Appearance**: system, light, dark, accent preset, font size, density, message radius, direct-chat wallpaper, reduced motion.
+6. **Appearance**: system, light, dark, fixed Snezhok palette, font size, density, message radius, direct-chat wallpaper, reduced motion. Accent selection is not user-configurable.
 7. **Voice and video**: devices, processing, sensitivity, quality, camera preview, push-to-talk.
 8. **Accessibility**: reduced motion, higher contrast, saturation, screen-reader descriptions, caption preference.
 9. **Language**: English and Russian initially.

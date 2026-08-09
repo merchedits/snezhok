@@ -35,3 +35,12 @@ export const defaultSettings: AppSettings = {
   quietHoursTimezoneOffsetMinutes: 0,
   quietHoursDays: [0, 1, 2, 3, 4, 5, 6],
 };
+
+/**
+ * `accent` remains in the wire shape so installed 3.x clients can update
+ * without a breaking settings migration. The 4.x product palette is fixed,
+ * so legacy stored or submitted accent choices are always normalized away.
+ */
+export function normalizeSettings(settings: Partial<AppSettings> | null | undefined): AppSettings {
+  return { ...defaultSettings, ...(settings ?? {}), accent: "blue" };
+}

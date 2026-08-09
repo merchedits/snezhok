@@ -28,7 +28,7 @@ export const BottomNavigation = memo(function BottomNavigation({ selected, onSel
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   return (
-    <View style={[styles.nav, { minHeight: ui.dense(62, 56) + insets.bottom, paddingBottom: insets.bottom + 4, backgroundColor: palette.elevated, borderColor: palette.border }]}>
+    <View style={[styles.nav, { minHeight: ui.dense(66, 60) + insets.bottom, paddingBottom: insets.bottom + 5, backgroundColor: palette.navigation, borderColor: palette.outline }]}>
       {tabs.map((tab) => <TabButton key={tab.id} tab={tab} active={selected === tab.id} label={t(tab.id)} onSelect={onSelect} />)}
     </View>
   );
@@ -38,6 +38,8 @@ const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { ta
   const palette = usePalette();
   const ui = useUiPreferences();
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
+  const activeFill = tab.id === "profile" ? palette.moment.mint : tab.id === "settings" ? palette.moment.lavender : palette.accent;
+  const activeForeground = tab.id === "chats" ? palette.onAccent : palette.text;
   const progress = useSharedValue(active ? 1 : 0);
   useEffect(() => {
     progress.value = withTiming(active ? 1 : 0, {
@@ -46,9 +48,9 @@ const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { ta
     });
   }, [active, progress, reducedMotion]);
   const iconStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(progress.value, [0, 1], ["transparent", palette.accentSoft]),
-    transform: [{ translateY: 1 - progress.value }, { scale: 0.94 + progress.value * 0.06 }],
-  }), [palette.accentSoft]);
+    backgroundColor: interpolateColor(progress.value, [0, 1], ["transparent", activeFill]),
+    transform: [{ translateY: 1 - progress.value * 3 }, { scale: 0.94 + progress.value * 0.06 }],
+  }), [activeFill]);
   const onPress = useCallback(() => {
     void Haptics.selectionAsync().catch(() => undefined);
     onSelect(tab.id);
@@ -56,16 +58,16 @@ const TabButton = memo(function TabButton({ tab, active, label, onSelect }: { ta
   return (
     <Pressable accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={label} onPress={onPress} style={styles.tab} android_ripple={{ color: palette.accentSoft, borderless: false }}>
       <Animated.View style={[styles.iconWrap, iconStyle]}>
-        <AppIcon name={active ? tab.activeIcon : tab.icon} size={23} color={active ? palette.accent : palette.secondaryText} strokeWidth={active ? 2 : 1.8} />
+        <AppIcon name={active ? tab.activeIcon : tab.icon} size={23} color={active ? activeForeground : palette.secondaryText} strokeWidth={active ? 2 : 1.8} />
       </Animated.View>
-      <Text numberOfLines={1} style={[styles.label, { color: active ? palette.accent : palette.secondaryText, fontSize: ui.font(10.5) }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.label, { color: active ? palette.text : palette.secondaryText, fontSize: ui.font(11) }]}>{label}</Text>
     </Pressable>
   );
 });
 
 const styles = StyleSheet.create({
-  nav: { flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth },
+  nav: { flexDirection: "row", borderTopWidth: 1.5 },
   tab: { flex: 1, minHeight: 58, alignItems: "center", justifyContent: "center", gap: 2, borderRadius: 18, overflow: "hidden" },
-  iconWrap: { width: 44, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  label: { maxWidth: "96%", fontSize: 10.5, fontWeight: "700" },
+  iconWrap: { width: 48, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  label: { maxWidth: "96%", fontSize: 11, fontWeight: "800" },
 });

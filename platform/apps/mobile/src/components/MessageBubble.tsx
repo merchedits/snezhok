@@ -125,7 +125,7 @@ export const MessageBubble = memo(function MessageBubble({ streamId, message, mi
       <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
       <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
         <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, { marginVertical: ui.dense(2, 1) }]}>
-          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, { borderRadius: message.activity ? 24 : ui.bubbleRadius, paddingHorizontal: message.activity ? 0 : ui.dense(12, 10), paddingVertical: message.activity ? 0 : ui.dense(8, 5), backgroundColor: message.activity ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderColor: message.activity ? "transparent" : selected ? palette.accent : palette.border, opacity: pressed ? 0.82 : 1 }]}>
+          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, { borderRadius: message.activity ? 24 : ui.bubbleRadius, paddingHorizontal: message.activity ? 0 : ui.dense(12, 10), paddingVertical: message.activity ? 0 : ui.dense(8, 5), backgroundColor: message.activity ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderColor: message.activity ? "transparent" : selected ? palette.accent : palette.outline, opacity: pressed ? 0.82 : 1 }]}>
             <MessageContent streamId={streamId} message={message} mine={mine} showSender={showSender && !mine} showTime interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
           </Pressable>
         </View>
@@ -146,7 +146,7 @@ function SelectionMarker({ selected, animatedStyle }: { selected: boolean; anima
   return (
     <Animated.View pointerEvents="none" style={[styles.selectionMarker, animatedStyle]}>
       <View style={[styles.selectionCircle, { borderColor: selected ? palette.accent : palette.faintText, backgroundColor: selected ? palette.accent : "transparent" }]}>
-        {selected ? <AppIcon name="checkmark" size={15} color="white" strokeWidth={2} /> : null}
+        {selected ? <AppIcon name="checkmark" size={15} color={palette.onAccent} strokeWidth={2} /> : null}
       </View>
     </Animated.View>
   );
@@ -183,7 +183,7 @@ function MessageContent({ streamId, message, mine, showSender, showTime, interac
           {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : palette.accent} /> : null}
         </View>
       ) : null}
-      {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction, index) => <Pressable accessibilityLabel={reaction.emoji} key={getMappingKey(reaction.emoji, index)} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.surface, borderColor: reaction.reacted ? palette.accent : palette.border }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
+      {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction, index) => <Pressable accessibilityLabel={reaction.emoji} key={getMappingKey(reaction.emoji, index)} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink, borderColor: reaction.reacted ? palette.accent : palette.outline }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
     </View>
   );
 }
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
   row: { width: "100%", paddingHorizontal: 8, marginVertical: 2 },
   mineRow: { alignItems: "flex-end" },
   theirRow: { alignItems: "flex-start" },
-  bubble: { maxWidth: "78%", minWidth: 78, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
+  bubble: { maxWidth: "78%", minWidth: 78, borderWidth: 1.2, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
   activityBubble: { maxWidth: "94%", width: 302, borderWidth: 0 },
   channelRow: { width: "100%", flexDirection: "row", paddingHorizontal: 12, paddingVertical: 3 },
   channelAvatar: { width: 40, marginRight: 10 },

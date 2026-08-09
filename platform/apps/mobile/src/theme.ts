@@ -2,26 +2,44 @@ import type { ColorSchemeName } from "react-native";
 
 export type Palette = ReturnType<typeof createPalette>;
 
-export function createPalette(scheme: ColorSchemeName, accent = "#3F6FE5", highContrast = false) {
+export function createPalette(scheme: ColorSchemeName, highContrast = false) {
   const dark = scheme === "dark";
-  const resolvedAccent = dark && accent.toLowerCase() === "#3f6fe5" ? "#7EA4FF" : accent;
   return {
     dark,
-    background: dark ? "#11141A" : "#FFF9EE",
-    surface: dark ? highContrast ? "#252B36" : "#222731" : highContrast ? "#EFE8DC" : "#F4EFE6",
-    elevated: dark ? "#292F3A" : "#FFFFFF",
-    text: dark ? "#F6F3EC" : "#19202A",
-    secondaryText: dark ? highContrast ? "#CED1D8" : "#B1B5BE" : highContrast ? "#424A55" : "#626A76",
-    faintText: dark ? highContrast ? "#A3A9B3" : "#7F8692" : highContrast ? "#666D77" : "#9299A3",
-    border: dark ? highContrast ? "#505866" : "#303641" : highContrast ? "#AAA092" : "#E9E1D5",
-    accent: resolvedAccent,
-    accentSoft: dark && accent.toLowerCase() === "#3f6fe5" ? "#24345C" : colorWithAlpha(resolvedAccent, dark ? 0.19 : 0.13),
-    outgoing: dark ? "#24345C" : "#E5EEFF",
-    incoming: dark ? "#1A1E26" : "#FFFFFF",
-    danger: dark ? "#FF7A84" : "#D94A57",
-    success: dark ? "#65D393" : "#2F9B61",
-    warning: dark ? "#F5B95C" : "#D88B24",
-    overlay: "rgba(0,0,0,0.58)",
+    background: dark ? "#1B1D52" : "#FFD166",
+    chatCanvas: dark ? "#22265F" : "#B9D7FF",
+    profileCanvas: dark ? "#173F38" : "#AEE6C6",
+    settingsCanvas: dark ? "#35265F" : "#C9B5FF",
+    surface: dark ? highContrast ? "#343879" : "#292D68" : highContrast ? "#FFE7AE" : "#FFF0C9",
+    elevated: dark ? "#343879" : "#FFF8E7",
+    navigation: dark ? "#22265F" : "#FFF3D4",
+    composer: dark ? "#292D68" : "#FFEDC2",
+    text: dark ? "#FFF7E7" : "#1E2140",
+    secondaryText: dark ? highContrast ? "#F4EDFF" : "#D5CFF0" : highContrast ? "#39334F" : "#56506E",
+    faintText: dark ? highContrast ? "#D5CFF0" : "#AAA3C8" : highContrast ? "#575069" : "#817A96",
+    border: dark ? highContrast ? "#FAEBC4" : "#585D99" : highContrast ? "#52475F" : "#D99463",
+    outline: dark ? "#FAEBC4" : "#24233A",
+    accent: dark ? "#7FA2FF" : "#3858E8",
+    onAccent: dark ? "#151737" : "#FFF8E7",
+    accentPressed: dark ? "#A9BEFF" : "#2941B6",
+    accentSoft: dark ? "#3A4C91" : "#B9C8FF",
+    outgoing: dark ? "#405AA1" : "#91B8FF",
+    incoming: dark ? "#2D316D" : "#FFF3D2",
+    danger: dark ? "#FF8194" : "#D02F4D",
+    onDanger: dark ? "#32131D" : "#FFF8E7",
+    success: dark ? "#73E0B0" : "#147C52",
+    warning: dark ? "#FFC564" : "#B75A00",
+    overlay: dark ? "rgba(5,6,28,0.74)" : "rgba(30,20,54,0.58)",
+    moment: {
+      pink: dark ? "#A83E6A" : "#FF87AE",
+      coral: dark ? "#9E413E" : "#FF7568",
+      butter: dark ? "#8B6B18" : "#FFD45C",
+      lime: dark ? "#647A25" : "#CDEB62",
+      mint: dark ? "#267956" : "#6ED9A7",
+      tangerine: dark ? "#A45119" : "#FF9138",
+      lavender: dark ? "#6747A4" : "#B894FF",
+      sky: dark ? "#296C9C" : "#76C5FF",
+    },
   } as const;
 }
 
@@ -40,11 +58,3 @@ export const radii = {
   lg: 24,
   pill: 999,
 } as const;
-
-function colorWithAlpha(hex: string, alpha: number) {
-  const normalized = /^#[0-9a-f]{6}$/i.test(hex) ? hex.slice(1) : "3F6FE5";
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${red},${green},${blue},${alpha})`;
-}

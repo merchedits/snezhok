@@ -444,7 +444,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       categories: cached?.categories ?? [],
       channels: cached?.channels ?? [],
       friends: cached?.friends ?? [],
-      settings: { ...defaultSettings, ...(cached?.settings ?? {}), ...pendingSettingsPatch },
+      settings: { ...defaultSettings, ...(cached?.settings ?? {}), ...pendingSettingsPatch, accent: "blue" },
       messages: cache.messages,
       drafts,
       outbox,
@@ -607,7 +607,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             ? { ...channel, unreadCount: 0, mentionCount: 0 }
             : channel),
           friends: payload.friends,
-          settings: { ...payload.settings, ...pendingSettingsPatch },
+          settings: { ...payload.settings, ...pendingSettingsPatch, accent: "blue" },
           eventCursor: payload.eventCursor,
         }));
         lastBootstrapCompletedAt = Date.now();
@@ -1547,10 +1547,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateSettings: async (patch) => {
     const guard = captureAccountOperation();
-    const next = { ...get().settings, ...patch };
+    const normalizedPatch = { ...patch, ...("accent" in patch ? { accent: "blue" as const } : {}) };
+    const next = { ...get().settings, ...normalizedPatch, accent: "blue" as const };
     set({ settings: next });
     schedulePersistence({ bootstrap: true });
-    pendingSettingsPatch = mergePendingSettings(pendingSettingsPatch, patch);
+    pendingSettingsPatch = mergePendingSettings(pendingSettingsPatch, normalizedPatch);
     await persistPendingSettingsPatch();
     if (!accountOperationIsCurrent(guard) || !get().online) return;
     await synchronizePendingSettings(guard);

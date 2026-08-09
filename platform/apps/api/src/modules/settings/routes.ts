@@ -3,7 +3,7 @@ import type { AppSettings } from "@snezhok/contracts";
 import { z } from "zod";
 import { pool } from "../../db/pool.js";
 import { requireAuth } from "../auth/middleware.js";
-import { defaultSettings } from "./defaults.js";
+import { normalizeSettings } from "./defaults.js";
 
 const settingsSchema = z.object({
   theme: z.enum(["system","light","dark"]), accent: z.enum(["blue","green","purple","orange","red"]),
@@ -25,13 +25,13 @@ const settingsSchema = z.object({
 export async function settingsRoutes(app: FastifyInstance) {
   app.get("/settings", { preHandler: requireAuth }, async (request) => {
     const result = await pool.query<{ settings: Partial<AppSettings> }>("SELECT settings FROM user_settings WHERE user_id=$1", [request.auth.id]);
-    return { settings: { ...defaultSettings, ...(result.rows[0]?.settings ?? {}) } };
+    return { settings: normalizeSettings(result.rows[0]?.settings) };
   });
   app.patch("/settings", { preHandler: requireAuth }, async (request) => {
-    const patch = settingsSchema.parse(request.body);
+    const patch = { ...settingsSchema.parse(request.body), accent: "blue" as const };
     const result = await pool.query<{ settings: AppSettings }>(
       `INSERT INTO user_settings(user_id,settings) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE
        SET settings=user_settings.settings || EXCLUDED.settings,updated_at=now() RETURNING settings`, [request.auth.id, patch]);
-    return { settings: { ...defaultSettings, ...result.rows[0]!.settings } };
+    return { settings: normalizeSettings(result.rows[0]!.settings) };
   });
 }

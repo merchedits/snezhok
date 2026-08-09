@@ -17,6 +17,8 @@ Before opening Android's installer, Snezhok verifies the byte count and SHA-256 
 
 Release 4.0 introduces durable cooperative activity payloads on system-message anchors. The payload is backward compatible: older installed clients display the Russian fallback system text and continue normal messaging, while 4.0 renders the interactive card. Deploy migration 0018 and the matching API revision before publishing the 4.0 APK.
 
+Release 4.0.1 removes user-selectable accent colors and applies the fixed whimsical Snezhok palette across primary Android destinations and shared menus. The legacy `accent` wire field is retained and normalized to `blue` so 3.x clients and cached settings can cross the update without a schema break.
+
 ## Publishing a release
 
 1. Increase both `version` and `android.versionCode` in `apps/mobile/app.config.ts`; version codes must never decrease or be reused.

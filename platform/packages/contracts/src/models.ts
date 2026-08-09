@@ -288,6 +288,7 @@ export interface Message {
 
 export interface AppSettings {
   theme: Theme;
+  /** @deprecated Kept for 3.x wire compatibility. Snezhok 4.x uses one fixed palette. */
   accent: "blue" | "green" | "purple" | "orange" | "red";
   fontScale: number;
   density: "compact" | "comfortable";

@@ -13,24 +13,26 @@ export interface SettingsChoiceOption {
   color?: string;
 }
 
+export type SettingsCardTone = "pink" | "coral" | "butter" | "lime" | "mint" | "tangerine" | "lavender" | "sky";
+
 export function SettingsSection({ title, children, footer }: { title?: string; children: ReactNode; footer?: ReactNode }) {
   const palette = usePalette();
   const ui = useUiPreferences();
   return (
     <View style={styles.section}>
-      {title ? <Text style={[styles.sectionTitle, { color: palette.secondaryText, fontSize: ui.font(13), lineHeight: ui.font(17) }]}>{title}</Text> : null}
+      {title ? <Text style={[styles.sectionTitle, { color: palette.text, fontSize: ui.font(15), lineHeight: ui.font(20) }]}>{title}</Text> : null}
       <View style={styles.cardStack}>{children}</View>
       {footer ? <View style={styles.footer}>{typeof footer === "string" ? <Text style={[styles.footerText, { color: palette.secondaryText, fontSize: ui.font(12), lineHeight: ui.font(17) }]}>{footer}</Text> : footer}</View> : null}
     </View>
   );
 }
 
-export function SettingsCard({ children }: { children: ReactNode }) {
+export function SettingsCard({ children, tone }: { children: ReactNode; tone?: SettingsCardTone }) {
   const palette = usePalette();
   const ui = useUiPreferences();
   const rows = Children.toArray(children);
   return (
-    <View style={[styles.card, { borderRadius: Math.max(16, ui.bubbleRadius), backgroundColor: palette.elevated, borderColor: palette.border }]}>
+    <View style={[styles.card, { borderRadius: Math.max(18, ui.bubbleRadius), backgroundColor: tone ? palette.moment[tone] : palette.elevated, borderColor: palette.outline, shadowColor: palette.outline }]}>
       {rows.map((row, index) => (
         <Fragment key={index}>
           {row}
@@ -221,10 +223,10 @@ export function SettingsChoiceSheet({
       <View style={styles.modalLayer}>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: progress, backgroundColor: palette.overlay }]} />
         <Pressable accessibilityRole="button" accessibilityLabel={cancelLabel} onPress={onClose} style={StyleSheet.absoluteFill} />
-        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.elevated, borderColor: palette.border, transform: [{ translateY: sheetTranslateY }] }]}>
+        <Animated.View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom + 12, 24), backgroundColor: palette.navigation, borderColor: palette.outline, transform: [{ translateY: sheetTranslateY }] }]}>
           <View style={[styles.grabber, { backgroundColor: palette.faintText }]} />
           <Text style={[styles.sheetTitle, { color: palette.text, fontSize: ui.font(18), lineHeight: ui.font(23) }]}>{display.title}</Text>
-          <View style={styles.options}>
+          <View style={[styles.options, { backgroundColor: palette.elevated, borderColor: palette.outline }]}>
             {display.options.map((option, index) => {
               const active = option.value === display.selected;
               return (
@@ -259,14 +261,14 @@ export function SettingsChoiceSheet({
 
 const styles = StyleSheet.create({
   section: { gap: 8 },
-  sectionTitle: { marginLeft: 4, fontSize: 13, lineHeight: 17, fontWeight: "700" },
+  sectionTitle: { marginLeft: 4, fontSize: 15, lineHeight: 20, fontWeight: "900", letterSpacing: -0.2 },
   cardStack: { gap: 12 },
-  card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, overflow: "hidden" },
+  card: { borderWidth: 1.5, borderRadius: 18, overflow: "hidden", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 3 },
   divider: { height: StyleSheet.hairlineWidth, marginLeft: 52 },
   row: { minHeight: 56, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 8 },
   iconSlot: { width: 38, alignItems: "flex-start", justifyContent: "center" },
   copy: { flex: 1, minWidth: 0, justifyContent: "center" },
-  label: { fontSize: 15, lineHeight: 20, fontWeight: "600" },
+  label: { fontSize: 15, lineHeight: 20, fontWeight: "700" },
   detail: { marginTop: 2, fontSize: 12, lineHeight: 16 },
   value: { maxWidth: "43%", marginLeft: 12, fontSize: 14, lineHeight: 19, fontWeight: "500", textAlign: "right" },
   valueDot: { width: 8, height: 8, borderRadius: 4, marginLeft: 10, marginRight: -6 },
@@ -276,10 +278,10 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.52 },
   pressed: { opacity: 0.62 },
   modalLayer: { flex: 1, justifyContent: "flex-end" },
-  sheet: { maxHeight: "86%", borderTopWidth: StyleSheet.hairlineWidth, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 12, paddingTop: 8 },
+  sheet: { maxHeight: "86%", borderTopWidth: 1.5, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 12, paddingTop: 8 },
   grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", opacity: 0.55 },
   sheetTitle: { paddingHorizontal: 10, paddingTop: 14, paddingBottom: 10, fontSize: 18, lineHeight: 23, fontWeight: "800" },
-  options: { overflow: "hidden", borderRadius: 14 },
+  options: { overflow: "hidden", borderRadius: 18, borderWidth: 1.5 },
   choice: { minHeight: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: 14 },
   choiceDot: { width: 10, height: 10, borderRadius: 5, marginRight: 11 },
   choiceLabel: { flex: 1, fontSize: 15, lineHeight: 20, fontWeight: "600" },

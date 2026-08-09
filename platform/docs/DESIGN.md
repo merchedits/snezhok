@@ -7,7 +7,7 @@ This document is the authoritative design contract for new Android work. Existin
 Snezhok is a private place where people talk, make small things together, and keep the result. It should feel:
 
 - warm, friendly, and personal rather than corporate;
-- bright and expressive rather than noisy;
+- bold, colorful, and expressive rather than clinical or noisy;
 - immediate like a messenger rather than navigated like a content platform;
 - gently playful rather than childish;
 - private and trustworthy rather than engagement-driven.
@@ -19,7 +19,7 @@ The visual references establish the mood: warm off-white space, oversized confid
 1. **Conversation remains home.** Play, media, lists, and memories begin in a chat and return a durable result to that chat.
 2. **One tap creates shared motion.** The initiating action should immediately create something both people can see or contribute to.
 3. **Content before chrome.** Messages, people, photos, drawings, answers, and shared results carry more visual weight than navigation.
-4. **Playfulness is concentrated.** Utility surfaces stay calm. Color and illustration peak at invitations, reveals, completions, and empty states.
+4. **Playfulness is structural.** Primary canvases, cards, navigation, fields, and utility sheets all carry the product's color and shape language. Reveals may become more exuberant, but routine screens must never fall back to a white corporate dashboard.
 5. **No punishment loops.** There are milestones, not streak anxiety, expiring guilt, public scores, or compatibility percentages.
 6. **Privacy is visible.** Secret answers, locked submissions, audience, reveal conditions, and deletion consequences are stated where the decision is made.
 7. **Fast is part of friendly.** Every tap acknowledges immediately. Cached content paints first. Animation never delays navigation or input.
@@ -41,45 +41,52 @@ Chat and call details hide the bottom navigation. Direct switches between bottom
 
 ### Color strategy
 
-Use color in three layers:
+Snezhok uses one mandatory product palette. Accent-color selection is not exposed. The legacy `accent` settings field remains temporarily fixed to `blue` only so installed 3.x clients can cross the update boundary without a breaking settings migration.
 
-- **Foundation (about 80%)**: warm canvas, white or charcoal surfaces, ink, quiet supporting text.
-- **Snezhok blue (about 15%)**: navigation selection, primary actions, links, unread state, focus, and current-user identity.
-- **Moment colors (about 5%)**: cooperative activity types, reveals, milestones, and small illustrations.
+Use color in four structural layers:
 
-Do not distribute every playful color across every screen. A normal chat remains quiet; a completed color hunt may be exuberant.
+- **Destination canvas:** sunny butter for Chats, sky for a chat room, mint for Profile, and lavender for Settings. Deep indigo/colored equivalents replace neutral charcoal in dark mode.
+- **Content cream:** routine fields, navigation, incoming content, and blocking surfaces use warm cream rather than clinical white.
+- **Snezhok cobalt:** primary actions, links, unread state, focus, and current-user identity use one fixed blue.
+- **Play colors:** pink, coral, butter, lime, mint, tangerine, lavender, and sky recur in list cards, section cards, icon tiles, cooperative activities, and results.
+
+A screen may use two or three play families when hierarchy remains clear. Large flat shapes may sit behind content as static scene-setting forms. Do not create animated wallpaper, noisy confetti, or per-row image assets.
 
 #### Light foundation
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `canvas` | `#FFF9EE` | warm snow background |
-| `surface` | `#FFFFFF` | primary cards, sheets, incoming bubbles |
-| `surface-soft` | `#F4EFE6` | search, inactive controls, grouped sections |
-| `surface-raised` | `#FFFFFF` | dialogs and floating controls |
-| `ink` | `#19202A` | primary content |
-| `ink-secondary` | `#626A76` | previews and support text |
-| `ink-faint` | `#9299A3` | timestamps and disabled text |
-| `border` | `#E9E1D5` | structural hairlines |
-| `snow-blue` | `#3F6FE5` | accessible primary action |
-| `snow-blue-pressed` | `#315BC3` | pressed primary action |
-| `snow-blue-soft` | `#E5EEFF` | selection and outgoing support surface |
+| `chats-canvas` | `#FFD166` | sunny Chats scene |
+| `chat-canvas` | `#B9D7FF` | direct-chat scene |
+| `profile-canvas` | `#AEE6C6` | personal Profile scene |
+| `settings-canvas` | `#C9B5FF` | Settings scene |
+| `surface` | `#FFF0C9` | fields and supporting controls |
+| `surface-raised` | `#FFF8E7` | sheets, dialogs, navigation |
+| `ink` | `#1E2140` | primary content and strong outlines |
+| `ink-secondary` | `#56506E` | previews and support text |
+| `border` | `#D99463` | soft internal separation |
+| `outline` | `#24233A` | deliberate 1.25-1.5 dp object outlines |
+| `snow-blue` | `#3858E8` | fixed accessible primary action |
+| `snow-blue-pressed` | `#2941B6` | pressed primary action |
+| `snow-blue-soft` | `#B9C8FF` | selection and support surface |
 
 #### Dark foundation
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `canvas` | `#11141A` | main background |
-| `surface` | `#1A1E26` | cards and incoming bubbles |
-| `surface-soft` | `#222731` | inactive controls and sections |
-| `surface-raised` | `#292F3A` | dialogs and floating controls |
-| `ink` | `#F6F3EC` | primary content |
-| `ink-secondary` | `#B1B5BE` | previews and support text |
-| `ink-faint` | `#7F8692` | timestamps and disabled text |
-| `border` | `#303641` | structural hairlines |
-| `snow-blue` | `#7EA4FF` | primary action and selection |
-| `snow-blue-pressed` | `#A0BAFF` | pressed primary action |
-| `snow-blue-soft` | `#24345C` | selection and outgoing support surface |
+| `chats-canvas` | `#1B1D52` | deep indigo Chats scene |
+| `chat-canvas` | `#22265F` | chat scene |
+| `profile-canvas` | `#173F38` | Profile scene |
+| `settings-canvas` | `#35265F` | Settings scene |
+| `surface` | `#292D68` | fields and supporting controls |
+| `surface-raised` | `#343879` | dialogs and floating controls |
+| `ink` | `#FFF7E7` | primary content |
+| `ink-secondary` | `#D5CFF0` | previews and support text |
+| `ink-faint` | `#AAA3C8` | timestamps and disabled text |
+| `border` | `#585D99` | internal separation |
+| `snow-blue` | `#7FA2FF` | primary action and selection |
+| `snow-blue-pressed` | `#A9BEFF` | pressed primary action |
+| `snow-blue-soft` | `#3A4C91` | selection and outgoing support surface |
 
 System theme is the default. Light and dark are equally complete. High-contrast mode increases text and boundary contrast without replacing every surface with pure black or white.
 
@@ -87,13 +94,16 @@ System theme is the default. Light and dark are equally complete. High-contrast 
 
 | Name | Fill | Pairing | Default activity use |
 | --- | --- | --- | --- |
-| Lavender | `#CDB5FF` | `#5D3B93` | Question Drop, reflection |
-| Coral | `#FF9184` | `#782C28` | romance, energetic reveals |
-| Butter | `#FFE88A` | `#6A5300` | memories, movies |
-| Lime | `#DCEF72` | `#405000` | quests, completed actions |
-| Mint | `#91E3BB` | `#155C3B` | cooperative milestones |
-| Tangerine | `#FFA044` | `#6B3100` | surprise and Draw & Guess |
-| Sky | `#A8D8FF` | `#174C75` | songs and calm prompts |
+| Lavender | `#B894FF` | `#1E2140` | questions, Settings, reflection |
+| Pink | `#FF87AE` | `#1E2140` | identity, search, social details |
+| Coral | `#FF7568` | `#1E2140` | romance and energetic reveals |
+| Butter | `#FFD45C` | `#1E2140` | memories, movies, avatar plates |
+| Lime | `#CDEB62` | `#1E2140` | quests and completed actions |
+| Mint | `#6ED9A7` | `#1E2140` | profile, cooperative milestones |
+| Tangerine | `#FF9138` | `#1E2140` | creation, surprise, Draw & Guess |
+| Sky | `#76C5FF` | `#1E2140` | songs and calm prompts |
+
+The established ✦ launcher and cooperative cards keep their slightly lighter companion tints (`#CDB5FF`, `#FF9184`, `#DCEF72`, `#91E3BB`, `#A8D8FF`, `#FFE88A`, `#FFA044`, and `#FFB8C3`). They are fixed members of the same families, not user-selectable accents. Their successful grid, labels, and activity identity should not be casually restyled.
 
 Moment colors have fixed semantic pairings across themes. Use their dark pairing for text on light fills and a tested lighter tint for dark-mode text. Danger, warning, success, and online presence remain separate semantic colors and are never decorative.
 
@@ -131,7 +141,7 @@ Rounded does not mean nested. A screen may have a section card and a control ins
 
 ### Elevation and borders
 
-Routine lists use spacing and hairlines. Cards on the warm canvas may use a soft boundary or one low shadow, not both at full strength. Bottom sheets and menus use one consistent elevation. Backdrop opacity animates independently from panel position so the sheet is at its final elevation on the first rendered frame.
+Primary cards and important controls use a deliberate dark 1.25-1.5 dp outline. Search, floating actions, hero panels, and blocking cards may add one short 2-4 dp hard offset shadow for tactile depth. Virtualized message and conversation rows avoid expensive blur shadows. Bottom sheets and menus use one consistent elevation. Backdrop opacity animates independently from panel position so the sheet is at its final elevation on the first rendered frame.
 
 ### Icons and expressive graphics
 
@@ -192,7 +202,7 @@ Messaging behavior remains Telegram-like:
 - optimistic sends and mutations reconcile without duplicates;
 - selection UI clears immediately after an action begins instead of waiting on the network.
 
-The normal chat background is foundation color, not a collage of decorative shapes. Optional wallpaper may add a very low-contrast Snezhok pattern. Cooperative activity cards appear in the same chronological stream and use moment color to distinguish themselves from messages.
+The normal chat background is a bold sky/indigo scene with two or three large static flat forms. It is not a photo collage or animated wallpaper. Incoming bubbles use cream; outgoing bubbles use confident sky blue; both use the product outline. Cooperative activity cards appear in the same chronological stream and may be more exuberant.
 
 ### Composer
 
@@ -216,7 +226,7 @@ Media keeps authenticated URLs, immediate drawers, Upload File as the first tile
 
 Calls stay visually calmer than activity reveals. Participant video dominates; controls use dark neutral surfaces and snow blue for active state. Connection, reconnecting, degraded, and failed states are explicit. Screen sharing, audio route, foreground service behavior, and LiveKit reliability rules remain unchanged by the redesign.
 
-Profile may use one expressive color field behind the avatar and name, followed by flat sections. It is not a social feed. Settings use grouped warm/neutral surfaces, clear rows, switches, and choice sheets. Moment colors can identify categories in small icons but do not tint every settings card differently.
+Profile uses a mint scene, a butter avatar plate, and a pink identity card, followed by colorful object sections. It is not a social feed. Settings use a lavender scene and stable category colors across grouped cards. The strong color is intentional; row order, typography, icons, and separators still carry hierarchy.
 
 ## Motion and feedback
 
@@ -272,7 +282,7 @@ A screen is not ready unless all answers are yes:
 
 - Is the frequent action obvious without explanatory copy?
 - Is there one dominant action and a clear next state?
-- Does it use only foundation, Snezhok blue, and at most one moment family?
+- Does it use the fixed destination canvas, Snezhok cobalt, warm cream, and a controlled two or three play-color families?
 - Are nested cards, pills, shadows, and decorative art structurally justified?
 - Does interaction acknowledge within one frame and reconcile safely?
 - Do loading, empty, offline, failure, waiting, and completed states preserve context?

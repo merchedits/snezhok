@@ -21,14 +21,16 @@ interface ScreenHeaderProps {
   right?: HeaderAction[];
   center?: ReactNode;
   prominent?: boolean;
+  tone?: "default" | "chat" | "profile" | "settings";
 }
 
-export function ScreenHeader({ title, subtitle, left, right = [], center, prominent = false }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, left, right = [], center, prominent = false, tone = "default" }: ScreenHeaderProps) {
   const palette = usePalette();
   const ui = useUiPreferences();
   const insets = useSafeAreaInsets();
+  const backgroundColor = tone === "chat" ? palette.chatCanvas : tone === "profile" ? palette.profileCanvas : tone === "settings" ? palette.settingsCanvas : palette.background;
   return (
-    <View style={[styles.outer, { paddingTop: insets.top, backgroundColor: palette.background, borderColor: palette.border }]}>
+    <View style={[styles.outer, { paddingTop: insets.top, backgroundColor, borderColor: palette.outline }]}>
       <View style={[styles.row, prominent && styles.prominentRow, { minHeight: prominent ? ui.dense(68, 60) : ui.dense(52, 46) }]}>
         <View style={[styles.side, prominent && !left && styles.collapsedSide]}>
           {left ? <HeaderButton {...left} /> : null}
@@ -52,14 +54,14 @@ export function ScreenHeader({ title, subtitle, left, right = [], center, promin
 function HeaderButton({ icon, label, onPress }: HeaderAction) {
   const palette = usePalette();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={styles.button}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={({ pressed }) => [styles.button, { backgroundColor: palette.elevated, borderColor: palette.outline, transform: [{ translateY: pressed ? 2 : 0 }], shadowColor: palette.outline }]}>
       <AppIcon name={icon} size={23} color={palette.accent} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  outer: { borderBottomWidth: StyleSheet.hairlineWidth },
+  outer: { borderBottomWidth: 1 },
   row: { minHeight: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: 8 },
   prominentRow: { paddingHorizontal: 12 },
   side: { width: 84, flexDirection: "row", alignItems: "center" },
@@ -68,7 +70,7 @@ const styles = StyleSheet.create({
   prominentCenter: { alignItems: "flex-start", paddingLeft: 4 },
   collapsedSide: { width: 0 },
   title: { fontSize: 17, lineHeight: 21, fontWeight: "700" },
-  prominentTitle: { fontWeight: "800", letterSpacing: -0.5 },
+  prominentTitle: { fontWeight: "900", letterSpacing: -0.9 },
   subtitle: { fontSize: 12, lineHeight: 15, marginTop: 1 },
-  button: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  button: { width: 40, height: 40, borderRadius: 14, borderWidth: 1.5, alignItems: "center", justifyContent: "center", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 0, elevation: 2 },
 });

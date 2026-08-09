@@ -100,8 +100,8 @@ function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; on
           onPress={dismissOnce}
           style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]}
         />
-        {dialog ? <View style={[styles.card, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
-          <View style={[styles.accent, { backgroundColor: palette.accent }]} />
+        {dialog ? <View style={[styles.card, { backgroundColor: palette.navigation, borderColor: palette.outline, shadowColor: palette.outline }]}>
+          <View style={[styles.accent, { backgroundColor: palette.moment.tangerine }]} />
           <Text accessibilityRole="header" style={[styles.title, { color: palette.text }]}>{dialog.title}</Text>
           {dialog.message ? <Text style={[styles.message, { color: palette.secondaryText }]}>{dialog.message}</Text> : null}
           <View style={[styles.actions, { borderColor: palette.border }]}>
@@ -120,7 +120,7 @@ function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; on
                   pressed && { opacity: 0.62 },
                 ]}
               >
-                <Text style={[styles.actionText, { color: primary ? "white" : destructive ? palette.danger : action.style === "cancel" ? palette.secondaryText : palette.accent }]}>{action.text}</Text>
+                <Text style={[styles.actionText, { color: primary ? palette.onAccent : destructive ? palette.danger : action.style === "cancel" ? palette.secondaryText : palette.accent }]}>{action.text}</Text>
               </Pressable>;
             })}
           </View>
@@ -132,9 +132,9 @@ function SnezhokDialog({ dialog, onDismiss }: { dialog: DialogRequest | null; on
 
 const styles = StyleSheet.create({
   layer: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
-  card: { width: "100%", maxWidth: 390, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.28, shadowRadius: 28, elevation: 16 },
-  accent: { width: 38, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 12 },
-  title: { paddingHorizontal: 22, paddingTop: 18, fontSize: 20, lineHeight: 25, fontWeight: "800", textAlign: "center" },
+  card: { width: "100%", maxWidth: 390, borderRadius: 28, borderWidth: 1.5, overflow: "hidden", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 1, shadowRadius: 0, elevation: 16 },
+  accent: { width: 52, height: 7, borderRadius: 4, alignSelf: "center", marginTop: 13 },
+  title: { paddingHorizontal: 22, paddingTop: 18, fontSize: 21, lineHeight: 26, fontWeight: "900", textAlign: "center" },
   message: { paddingHorizontal: 22, paddingTop: 9, paddingBottom: 19, fontSize: 14, lineHeight: 20, textAlign: "center" },
   actions: { borderTopWidth: StyleSheet.hairlineWidth },
   action: { minHeight: 52, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
