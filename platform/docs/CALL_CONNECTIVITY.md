@@ -2,7 +2,10 @@
 
 Snezhok signaling is served at `wss://merchedits.xyz/chat/livekit/`. The SFU
 already exposes direct ICE/UDP on UDP 7882, direct ICE/TCP on TCP 7881, and
-TURN/UDP on UDP 3478 with relay ports UDP 40000-40100.
+TURN/UDP on UDP 3478 with relay ports UDP 40000-40007. The intentionally
+small eight-port pool is sufficient for the current two-person private test
+deployment and can be forwarded as individual ports on consumer routers that
+do not support ranges.
 
 ## Authoritative room lifecycle
 
@@ -76,7 +79,7 @@ accept a PROXY header on its embedded TURN listener.
 
 ## External prerequisites
 
-Do not activate `infra/docker-compose.turn-tls.yml` until all of these are true:
+Do not deploy the TURN/TLS production mount until all of these are true:
 
 1. Create an A/AAAA record for `turn.merchedits.xyz` pointing to the same public
    address as the server. If IPv6 is not actually routed to the host, do not
@@ -85,7 +88,7 @@ Do not activate `infra/docker-compose.turn-tls.yml` until all of these are true:
    `turn.merchedits.xyz`. Use an HTTP-01 webroot on port 80; do not let Certbot
    rewrite the layer-4 listener.
 3. Confirm the router forwards TCP 443, TCP 7881, UDP 3478, UDP 7882, and UDP
-   40000-40100 to `192.168.2.11`, and allow the same set in the host firewall.
+   40000-40007 to `192.168.2.11`, and allow the same set in the host firewall.
 4. Schedule a maintenance window for the Nginx listener migration. Prepare a
    tested rollback copy before touching the current 443 listeners.
 
@@ -124,11 +127,11 @@ that directory inside the `http` block.
 
 4. Include the template as a top-level `stream` block from `nginx.conf`, outside
    `http { ... }`. Never configure an HTTP `location` for TURN.
-5. Render the merged LiveKit configuration, then start its 5349 backend:
+5. Render the production LiveKit configuration, then start its 5349 backend:
 
    ```bash
-   docker compose -f docker-compose.production.yml -f infra/docker-compose.turn-tls.yml config --quiet
-   docker compose -f docker-compose.production.yml -f infra/docker-compose.turn-tls.yml up -d --no-deps --force-recreate livekit
+   docker compose -f docker-compose.production.yml config --quiet
+   docker compose -f docker-compose.production.yml up -d --no-deps --force-recreate livekit
    ```
 
 6. Before reloading Nginx, prove both local backends are listening. Run

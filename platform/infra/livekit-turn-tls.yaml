@@ -25,7 +25,7 @@ turn:
   cert_file: /etc/livekit/tls/fullchain.pem
   key_file: /etc/livekit/tls/privkey.pem
   relay_range_start: 40000
-  relay_range_end: 40100
+  relay_range_end: 40007
   ttl_seconds: 300
   allow_restricted_peer_cidrs:
     - 192.168.2.0/24

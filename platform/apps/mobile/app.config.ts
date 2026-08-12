@@ -11,8 +11,11 @@ if (process.env.SNEZHOK_RELEASE_BUILD === "1" && !/^[0-9a-f]{40}$/i.test(sourceR
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
+  owner: "mrchhhh",
   name: "Snezhok",
-  slug: "snezhok",
+  // EAS identifies this existing project by its immutable project ID. The
+  // dashboard slug is internal and does not affect the installed app name.
+  slug: "merch",
   version: "4.2.0",
   description: "Private messages, shared moments, files and calls.",
   platforms: ["android"],

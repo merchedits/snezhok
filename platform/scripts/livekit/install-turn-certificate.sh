@@ -47,6 +47,6 @@ log "installed a validated TURN certificate without exposing its private key"
 if $restart; then
   platform_root=${PLATFORM_ROOT:-$(resolved_platform_root)}
   compose_command "$platform_root" "$platform_root/docker-compose.production.yml" \
-    --file "$platform_root/infra/docker-compose.turn-tls.yml" up -d --no-deps --force-recreate livekit
+    up -d --no-deps --force-recreate livekit
   log "recreated LiveKit with the renewed TURN certificate"
 fi

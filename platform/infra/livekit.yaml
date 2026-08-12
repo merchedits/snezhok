@@ -16,8 +16,11 @@ rtc:
 turn:
   enabled: true
   udp_port: 3478
+  # The privately-operated installation currently serves two active testers.
+  # Keep the relay pool deliberately small so routers without range-forwarding
+  # support can expose each port explicitly and audibly.
   relay_range_start: 40000
-  relay_range_end: 40100
+  relay_range_end: 40007
   # LiveKit 1.12+ blocks relays to private peers unless explicitly allowed.
   # The SFU is on this private subnet because the server is behind the router.
   allow_restricted_peer_cidrs:
