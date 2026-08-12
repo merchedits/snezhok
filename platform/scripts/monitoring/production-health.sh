@@ -17,12 +17,14 @@ readonly MAX_INCOMPLETE_BACKUP_AGE_HOURS="${SNEZHOK_MAX_INCOMPLETE_BACKUP_AGE_HO
 readonly REQUIRE_OFFSITE_BACKUP="${SNEZHOK_REQUIRE_OFFSITE_BACKUP:-0}"
 readonly MAX_OFFSITE_BACKUP_AGE_HOURS="${SNEZHOK_MAX_OFFSITE_BACKUP_AGE_HOURS:-36}"
 readonly OFFSITE_STATUS_FILE="${SNEZHOK_OFFSITE_STATUS_FILE:-/var/lib/snezhok-maintenance/offsite-replication.status}"
+readonly MAX_PUSH_QUEUE_AGE_SECONDS="${SNEZHOK_MAX_PUSH_QUEUE_AGE_SECONDS:-900}"
 
 [[ "$LOCAL_TLS_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "invalid local TLS host" >&2; exit 2; }
 [[ "$LOCAL_TLS_ADDRESS" =~ ^[0-9A-Fa-f:.]+$ ]] || { echo "invalid local TLS address" >&2; exit 2; }
 [[ "$MAX_UNVERIFIED_BACKUP_AGE_HOURS" =~ ^[0-9]+$ ]] || { echo "invalid unverified backup age" >&2; exit 2; }
 [[ "$MAX_INCOMPLETE_BACKUP_AGE_HOURS" =~ ^[0-9]+$ ]] || { echo "invalid incomplete backup age" >&2; exit 2; }
 [[ "$MAX_OFFSITE_BACKUP_AGE_HOURS" =~ ^[0-9]+$ ]] || { echo "invalid off-site backup age" >&2; exit 2; }
+[[ "$MAX_PUSH_QUEUE_AGE_SECONDS" =~ ^[0-9]+$ ]] || { echo "invalid push queue age" >&2; exit 2; }
 
 failures=()
 check() {
@@ -90,6 +92,10 @@ failed_call_commands="$(docker exec snezhok-v3-postgres-1 psql -At -U snezhok -d
 oldest_call_command="$(docker exec snezhok-v3-postgres-1 psql -At -U snezhok -d snezhok -v ON_ERROR_STOP=1 -c "SELECT coalesce(extract(epoch from now()-min(created_at))::int,0) FROM call_media_commands WHERE status IN ('pending','processing');" 2>/dev/null || echo query-failed)"
 if [[ ! "$failed_call_commands" =~ ^[0-9]+$ ]] || (( failed_call_commands > 0 )); then failures+=("call-media-dead-letter-${failed_call_commands}"); fi
 if [[ ! "$oldest_call_command" =~ ^[0-9]+$ ]] || (( oldest_call_command > 300 )); then failures+=("call-media-backlog-${oldest_call_command}s"); fi
+push_queue_age="$(docker exec snezhok-v3-postgres-1 psql -At -U snezhok -d snezhok -v ON_ERROR_STOP=1 -c "SELECT coalesce(extract(epoch from now()-min(created_at))::int,0) FROM push_delivery_outbox WHERE status IN ('pending','processing','expanded');" 2>/dev/null || echo query-failed)"
+recent_push_failures="$(docker exec snezhok-v3-postgres-1 psql -At -U snezhok -d snezhok -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM push_delivery_outbox WHERE status='failed' AND updated_at>now()-interval '1 hour';" 2>/dev/null || echo query-failed)"
+if [[ ! "$push_queue_age" =~ ^[0-9]+$ ]] || (( push_queue_age > MAX_PUSH_QUEUE_AGE_SECONDS )); then failures+=("push-queue-${push_queue_age}s"); fi
+if [[ ! "$recent_push_failures" =~ ^[0-9]+$ ]] || (( recent_push_failures > 0 )); then failures+=("push-failures-${recent_push_failures}"); fi
 
 for unit in snezhok-backup.service snezhok-restore-verify.service snezhok-retention.service snezhok-pitr-base.service snezhok-pitr-restore-verify.service snezhok-media-mirror.service; do
   if [[ "$(systemctl show --property=LoadState --value "$unit" 2>/dev/null)" != "loaded" ]]; then

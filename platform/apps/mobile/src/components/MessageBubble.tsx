@@ -245,7 +245,7 @@ function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
   const open = openAttachmentId === attachment.id;
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={styles.albumTile}>
-      <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
+      <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </Pressable>
     {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
@@ -270,7 +270,7 @@ function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
   const size = messageMediaSize(attachment.width, attachment.height);
-  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} showLoader style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
+  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} showLoader style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
@@ -279,7 +279,7 @@ function InlineVideo({ attachment }: { attachment: Attachment }) {
   const size = messageMediaSize(attachment.width, attachment.height);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={[styles.videoPreview, size]}>
-      {attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
+      {attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
       <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
       {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
     </Pressable>

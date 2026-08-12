@@ -15,8 +15,8 @@ const complete = {
 
 const regularFile = { isFile: () => true, isSymbolicLink: () => false };
 const firebaseDocument = JSON.stringify({
-  project_info: { project_id: "snezhok-production" },
-  client: [{ client_info: { android_client_info: { package_name: "xyz.merchedits.snezhok" } } }],
+  project_info: { project_id: "snezhok-production", project_number: "123456789" },
+  client: [{ client_info: { mobilesdk_app_id: "1:123456789:android:abcdef", android_client_info: { package_name: "xyz.merchedits.snezhok" } }, api_key: [{ current_key: "test-key" }] }],
 });
 
 test("accepts a complete protected production environment", async () => {
@@ -43,4 +43,13 @@ test("rejects Firebase configuration for another application", async () => {
     readFile: async () => JSON.stringify({ project_info: { project_id: "other" }, client: [] }),
   });
   assert.match(failures.join("\n"), /does not contain xyz\.merchedits\.snezhok/);
+});
+
+test("rejects an incomplete matching Firebase Android client", async () => {
+  const failures = await validateProductionEnvironment(complete, {
+    lstat: async () => regularFile,
+    readFile: async () => JSON.stringify({ project_info: { project_id: "test", project_number: "123" }, client: [{ client_info: { android_client_info: { package_name: "xyz.merchedits.snezhok" } } }] }),
+  });
+  assert.match(failures.join("\n"), /mobile SDK app ID/);
+  assert.match(failures.join("\n"), /API key/);
 });

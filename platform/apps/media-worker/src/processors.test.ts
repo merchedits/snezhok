@@ -40,10 +40,25 @@ test("image processing auto-orients and emits metadata-free primary and thumbnai
   try {
     const input = path.join(directory, "input.jpg");
     await sharp({ create: { width: 40, height: 20, channels: 3, background: "#ef4444" } }).withMetadata({ orientation: 6 }).jpeg().toFile(input);
-    const output = await processMedia({ id: crypto.randomUUID(), attachmentId: crypto.randomUUID(), ownerId: crypto.randomUUID(), profile: "auto", purpose: "standard", kind: "image", originalMimeType: "image/jpeg", originalStorageKey: "objects/00/" + "0".repeat(64), originalFilename: "input.jpg", originalBytes: 1_024, attempts: 1, maxAttempts: 4 }, input, directory, { signal: new AbortController().signal, heartbeat: async () => undefined });
+    const output = await processMedia({ id: crypto.randomUUID(), attachmentId: crypto.randomUUID(), ownerId: crypto.randomUUID(), profile: "auto", purpose: "standard", operation: "standard", sourceStorageKeys: [], kind: "image", originalMimeType: "image/jpeg", originalStorageKey: "objects/00/" + "0".repeat(64), originalFilename: "input.jpg", originalBytes: 1_024, attempts: 1, maxAttempts: 4 }, input, directory, { signal: new AbortController().signal, heartbeat: async () => undefined });
     assert.deepEqual(output.map((item) => item.role), ["primary", "thumbnail"]);
     const inspected = sharp(await readFile(output[0]!.path)); const metadata = await inspected.metadata(); inspected.destroy();
     assert.equal(metadata.width, 20); assert.equal(metadata.height, 40);
     assert.equal(metadata.exif, undefined); assert.equal(metadata.icc, undefined); assert.equal(metadata.xmp, undefined);
+  } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+});
+
+test("color hunt processing turns nine photos into one 3 by 3 image", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "snezhok-collage-test-"));
+  try {
+    const inputs = await Promise.all(Array.from({ length: 9 }, async (_, index) => {
+      const input = path.join(directory, `source-${index}.png`);
+      await sharp({ create: { width: 24 + index, height: 40 - index, channels: 3, background: { r: index * 20, g: 80, b: 200 } } }).png().toFile(input);
+      return input;
+    }));
+    const output = await processMedia({ id: crypto.randomUUID(), attachmentId: crypto.randomUUID(), ownerId: crypto.randomUUID(), profile: "high", purpose: "standard", operation: "color-collage", sourceStorageKeys: [], kind: "image", originalMimeType: "image/webp", originalStorageKey: null, originalFilename: "collage.webp", originalBytes: 0, attempts: 1, maxAttempts: 4 }, "", directory, { signal: new AbortController().signal, heartbeat: async () => undefined, collageInputs: inputs });
+    assert.deepEqual(output.map((item) => item.role), ["primary", "thumbnail"]);
+    assert.deepEqual([output[0]?.width, output[0]?.height], [1080, 1080]);
+    assert.deepEqual([output[1]?.width, output[1]?.height], [320, 320]);
   } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });

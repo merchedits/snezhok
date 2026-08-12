@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Message, UserSummary } from "@snezhok/contracts";
@@ -51,7 +52,7 @@ export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage, 
   ], [t]);
 
   return <Modal visible={visible} animationType="slide" navigationBarTranslucent={false} onRequestClose={onClose}>
-    <View style={[styles.screen, { backgroundColor: palette.background, paddingTop: insets.top }]}>
+    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.background, paddingTop: insets.top }]} behavior="padding" automaticOffset>
       <View style={[styles.header, { borderColor: palette.border }]}><Pressable onPress={onClose} style={styles.close}><AppIcon name="chevron-back" size={25} color={palette.accent} /></Pressable><TextInput autoFocus value={query} onChangeText={setQuery} placeholder={t("searchMessagesAndFiles")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text, backgroundColor: palette.surface }]} /></View>
       <FlatList horizontal style={{ flexGrow: 0, height: 52 }} data={scopes} keyExtractor={(item) => item.value} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scopes} renderItem={({ item }) => <Pressable onPress={() => setScope(item.value)} style={[styles.chip, { backgroundColor: scope === item.value ? palette.accent : palette.surface }]}><Text style={[styles.chipText, { color: scope === item.value ? "white" : palette.secondaryText }]}>{item.label}</Text></Pressable>} />
       {loading ? <ActivityIndicator style={styles.loading} color={palette.accent} /> : null}
@@ -60,7 +61,7 @@ export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage, 
         : item.type === "message"
         ? <Pressable onPress={() => onOpenMessage(item.message)} style={[styles.row, { borderColor: palette.border }]}><AppIcon name={renderableAttachments(item.message.attachments).length ? "document-outline" : "chatbubble-outline"} size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.message.sender.displayName}</Text><Text numberOfLines={2} style={[styles.subtitle, { color: palette.secondaryText }]}>{item.message.text || t("attachment")}</Text></View><Text style={[styles.time, { color: palette.faintText }]}>{new Date(item.message.createdAt).toLocaleDateString()}</Text></Pressable>
         : <View style={[styles.row, { borderColor: palette.border }]}><AppIcon name="document-outline" size={20} color={palette.accent} /><View style={styles.copy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{item.filename}</Text><Text style={[styles.subtitle, { color: palette.secondaryText }]}>{item.kind} · {formatBytes(item.bytes)}</Text></View></View>} ListEmptyComponent={!loading ? <Text style={[styles.empty, { color: palette.secondaryText }]}>{query || scope !== "all" ? t("nothingFound") : t("searchPromptGlobal")}</Text> : null} />
-    </View>
+    </KeyboardAvoidingView>
   </Modal>;
 }
 

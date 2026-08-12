@@ -1,6 +1,7 @@
 import { AppIcon, type AppIconName } from "../components/AppIcon";
 import { type ComponentProps, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { BrandMark } from "../components/BrandMark";
@@ -54,8 +55,7 @@ export function LoginScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: palette.navigation }]}>
       <View pointerEvents="none" style={[styles.glow, { backgroundColor: palette.pop }]} />
-      <KeyboardAvoidingView style={styles.safe} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+        <KeyboardAwareScrollView bottomOffset={20} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
           <BrandMark size={92} />
           <Text style={[styles.title, { color: "#FFFFFF" }]}>Snezhok</Text>
           <Text style={[styles.caption, { color: "rgba(255,255,255,0.78)" }]}>{registering ? t("registrationHint") : t("privateMessenger")}</Text>
@@ -77,8 +77,7 @@ export function LoginScreen() {
             </Pressable>
             <Pressable disabled={busy} onPress={() => { setRegistering((value) => !value); setConfirmPassword(""); setLocalError(null); clearError(); }} style={styles.switchMode}><Text style={[styles.switchModeText, { color: "#FFFFFF" }]}>{registering ? t("alreadyRegistered") : t("needAccount")}</Text></Pressable>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

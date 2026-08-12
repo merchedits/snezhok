@@ -17,8 +17,10 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
   sequence-cursor pages and migrates the former AsyncStorage v2 snapshot in one
   transaction. Older history remains authoritative on the server.
 - Deduplicate concurrent history requests and consider a freshly loaded stream
-  valid for 15 seconds. Start the request on chat-row press-in so the gesture and
-  network latency overlap.
+  valid for 15 seconds. Start the SQLite read on chat-row press-in so storage
+  latency overlaps the gesture. A chat route opened from a notification or deep
+  link starts the same cache-only warmup immediately; server and pinned-message
+  reconciliation still waits for the native transition to finish.
 - Keep list rows fixed-height, memoized, and backed by `getItemLayout`. Keep
   `FlatList` windows deliberately small on Android.
 - Images use the native Glide-backed `expo-image` memory/disk cache. Do not
@@ -29,8 +31,14 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
 - Audio and video players are created only after the user presses play. A chat
   containing many media messages must not instantiate one native decoder per
   visible attachment.
-- Animations should use transforms and opacity on the UI thread. Network or
-  storage work starts after the navigation animation, never inside it.
+- Animations should use transforms and opacity on the UI thread. Network work
+  starts after the navigation animation. The only storage work allowed during a
+  chat transition is the bounded, deduplicated SQLite first-page warmup needed
+  to paint a cold cached route.
+- The chat composer follows the keyboard controller's UI-thread progress. Do
+  not switch safe-area padding from `keyboardDidShow`/`keyboardDidHide`; those
+  callbacks arrive at the animation boundary and cause a visible final-frame
+  jump on Samsung firmware.
 - Bootstrap conversation summaries use three recipient-scoped batch queries
   for membership/state, participants, and visible previews plus unread counts.
   Query count must remain constant as the inbox grows; do not reintroduce
@@ -62,7 +70,8 @@ The implementation is informed by, but does not copy code from, these projects:
 
 1. Record the checked-in Android Macrobenchmark suite on the target device. It
    covers cold start with and without a Baseline Profile, inbox-to-chat frame
-   time, and a repeated long-chat scroll. Generate the production profile from
+   time, an in-memory warm chat reopen, composer keyboard motion, and a repeated
+   long-chat scroll. Generate the production profile from
    an authenticated physical-device run; never fabricate one in CI without the
    real app path.
 2. Measure SQLite page-read and write-amplification costs on a large synthetic

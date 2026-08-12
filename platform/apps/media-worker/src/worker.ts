@@ -28,7 +28,7 @@ export async function runWorker(signal: AbortSignal) {
     const startedAt = performance.now();
     try {
       directory = await createJobDirectory(job.id);
-      const outputs = await processMedia(job, objectPath(job.originalStorageKey), directory, { signal: controller.signal, heartbeat: () => heartbeat(job.id) });
+      const outputs = await processMedia(job, job.originalStorageKey ? objectPath(job.originalStorageKey) : "", directory, { signal: controller.signal, heartbeat: () => heartbeat(job.id), collageInputs: job.sourceStorageKeys.map(objectPath) });
       const committed = [];
       for (const output of outputs) committed.push({ ...output, ...(await commitOutput(output.path)), blobId: "" });
       // commitOutput's id is the proposed blob ID; database deduplication may choose an existing blob.

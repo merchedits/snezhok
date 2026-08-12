@@ -14,6 +14,7 @@ for command in curl docker node; do command -v "$command" >/dev/null || { echo "
 health=$(curl --fail --silent --show-error --max-time 10 "$API_ORIGIN/health")
 node -e 'const body=JSON.parse(process.argv[1]); if(body.status!=="ready"||body.revision!==process.argv[2]) process.exit(1)' "$health" "$REVISION"
 "$(dirname "${BASH_SOURCE[0]}")/verify-production-images.sh" "$REVISION"
+"$(dirname "${BASH_SOURCE[0]}")/verify-media-storage.sh"
 
 tls_health=$(curl --fail --silent --show-error --max-time 10 \
   --resolve "$PUBLIC_HOST:443:$LOCAL_HTTPS_ADDRESS" "https://$PUBLIC_HOST/chat/api/v1/health")

@@ -7,9 +7,11 @@ export interface MediaJob {
   ownerId: string;
   profile: Quality;
   purpose: MediaPurpose;
+  operation: "standard" | "color-collage";
   kind: "image" | "video" | "audio" | "document";
   originalMimeType: string;
-  originalStorageKey: string;
+  originalStorageKey: string | null;
+  sourceStorageKeys: string[];
   originalFilename: string;
   originalBytes: number;
   attempts: number;

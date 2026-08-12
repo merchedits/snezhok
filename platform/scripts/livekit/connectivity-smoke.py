@@ -43,20 +43,22 @@ def validate_binding(data: bytes, transaction: bytes) -> None:
 
 
 def check_udp_stun(host: str, port: int, timeout: float) -> None:
-    request, transaction = binding_request()
-    addresses = socket.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
-    last_error: Exception | None = None
+    addresses = unique_addresses(socket.getaddrinfo(host, port, type=socket.SOCK_DGRAM))
+    if not addresses:
+        raise RuntimeError("TURN/UDP host resolved to no addresses")
+    errors: list[str] = []
     for family, socktype, proto, _, address in addresses:
+        request, transaction = binding_request()
         try:
             with socket.socket(family, socktype, proto) as connection:
                 connection.settimeout(timeout)
                 connection.sendto(request, address)
                 data, _ = connection.recvfrom(4096)
                 validate_binding(data, transaction)
-                return
         except (OSError, RuntimeError) as error:
-            last_error = error
-    raise RuntimeError(f"TURN/UDP STUN failed: {last_error}")
+            errors.append(f"{address[0]}: {error}")
+    if errors:
+        raise RuntimeError(f"TURN/UDP STUN failed for published address(es): {'; '.join(errors)}")
 
 
 def receive_exact(connection: socket.socket, count: int) -> bytes:
@@ -70,20 +72,56 @@ def receive_exact(connection: socket.socket, count: int) -> bytes:
 
 
 def check_tls_stun(host: str, port: int, timeout: float) -> None:
-    request, transaction = binding_request()
     context = ssl.create_default_context()
-    with socket.create_connection((host, port), timeout=timeout) as raw:
-        with context.wrap_socket(raw, server_hostname=host) as connection:
-            connection.settimeout(timeout)
-            connection.sendall(request)
-            header = receive_exact(connection, 20)
-            length = struct.unpack("!H", header[2:4])[0]
-            validate_binding(header + receive_exact(connection, length), transaction)
+    addresses = unique_addresses(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM))
+    if not addresses:
+        raise RuntimeError("TURN/TLS host resolved to no addresses")
+    errors: list[str] = []
+    for family, socktype, proto, _, address in addresses:
+        request, transaction = binding_request()
+        try:
+            with socket.socket(family, socktype, proto) as raw:
+                raw.settimeout(timeout)
+                raw.connect(address)
+                with context.wrap_socket(raw, server_hostname=host) as connection:
+                    connection.settimeout(timeout)
+                    connection.sendall(request)
+                    header = receive_exact(connection, 20)
+                    length = struct.unpack("!H", header[2:4])[0]
+                    validate_binding(header + receive_exact(connection, length), transaction)
+        except (OSError, ssl.SSLError, RuntimeError) as error:
+            errors.append(f"{address[0]}: {error}")
+    if errors:
+        raise RuntimeError(f"TURN/TLS STUN failed for published address(es): {'; '.join(errors)}")
 
 
 def check_tcp(host: str, port: int, timeout: float) -> None:
-    with socket.create_connection((host, port), timeout=timeout):
-        return
+    addresses = unique_addresses(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM))
+    if not addresses:
+        raise RuntimeError("ICE/TCP host resolved to no addresses")
+    errors: list[str] = []
+    for family, socktype, proto, _, address in addresses:
+        try:
+            with socket.socket(family, socktype, proto) as connection:
+                connection.settimeout(timeout)
+                connection.connect(address)
+        except OSError as error:
+            errors.append(f"{address[0]}: {error}")
+    if errors:
+        raise RuntimeError(f"ICE/TCP failed for published address(es): {'; '.join(errors)}")
+
+
+def unique_addresses(addresses: list[tuple]) -> list[tuple]:
+    """Keep one endpoint per published IP while preserving resolver order."""
+    unique: list[tuple] = []
+    seen: set[tuple[int, str, int]] = set()
+    for address in addresses:
+        family, _, _, _, endpoint = address
+        key = (family, endpoint[0], endpoint[1])
+        if key not in seen:
+            seen.add(key)
+            unique.append(address)
+    return unique
 
 
 def check_signal(url: str, timeout: float) -> None:

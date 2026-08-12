@@ -43,6 +43,7 @@ interface StartCallInput {
   streamId: string;
   title: string;
   startWithVideo?: boolean;
+  expectedCallId?: string;
 }
 
 interface CallSessionContextValue {
@@ -57,7 +58,7 @@ interface CallSessionContextValue {
   declineIncoming(): void;
 }
 
-const emptyStats: CallNetworkStats = { pingMs: null, jitterMs: null, packetLossPercent: null, inboundKbps: 0, outboundKbps: 0, codecs: [], sampledAt: 0 };
+const emptyStats: CallNetworkStats = { pingMs: null, jitterMs: null, packetLossPercent: null, inboundKbps: 0, outboundKbps: 0, codecs: [], iceCandidateType: null, transportProtocol: null, sampledAt: 0 };
 const CallSessionContext = createContext<CallSessionContextValue | null>(null);
 
 export class ActiveCallConflictError extends Error {
@@ -206,7 +207,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
         const selectedRoute = preferred.find((candidate) => routes.includes(candidate)) ?? routes[0] ?? null;
         if (selectedRoute) await AudioSession.selectAudioOutput(selectedRoute);
 
-        credentials = await api.joinCall(input.streamId);
+        credentials = await api.joinCall(input.streamId, input.expectedCallId);
         if (generation.current !== currentGeneration) {
           // The user left while token creation was in flight. Do not strand a
           // direct call session until LiveKit's room timeout.
@@ -363,7 +364,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     if (!target) return;
     setIncoming(null);
     void dismissCallNotification(target.roomId).catch(() => undefined);
-    if (navigationRef.isReady()) navigationRef.navigate("Call", { streamId: target.streamId, title: target.title, startWithVideo: video });
+    if (navigationRef.isReady()) navigationRef.navigate("Call", { streamId: target.streamId, title: target.title, startWithVideo: video, expectedCallId: target.roomId });
   }, [incoming]);
 
   const declineIncoming = useCallback(() => {

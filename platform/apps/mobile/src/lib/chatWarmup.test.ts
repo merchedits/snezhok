@@ -3,7 +3,13 @@ import test from "node:test";
 
 import type { Message } from "@snezhok/contracts";
 
-import { recentMediaPreviewUris, uncachedWarmStreamIds } from "./chatWarmup";
+import { chatOpenPerformanceKind, recentMediaPreviewUris, uncachedWarmStreamIds } from "./chatWarmup";
+
+test("chat diagnostics distinguish in-memory warm opens from SQLite cache restores", () => {
+  assert.equal(chatOpenPerformanceKind(1), "warmChatOpen");
+  assert.equal(chatOpenPerformanceKind(80), "warmChatOpen");
+  assert.equal(chatOpenPerformanceKind(0), "cachedChatOpen");
+});
 
 test("chat warmup selects recent thumbnails without preloading full videos", () => {
   const base = { streamId: "chat", attachments: [], sequence: 1 } as unknown as Message;

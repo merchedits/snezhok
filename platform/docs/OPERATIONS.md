@@ -160,6 +160,13 @@ The public listener smoke test cannot prove authenticated TURN allocation or
 media flow. Keep the documented two-device, different-network and UDP-blocked
 call acceptance run as a release gate.
 
+The regular health monitor also fails when the durable push outbox is older
+than `SNEZHOK_MAX_PUSH_QUEUE_AGE_SECONDS` (900 by default) or when a push outbox
+enters the failed state in the previous hour. This observes application-side
+delivery attempts and Expo receipts without exposing device tokens. A healthy
+queue still does not prove FCM credentials or killed-app delivery; verify those
+with the signed APK on a physical device.
+
 ## Optional off-host encrypted replication
 
 The dedicated recovery disk protects against application-disk failure but not

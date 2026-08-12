@@ -14,6 +14,7 @@ import { api } from "../lib/api";
 import { navigationRef } from "../navigation/navigationRef";
 import { useAppStore } from "../store/useAppStore";
 import { shouldNotifyCall, shouldNotifyMessage } from "./notificationPolicy";
+import { notificationTargetFromData, type NotificationTarget } from "./notificationRouting";
 
 export const MESSAGE_CHANNEL = "messages-v1";
 export const CALL_CHANNEL = "calls-v1";
@@ -22,12 +23,9 @@ export const BACKGROUND_NOTIFICATION_TASK = "snezhok-background-notifications-v1
 const INSTALLATION_KEY = "@snezhok/push-installation/v1";
 let configured: Promise<boolean> | null = null;
 let remotePushRegistered = false;
+let remotePushRegistration: Promise<boolean> | null = null;
 let pendingNavigation: NotificationTarget | null = null;
-let lastHandledNotificationId: string | null = null;
-
-type NotificationTarget =
-  | { type: "message"; streamId: string; streamKind: "conversation" | "channel"; title: string }
-  | { type: "call"; streamId: string; title: string; startWithVideo: boolean };
+const handledNotificationActions = new Set<string>();
 
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
@@ -73,6 +71,7 @@ export async function initializeAndroidNotifications(): Promise<boolean> {
     let permission = await Notifications.getPermissionsAsync();
     if (!permission.granted && permission.canAskAgain) permission = await Notifications.requestPermissionsAsync();
     if (permission.granted) await Notifications.registerTaskAsync(BACKGROUND_NOTIFICATION_TASK).catch(() => undefined);
+    if (!permission.granted) configured = null;
     return permission.granted;
   })().catch((error: unknown) => { recordDiagnostic("warn", "notifications", "Android notifications could not be initialized", { errorName: diagnosticErrorName(error) }); configured = null; return false; });
   return configured;
@@ -80,27 +79,35 @@ export async function initializeAndroidNotifications(): Promise<boolean> {
 
 /** Registers this install with Expo Push. Returns false when the build has no EAS/FCM project configured. */
 export async function registerRemotePushDevice(): Promise<boolean> {
-  if (!(await initializeAndroidNotifications())) return false;
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  if (typeof projectId !== "string" || !projectId) {
-    remotePushRegistered = false;
-    return false;
-  }
-  try {
-    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-    let installationId = await AsyncStorage.getItem(INSTALLATION_KEY);
-    if (!installationId) {
-      installationId = `${Application.getAndroidId()}-${Crypto.randomUUID()}`;
-      await AsyncStorage.setItem(INSTALLATION_KEY, installationId);
+  if (remotePushRegistration) return remotePushRegistration;
+  remotePushRegistration = (async () => {
+    if (!(await initializeAndroidNotifications())) return false;
+    if (!(await Notifications.getPermissionsAsync()).granted) {
+      remotePushRegistered = false;
+      return false;
     }
-    await api.registerPushDevice(token, installationId, Application.nativeApplicationVersion ?? "unknown");
-    remotePushRegistered = true;
-    return true;
-  } catch (error: unknown) {
-    remotePushRegistered = false;
-    recordDiagnostic("warn", "notifications", "Remote push registration failed", { errorName: diagnosticErrorName(error) });
-    return false;
-  }
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    if (typeof projectId !== "string" || !projectId) {
+      remotePushRegistered = false;
+      return false;
+    }
+    try {
+      const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+      let installationId = await AsyncStorage.getItem(INSTALLATION_KEY);
+      if (!installationId) {
+        installationId = `${Application.getAndroidId()}-${Crypto.randomUUID()}`;
+        await AsyncStorage.setItem(INSTALLATION_KEY, installationId);
+      }
+      await api.registerPushDevice(token, installationId, Application.nativeApplicationVersion ?? "unknown");
+      remotePushRegistered = true;
+      return true;
+    } catch (error: unknown) {
+      remotePushRegistered = false;
+      recordDiagnostic("warn", "notifications", "Remote push registration failed", { errorName: diagnosticErrorName(error) });
+      return false;
+    }
+  })().finally(() => { remotePushRegistration = null; });
+  return remotePushRegistration;
 }
 
 export async function notifyIncomingMessage(message: Message): Promise<void> {
@@ -140,17 +147,18 @@ export async function dismissCallNotification(roomId: string, showMissed = false
 
 export async function handleRemoteNotification(notification: Notifications.Notification): Promise<void> {
   const data = notification.request.content.data;
-  if (data?.notificationType === "call" && (data.streamKind !== "channel" || productCapabilities.servers) && typeof data.roomId === "string" && typeof data.streamId === "string") {
+  const target = notificationTargetFromData(data, Notifications.DEFAULT_ACTION_IDENTIFIER, Notifications.DEFAULT_ACTION_IDENTIFIER, productCapabilities.servers);
+  if (target?.type === "call" && typeof data?.roomId === "string") {
     receiveCallUpdate({
       roomId: data.roomId,
       state: "started",
       participantIds: [],
-      streamId: data.streamId,
+      streamId: target.streamId,
       streamKind: data.streamKind === "channel" ? "channel" : "conversation",
       callerId: typeof data.callerId === "string" ? data.callerId : "remote-push",
       callerName: typeof data.callerName === "string" ? data.callerName : "Snezhok",
-      title: typeof data.title === "string" ? data.title : "Snezhok",
-      startedAt: typeof data.startedAt === "number" ? data.startedAt : Date.now(),
+      title: target.title,
+      startedAt: data.startedAt as number,
     });
   }
   if (data?.notificationType === "call-ended" && typeof data.roomId === "string") {
@@ -179,22 +187,25 @@ export async function handleCallUpdate(payload: CallUpdatePayload): Promise<void
     ? (english ? "Incoming call" : "Входящий звонок")
     : `${english ? "Incoming call" : "Входящий звонок"} · ${caller}`;
   await Notifications.scheduleNotificationAsync({
-    content: { title: notificationTitle, body: english ? "Tap to answer" : "Нажмите, чтобы ответить", sound: "default", priority: Notifications.AndroidNotificationPriority.MAX, color: "#35b9ef", categoryIdentifier: CALL_CATEGORY, autoDismiss: true, data: { notificationType: "call", roomId: payload.roomId, streamId: payload.streamId, title } },
+    content: { title: notificationTitle, body: english ? "Tap to answer" : "Нажмите, чтобы ответить", sound: "default", priority: Notifications.AndroidNotificationPriority.MAX, color: "#35b9ef", categoryIdentifier: CALL_CATEGORY, autoDismiss: true, data: { notificationType: "call", roomId: payload.roomId, streamId: payload.streamId, title, startedAt: payload.startedAt ?? Date.now() } },
     trigger: { channelId: CALL_CHANNEL },
   });
 }
 
 export function handleNotificationResponse(response: Notifications.NotificationResponse): void {
   const identifier = response.notification.request.identifier;
-  if (identifier === lastHandledNotificationId) return;
-  lastHandledNotificationId = identifier;
+  const actionKey = `${identifier}:${response.actionIdentifier}`;
+  if (handledNotificationActions.has(actionKey)) return;
+  handledNotificationActions.add(actionKey);
+  if (handledNotificationActions.size > 32) handledNotificationActions.delete(handledNotificationActions.values().next().value!);
   const data = response.notification.request.content.data;
   if (response.actionIdentifier === "decline") {
     if (typeof data?.roomId === "string") { void api.declineCall(data.roomId).catch(() => undefined); void dismissCallNotification(data.roomId); }
     return;
   }
-  const target = notificationTarget(data, response.actionIdentifier);
+  const target = notificationTargetFromData(data, response.actionIdentifier, Notifications.DEFAULT_ACTION_IDENTIFIER, productCapabilities.servers);
   if (target) navigateToNotificationTarget(target);
+  else if (data?.notificationType === "call" && typeof data.roomId === "string") void dismissCallNotification(data.roomId);
 }
 
 export function flushPendingNotificationNavigation(): void {
@@ -204,16 +215,8 @@ export function flushPendingNotificationNavigation(): void {
 
 function navigateToNotificationTarget(target: NotificationTarget) {
   if (!navigationRef.isReady()) { pendingNavigation = target; return; }
-  if (target.type === "call") navigationRef.navigate("Call", { streamId: target.streamId, title: target.title, startWithVideo: target.startWithVideo });
+  if (target.type === "call") navigationRef.navigate("Call", { streamId: target.streamId, title: target.title, startWithVideo: target.startWithVideo, expectedCallId: target.expectedCallId });
   else navigationRef.navigate("Chat", { streamId: target.streamId, streamKind: target.streamKind, title: target.title });
-}
-
-function notificationTarget(data: Record<string, unknown> | undefined, actionIdentifier = Notifications.DEFAULT_ACTION_IDENTIFIER): NotificationTarget | null {
-  if (!data) return null;
-  if (data.streamKind === "channel" && !productCapabilities.servers) return null;
-  if (data.notificationType === "call" && typeof data.streamId === "string" && typeof data.title === "string") return { type: "call", streamId: data.streamId, title: data.title, startWithVideo: actionIdentifier === "answer-video" };
-  if (data.notificationType === "message" && typeof data.streamId === "string" && (data.streamKind === "conversation" || data.streamKind === "channel") && isUserVisibleStreamKind(data.streamKind) && typeof data.title === "string") return { type: "message", streamId: data.streamId, streamKind: data.streamKind, title: data.title };
-  return null;
 }
 
 function notificationMessageBody(message: Message, language: "ru" | "en") {

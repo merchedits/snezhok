@@ -2,7 +2,7 @@ import { cooperativeActivityCommandSchema, cooperativeActivityCreateSchema } fro
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../auth/middleware.js";
-import { commandActivity, createActivity, readActivity } from "./service.js";
+import { commandActivity, createActivity, readActivity, readActivityHistory } from "./service.js";
 
 const conversationParams = z.object({ conversationId: z.string().uuid() });
 const activityParams = z.object({ id: z.string().uuid() });
@@ -20,6 +20,11 @@ export async function activityRoutes(app: FastifyInstance) {
   app.get("/activities/:id", { preHandler: requireAuth }, async (request) => {
     const { id } = activityParams.parse(request.params);
     return { activity: await readActivity(request.auth.id, id) };
+  });
+
+  app.get("/conversations/:conversationId/activities/history", { preHandler: requireAuth }, async (request) => {
+    const { conversationId } = conversationParams.parse(request.params);
+    return { messages: await readActivityHistory(request.auth.id, conversationId) };
   });
 
   app.post("/activities/:id/commands", {

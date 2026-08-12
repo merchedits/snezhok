@@ -1,5 +1,16 @@
 import type { Message } from "@snezhok/contracts";
 
+export type ChatOpenPerformanceKind = "warmChatOpen" | "cachedChatOpen";
+
+/**
+ * A stream already present in Zustand is a warm open. An empty in-memory
+ * projection may still be restored from SQLite during the native transition,
+ * which is the slower cached-open budget.
+ */
+export function chatOpenPerformanceKind(messageCountAtNavigation: number): ChatOpenPerformanceKind {
+  return messageCountAtNavigation > 0 ? "warmChatOpen" : "cachedChatOpen";
+}
+
 export function uncachedWarmStreamIds(
   streamIds: readonly string[],
   messagesByStream: Readonly<Record<string, readonly Message[]>>,

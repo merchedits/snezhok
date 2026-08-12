@@ -55,6 +55,12 @@ See `../../docs/MOBILE_RELEASES.md` for the web-hosted update channel and atomic
 
 The APK can build without a running media server, but calls require `/api/v1/calls/token` and a reachable LiveKit deployment. The public host must expose WSS signaling and WebRTC media ports; a reverse proxy for WSS alone is insufficient.
 
-Expo Push supplies message, incoming-call, answer with audio, answer with video, decline, and missed-call notifications while the app is backgrounded or terminated. This path is inactive in builds without `EXPO_PUBLIC_EAS_PROJECT_ID`, `google-services.json`, and the matching FCM V1 credential; foreground Socket.IO notifications remain as a fallback. Android may defer quiet call-ended cleanup in Doze mode, so the incoming notification also expires after 90 seconds.
+Expo Push supplies message, incoming-call, answer with audio, answer with video, decline, and missed-call notifications while the app is backgrounded or terminated. This path is inactive in builds without `EXPO_PUBLIC_EAS_PROJECT_ID`, a complete matching `google-services.json`, and the matching FCM V1 credential; foreground Socket.IO notifications remain as a fallback. The provider TTL prevents an incoming call from being delivered after 90 seconds, while a quiet call-ended data push dismisses an already displayed notification. Android may defer that cleanup in Doze mode, so the client also refuses to act on a notification after its 90-second server timestamp and the API binds the answer to the exact call ID.
+
+Push registration is refreshed after authentication, Socket.IO reconnect, and
+every transition back to the foreground so an Android/FCM token rotation does
+not silently strand an installation. Force-stopping the application from
+Android Settings disables delivery until the user opens it again; this is an
+Android platform boundary, not a state Snezhok can recover in background code.
 
 The foreground service satisfies Android's background microphone/camera execution contract for an already-connected LiveKit room. It does not recreate media after a force-stop or process death and it is not an Android Telecom `ConnectionService`; do not describe the client as a carrier-style call replacement. Physical two-device validation is still required for every release.

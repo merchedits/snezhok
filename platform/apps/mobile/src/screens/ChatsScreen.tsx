@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, InteractionManager, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
 import type { ConversationSummary } from "@snezhok/contracts";
 
@@ -54,15 +54,15 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
 
   useEffect(() => {
     if (!foregroundActive || !warmConversationKey) return;
-    const timer = setTimeout(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
       const streamIds = warmConversationKey.split(",").filter(Boolean);
       const missing = uncachedWarmStreamIds(streamIds, useAppStore.getState().messages, 12);
       void preloadCachedMessages(missing).catch(() => undefined).then(() => {
         const previews = recentMediaPreviewUris(useAppStore.getState().messages, streamIds, 6);
         return prefetchAuthorizedMedia(previews).catch(() => false);
       });
-    }, 80);
-    return () => clearTimeout(timer);
+    });
+    return () => task.cancel();
   }, [foregroundActive, preloadCachedMessages, warmConversationKey]);
 
   const filtered = useMemo(() => visibleConversationSummaries(
@@ -139,7 +139,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         maxToRenderPerBatch={8}
         updateCellsBatchingPeriod={40}
         windowSize={5}
-        getItemLayout={(_data, index) => ({ length: rowHeight, offset: rowHeight * index, index })}
+        getItemLayout={(_data, index) => ({ length: rowHeight + 2, offset: (rowHeight + 2) * index, index })}
         refreshControl={<RefreshControl refreshing={syncing} tintColor={palette.accent} onRefresh={() => void refresh({ force: true })} />}
         renderItem={renderConversation}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noConversations")}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("startFromProfile")}</Text></View>}

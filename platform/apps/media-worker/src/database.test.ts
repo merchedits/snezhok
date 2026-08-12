@@ -24,6 +24,7 @@ test("SKIP LOCKED claim atomically leases one eligible media job", async () => {
   try {
     await db.exec(await readFile(path.join(migrations, "0001_initial.sql"), "utf8"));
     await db.exec(await readFile(path.join(migrations, "0002_media_pipeline.sql"), "utf8"));
+    await db.exec(await readFile(path.join(migrations, "0019_activity_collages.sql"), "utf8"));
     const user = "00000000-0000-4000-8000-000000000001"; const blob = "00000000-0000-4000-8000-000000000002";
     const attachment = "00000000-0000-4000-8000-000000000003"; const job = "00000000-0000-4000-8000-000000000004";
     await db.query("INSERT INTO users(id,username,display_name) VALUES ($1,'worker_test','Worker Test')", [user]);

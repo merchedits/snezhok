@@ -61,3 +61,25 @@ test("diagnostic reports retain allowlisted operational signals", () => {
     context: { from: "chats", to: "servers", budgetMs: 17, passed: false },
   });
 });
+
+test("media decoder failures remain useful without retaining file identity", () => {
+  const report = sanitizeDiagnosticReport({
+    installationId: "device-installation-test",
+    appVersion: "4.2.0",
+    versionCode: 37,
+    platform: "android",
+    osVersion: "14",
+    device: "Android",
+    locale: "en",
+    recordedAt: 10,
+    events: [{
+      at: 9,
+      level: "warn",
+      category: "media",
+      message: "Voice playback failed",
+      context: { failure: "native-player", attachmentId: "not-retained" },
+    }],
+  });
+  assert.equal(report.events[0]?.message, "Voice playback failed");
+  assert.deepEqual(report.events[0]?.context, { failure: "native-player" });
+});

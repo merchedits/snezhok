@@ -49,6 +49,8 @@ Message history carries compact activity summaries. The authenticated activity-d
 
 Memory Capsule reveal is a server-time scheduler transition. Cooperative milestones derive from completed durable state and create one deterministic chat card, never a streak or mutable score. The first release restricts activities to two-person direct conversations. Movie List and Ideas Jar are unique living objects per conversation.
 
+Draw & Guess uses an authorized ephemeral Socket.IO preview stream for throttled bounded vectors; the revisioned HTTP command remains the only durable final drawing. Color Hunt uses the ordinary media job table with the `color-collage` operation introduced by migration `0019_activity_collages.sql`. Nine ready source attachments produce one immutable 1080 × 1080 WebP plus thumbnail in the media worker, and the activity scheduler advances the anchor revision and publishes the resulting attachment to both cached chats.
+
 ## Client storage
 
 The web client caches recent streams, messages, drafts and queued sends in IndexedDB. TanStack Query owns remote cache coordination; long lists are virtualized.
@@ -59,7 +61,7 @@ The Android client uses a native custom build, never Expo Go. Its storage and ba
 
 Uploads are resumable and persisted before they are attached to messages. The server verifies declared length and SHA-256, detects type from content, and moves completed blobs to immutable generation-specific object keys. PostgreSQL deduplicates logical attachments by checksum; generation-specific physical keys prevent a stale collector from deleting a newly committed object that happens to contain identical bytes.
 
-The Android attachment drawer defaults to adaptive compressed media and exposes one High quality toggle. Selecting Upload file is the byte-for-byte original path. Media variants are generated asynchronously with bounded concurrency. The initial private deployment uses a local filesystem behind an interface that can later target S3; MinIO is intentionally omitted to reduce memory use.
+The Android attachment drawer defaults to adaptive compressed media and exposes one High quality toggle. Selecting Upload file is the byte-for-byte original path; Take a photo captures directly into the same resumable upload flow and strips location metadata. Media variants are generated asynchronously with bounded concurrency. The initial private deployment uses a local filesystem behind an interface that can later target S3; MinIO is intentionally omitted to reduce memory use.
 
 Nginx serves authorized immutable objects through an internal location after the API returns `X-Accel-Redirect`, preserving range requests and avoiding Node memory pressure.
 

@@ -33,7 +33,13 @@ export async function validateProductionEnvironment(environment, dependencies = 
       const clients = Array.isArray(document?.client) ? document.client : [];
       const androidClient = clients.find((client) => client?.client_info?.android_client_info?.package_name === "xyz.merchedits.snezhok");
       if (typeof document?.project_info?.project_id !== "string" || !document.project_info.project_id.trim()) failures.push("GOOGLE_SERVICES_JSON has no Firebase project ID");
+      if (!/^\d+$/.test(String(document?.project_info?.project_number ?? ""))) failures.push("GOOGLE_SERVICES_JSON has no Firebase project number");
       if (!androidClient) failures.push("GOOGLE_SERVICES_JSON does not contain xyz.merchedits.snezhok");
+      else {
+        if (typeof androidClient?.client_info?.mobilesdk_app_id !== "string" || !androidClient.client_info.mobilesdk_app_id.trim()) failures.push("GOOGLE_SERVICES_JSON Android client has no mobile SDK app ID");
+        const apiKeys = Array.isArray(androidClient.api_key) ? androidClient.api_key : [];
+        if (!apiKeys.some((entry) => typeof entry?.current_key === "string" && entry.current_key.trim())) failures.push("GOOGLE_SERVICES_JSON Android client has no API key");
+      }
     } catch {
       failures.push("GOOGLE_SERVICES_JSON is not valid JSON");
     }

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { usePalette } from "../../hooks/usePalette";
@@ -22,7 +23,7 @@ export function ManagementModal({ visible, title, onClose, busy = false, childre
 }
 
 export function ManagementScroll({ children }: { children: ReactNode }) {
-  return <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>{children}</ScrollView>;
+  return <KeyboardAwareScrollView bottomOffset={20} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>{children}</KeyboardAwareScrollView>;
 }
 
 export function ManagementSection({ title, children, footer }: { title?: string; children: ReactNode; footer?: string }) {

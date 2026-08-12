@@ -1,6 +1,7 @@
 import { AppIcon } from "./AppIcon";
 import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, FlatList, Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -18,18 +19,20 @@ interface AttachmentSheetProps {
   progress?: number | null;
   onClose: () => void;
   onCancel?: () => void;
+  imagesOnly?: boolean;
   onSelect: (inputs: UploadInput[], messageKind?: "media" | "file" | "video-note") => Promise<void>;
 }
 
 type RecentAsset = MediaLibrary.AssetMetadata;
-type DrawerItem = { type: "upload"; id: "upload-file" } | { type: "asset"; id: string; asset: RecentAsset };
+type DrawerItem = { type: "upload"; id: "upload-file" } | { type: "camera"; id: "camera" } | { type: "asset"; id: string; asset: RecentAsset };
 
 const UPLOAD_ITEM: DrawerItem = { type: "upload", id: "upload-file" };
+const CAMERA_ITEM: DrawerItem = { type: "camera", id: "camera" };
 const MAX_RECENT_ASSETS = 72;
 let recentAssetCache: RecentAsset[] = [];
 
-/** Telegram-style recent-media drawer with a file-browser tile in place of Camera. */
-export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onCancel, onSelect }: AttachmentSheetProps) {
+/** Telegram-style recent-media drawer with explicit original-file and camera actions. */
+export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onCancel, imagesOnly = false, onSelect }: AttachmentSheetProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const showDialog = useAppDialog();
@@ -54,7 +57,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
         return;
       }
       const next = await new MediaLibrary.Query()
-        .within(MediaLibrary.AssetField.MEDIA_TYPE, [MediaLibrary.MediaType.IMAGE, MediaLibrary.MediaType.VIDEO])
+        .within(MediaLibrary.AssetField.MEDIA_TYPE, imagesOnly ? [MediaLibrary.MediaType.IMAGE] : [MediaLibrary.MediaType.IMAGE, MediaLibrary.MediaType.VIDEO])
         .orderBy({ key: MediaLibrary.AssetField.CREATION_TIME, ascending: false })
         .limit(MAX_RECENT_ASSETS)
         .exeForMetadata();
@@ -65,7 +68,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     } finally {
       setLoading(false);
     }
-  }, [showDialog, t]);
+  }, [imagesOnly, showDialog, t]);
 
   useEffect(() => {
     if (!visible) return;
@@ -120,6 +123,41 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     }
   }, [onSelect]);
 
+  const capturePhoto = useCallback(async () => {
+    if (busy || resolvingRef.current) return;
+    resolvingRef.current = true;
+    setResolving(true);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        showDialog(t("permissionCamera"), t("allowCameraPhoto"));
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: quality === "high" ? 1 : 0.86,
+        exif: false,
+      });
+      const asset = result.assets?.[0];
+      if (!asset) return;
+      const filename = asset.fileName ?? `snezhok-camera-${Date.now()}.jpg`;
+      await onSelect([{
+        uri: asset.uri,
+        filename,
+        mimeType: asset.mimeType ?? mimeTypeFor(filename, false),
+        kind: "image",
+        quality,
+        purpose: "standard",
+        stripLocation: true,
+      }], "media");
+    } catch (error) {
+      showDialog(t("uploadFailed"), userFacingError(error, t));
+    } finally {
+      resolvingRef.current = false;
+      setResolving(false);
+    }
+  }, [busy, onSelect, quality, showDialog, t]);
+
   const toggleRecentAsset = useCallback((asset: RecentAsset) => {
     if (busy || resolving) return;
     setSelectedIds((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id]);
@@ -145,7 +183,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
     }
   }, [assets, busy, onSelect, quality, resolving, selectedIds, showDialog, t]);
 
-  const items = useMemo<DrawerItem[]>(() => [UPLOAD_ITEM, ...assets.map((asset) => ({ type: "asset" as const, id: asset.id, asset }))], [assets]);
+  const items = useMemo<DrawerItem[]>(() => [...(imagesOnly ? [] : [UPLOAD_ITEM]), CAMERA_ITEM, ...assets.filter((asset) => !imagesOnly || asset.mediaType === MediaLibrary.MediaType.IMAGE).map((asset) => ({ type: "asset" as const, id: asset.id, asset }))], [assets, imagesOnly]);
   const tileSize = Math.floor((screenWidth - 4) / 3);
   const sheetHeight = Math.min(570, Math.max(360, Math.round(screenHeight * 0.68)));
   const visibleProgress = Math.max(0, Math.min(100, progress ?? 0));
@@ -162,6 +200,20 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
         >
           <View style={[styles.uploadIcon, { backgroundColor: palette.accent }]}><AppIcon name="cloud-upload-outline" size={25} color="white" strokeWidth={2} /></View>
           <Text numberOfLines={2} style={[styles.uploadLabel, { color: palette.text }]}>{t("uploadFile")}</Text>
+        </Pressable>
+      );
+    }
+    if (item.type === "camera") {
+      return (
+        <Pressable
+          accessibilityLabel={t("takePhoto")}
+          accessibilityRole="button"
+          disabled={busy || resolving}
+          onPress={() => void capturePhoto()}
+          style={({ pressed }) => [styles.uploadTile, { width: tileSize, height: tileSize, backgroundColor: pressed ? palette.accentSoft : palette.surface, opacity: busy || resolving ? 0.5 : 1 }]}
+        >
+          <View style={[styles.uploadIcon, { backgroundColor: palette.success }]}><AppIcon name="camera" size={25} color="white" strokeWidth={2} /></View>
+          <Text numberOfLines={2} style={[styles.uploadLabel, { color: palette.text }]}>{t("takePhoto")}</Text>
         </Pressable>
       );
     }
@@ -182,7 +234,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
         {resolving && selected ? <View style={styles.assetPending}><ActivityIndicator color="white" /></View> : null}
       </Pressable>
     );
-  }, [busy, palette.accent, palette.accentSoft, palette.surface, palette.text, pickOriginalFile, resolving, selectedIds, t, tileSize, toggleRecentAsset]);
+  }, [busy, capturePhoto, palette.accent, palette.accentSoft, palette.success, palette.surface, palette.text, pickOriginalFile, resolving, selectedIds, t, tileSize, toggleRecentAsset]);
 
   return (
     <Modal transparent visible={visible} animationType="slide" navigationBarTranslucent={false} onRequestClose={busy ? undefined : onClose}>

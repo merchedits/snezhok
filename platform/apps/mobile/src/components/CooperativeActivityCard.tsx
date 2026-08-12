@@ -41,7 +41,7 @@ export const CooperativeActivityCard = memo(function CooperativeActivityCard({ a
       {prompt ? <Text style={[styles.prompt, { color: style.ink }]}>{prompt}</Text> : null}
       <ActivityPreview activity={activity} ink={style.ink} language={language} />
       <View style={styles.people}>{activity.participants.map((participant) => <View key={participant.user.id} style={styles.person}><Avatar uri={participant.user.avatarUrl} label={participant.user.displayName} color={participant.user.avatarColor} size={27} /><View style={[styles.dot, { backgroundColor: ["submitted", "completed"].includes(participant.status) ? palette.success : "rgba(255,255,255,0.76)", borderColor: style.fill }]} /></View>)}<Text style={[styles.state, { color: style.ink }]}>{stateLabel(activity, language)}</Text></View>
-      {actionable ? <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.action, { backgroundColor: style.ink, opacity: pressed ? 0.82 : 1 }]}><Text style={styles.actionText}>{button}</Text><AppIcon name="chevron-forward" size={18} color="#FFFFFF" /></Pressable> : null}
+      {actionable ? <Pressable accessibilityRole="button" accessibilityLabel={button} onPress={onOpen} style={({ pressed }) => [styles.action, { backgroundColor: style.ink, opacity: pressed ? 0.82 : 1 }]}><Text style={styles.actionText}>{button}</Text><AppIcon name="chevron-forward" size={18} color="#FFFFFF" /></Pressable> : null}
     </View>
   );
 });
@@ -49,8 +49,8 @@ export const CooperativeActivityCard = memo(function CooperativeActivityCard({ a
 function ActivityPreview({ activity, ink, language }: { activity: CooperativeActivity; ink: string; language: "ru" | "en" }) {
   if (activity.type === "color-hunt") {
     const color = activity.privateState.color as { hex?: string; name?: unknown } | undefined;
-    const photos = activity.entries.flatMap((entry) => entry.attachments).slice(0, 9);
-    if (activity.state === "completed") return <View style={styles.collageRow}>{activity.participants.map((participant) => <View key={participant.user.id}><Text numberOfLines={1} style={[styles.collageName, { color: ink }]}>{participant.user.displayName}</Text><View style={styles.miniCollage}>{activity.entries.filter((entry) => entry.createdBy === participant.user.id).flatMap((entry) => entry.attachments).slice(0, 9).map((attachment) => <MiniPhoto key={attachment.id} url={attachment.thumbnailUrl ?? attachment.url} />)}</View></View>)}</View>;
+    const photos = activity.entries.filter((entry) => entry.kind === "photo").flatMap((entry) => entry.attachments).slice(0, 9);
+    if (activity.state === "completed") return <View style={styles.collageRow}>{activity.participants.map((participant) => { const collage = activity.entries.find((entry) => entry.createdBy === participant.user.id && entry.kind === "collage")?.attachments[0]; const participantPhotos = activity.entries.filter((entry) => entry.createdBy === participant.user.id && entry.kind === "photo").flatMap((entry) => entry.attachments).slice(0, 9); return <View key={participant.user.id}><Text numberOfLines={1} style={[styles.collageName, { color: ink }]}>{participant.user.displayName}</Text>{collage ? <AuthenticatedImage uri={collage.thumbnailUrl ?? collage.url} cacheKey={collage.id} mimeType={collage.mimeType} style={styles.collagePhoto} /> : <View style={styles.miniCollage}>{participantPhotos.map((attachment) => <MiniPhoto key={attachment.id} url={attachment.thumbnailUrl ?? attachment.url} />)}</View>}</View>; })}</View>;
     return <View><View style={styles.colorLine}>{color?.hex ? <View style={[styles.colorDot, { backgroundColor: color.hex }]} /> : null}<Text style={[styles.previewText, { color: ink }]}>{localized(color?.name, language)} · {photos.length}/9</Text></View>{photos.length ? <View style={styles.photoGrid}>{photos.map((attachment) => <Photo key={attachment.id} url={attachment.thumbnailUrl ?? attachment.url} />)}</View> : null}</View>;
   }
   if (activity.type === "movie-list" || activity.type === "ideas-jar") {
@@ -83,6 +83,8 @@ function stateLabel(activity: CooperativeActivity, language: "ru" | "en") {
   if (activity.state === "completed") return language === "ru" ? "Готово вместе" : "Completed together";
   if (activity.state === "locked") return activity.revealAt ? new Date(activity.revealAt).toLocaleDateString(language === "ru" ? "ru-RU" : "en-US") : (language === "ru" ? "Заперто" : "Locked");
   if (activity.state === "declined") return language === "ru" ? "Отклонено" : "Declined";
+  if (activity.state === "cancelled") return language === "ru" ? "Отменено" : "Cancelled";
+  if (activity.state === "expired") return language === "ru" ? "Истекло" : "Expired";
   const waiting = activity.participants.find((participant) => !["submitted", "completed"].includes(participant.status));
   return waiting ? (language === "ru" ? `Ждём ${waiting.user.displayName}` : `Waiting for ${waiting.user.displayName}`) : (language === "ru" ? "Можно продолжить" : "Ready to continue");
 }
@@ -105,5 +107,5 @@ const styles = StyleSheet.create({
   pairs: { gap: 6, marginTop: 10 }, pair: { height: 38, borderRadius: 12, paddingHorizontal: 10, backgroundColor: "rgba(255,255,255,0.42)", flexDirection: "row", alignItems: "center", gap: 7 }, pairText: { flex: 1, fontSize: 13, fontWeight: "700" },
   answers: { gap: 6, marginTop: 8 }, answer: { backgroundColor: "rgba(255,255,255,0.42)", borderRadius: 13, padding: 10, fontSize: 14, lineHeight: 19 },
   locked: { minHeight: 80, alignItems: "center", justifyContent: "center", gap: 8 },
-  collageRow: { flexDirection: "row", gap: 7, marginTop: 10 }, collageName: { width: 131, fontSize: 11, fontWeight: "700", marginBottom: 4 }, miniCollage: { width: 131, flexDirection: "row", flexWrap: "wrap", gap: 2 }, miniPhoto: { width: 42, height: 42, borderRadius: 5 },
+  collageRow: { flexDirection: "row", gap: 7, marginTop: 10 }, collageName: { width: 131, fontSize: 11, fontWeight: "700", marginBottom: 4 }, collagePhoto: { width: 131, height: 131, borderRadius: 12 }, miniCollage: { width: 131, flexDirection: "row", flexWrap: "wrap", gap: 2 }, miniPhoto: { width: 42, height: 42, borderRadius: 5 },
 });

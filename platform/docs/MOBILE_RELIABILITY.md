@@ -15,9 +15,16 @@ Snezhok treats the Android application as the product authority. Changes to chat
 - Stateful native media children use the durable attachment ID as their React identity. Recycler-position keys are not permitted for image, video, audio, or document subtrees.
 - Every attachment subtree has a local JavaScript error boundary. A render failure records privacy-safe structural diagnostics and displays a compact fallback instead of reaching the application-level crash handler.
 - Authenticated image thumbnails use `expo-image`'s native memory/disk cache with an authorization-aware source and a stable recycling key. Voice notes create an `expo-audio` player only after playback is requested and pass the authenticated remote source directly; the native audio implementation performs its own temporary download. Do not add a second JavaScript-managed file cache unless a measured platform defect requires it. Explicit user downloads remain ordinary files outside this playback path.
-- Chat history paints from the SQLite snapshot already held in Zustand. Touching a conversation row starts a deduplicated SQLite warmup, navigation stays immediate, and network reconciliation waits until the native transition completes.
+- Chat history paints from the SQLite snapshot already held in Zustand. Touching a conversation row starts a deduplicated SQLite warmup; notification/deep-link routes start the same cache-only read as soon as they mount. Navigation stays immediate, and network reconciliation waits until the native transition completes.
 - `FlashList` is solely responsible for initial bottom anchoring through `startRenderingFromBottom`. Do not combine it with a duplicate first-frame overlay or an initial `scrollToEnd`, because competing position mechanisms cause extra row mounts and visible jumps.
+- Composer safe-area padding interpolates from the keyboard controller's UI-thread progress. It must not depend on Android's post-animation `keyboardDidShow`/`keyboardDidHide` callbacks.
+- Full-screen search/create flows use the keyboard controller's avoiding view,
+  while scrolling profile and administration forms use its focused-input-aware
+  scroll view. New text-entry surfaces must choose one of these primitives and
+  retain a bottom offset; a plain `ScrollView` is insufficient on Android.
 - Voice playback allocates its native player only after the user requests playback, starts after the authenticated source reports loaded, and uses the outgoing bubble's foreground/control colors rather than global secondary text colors. A failed player must be recreated on retry instead of reusing the failed native instance.
+- An incoming-call notification is useful only for its exact server call. Its timestamp must be recent, its call ID must be sent back during token issuance, and neither a delayed tap nor a superseded call may create a new room.
+- Android push registration is installation-scoped and idempotently refreshed on foreground/reconnect. A successful historical token is never assumed to remain valid after FCM rotates the native token.
 
 ## Samsung A12 performance budgets
 

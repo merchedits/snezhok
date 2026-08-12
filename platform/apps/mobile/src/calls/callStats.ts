@@ -5,6 +5,8 @@ export interface CallNetworkStats {
   inboundKbps: number;
   outboundKbps: number;
   codecs: string[];
+  iceCandidateType: string | null;
+  transportProtocol: string | null;
   sampledAt: number;
 }
 
@@ -24,7 +26,9 @@ type StatsRecord = Record<string, unknown>;
 export function parseCallStats(reports: readonly unknown[], previous?: CallStatsBaseline, now = Date.now()): ParsedCallStats {
   const rows = reports.flatMap(normalizeStatsReport);
   const codecs = new Map<string, string>();
+  const candidates = new Map<string, StatsRecord>();
   for (const row of rows) {
+    if ((row.type === "local-candidate" || row.type === "remote-candidate") && typeof row.id === "string") candidates.set(row.id, row);
     if (row.type !== "codec" || typeof row.id !== "string") continue;
     const mime = typeof row.mimeType === "string" ? row.mimeType.replace(/^audio\//i, "").replace(/^video\//i, "") : null;
     if (mime) codecs.set(row.id, mime.toUpperCase());
@@ -38,11 +42,18 @@ export function parseCallStats(reports: readonly unknown[], previous?: CallStats
   let bytesReceived = 0;
   let bytesSent = 0;
   const activeCodecs = new Set<string>();
+  let iceCandidateType: string | null = null;
+  let transportProtocol: string | null = null;
 
   for (const row of rows) {
     if (row.type === "candidate-pair" && (row.nominated === true || row.selected === true) && row.state === "succeeded") {
       const rtt = finite(row.currentRoundTripTime);
       if (rtt !== null) pingMs = Math.round(rtt * 1_000);
+      const local = typeof row.localCandidateId === "string" ? candidates.get(row.localCandidateId) : undefined;
+      if (typeof local?.candidateType === "string") iceCandidateType = local.candidateType.slice(0, 24);
+      const protocol = typeof local?.protocol === "string" ? local.protocol : typeof row.protocol === "string" ? row.protocol : null;
+      const relayProtocol = typeof local?.relayProtocol === "string" ? local.relayProtocol : null;
+      if (protocol) transportProtocol = `${protocol}${relayProtocol ? `/${relayProtocol}` : ""}`.slice(0, 24);
     }
     if (row.type === "inbound-rtp" && row.isRemote !== true) {
       const jitter = finite(row.jitter);
@@ -71,6 +82,8 @@ export function parseCallStats(reports: readonly unknown[], previous?: CallStats
       inboundKbps,
       outboundKbps,
       codecs: [...activeCodecs].sort(),
+      iceCandidateType,
+      transportProtocol,
       sampledAt: now,
     },
     baseline: { sampledAt: now, bytesReceived, bytesSent },

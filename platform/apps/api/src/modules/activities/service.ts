@@ -1,14 +1,15 @@
 import { randomInt } from "node:crypto";
 import type { CooperativeActivity, CooperativeActivityType, Message } from "@snezhok/contracts";
 import type { DbClient } from "../../db/pool.js";
-import { pool, transaction } from "../../db/pool.js";
+import { pool, readSnapshot, transaction } from "../../db/pool.js";
 import { conflict, forbidden, notFound } from "../../lib/errors.js";
 import { deterministicId, newId } from "../../lib/ids.js";
-import { getMessageById } from "../messages/service.js";
+import { getMessageById, getMessagesByIds } from "../messages/service.js";
 import { publishStoredEvent, storeEvent, type StoredEvent } from "../realtime/events.js";
 import { allocateMessageSequence, resolveStreamAccess, streamRecipients } from "../streams/access.js";
 import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
 import { initialActivityConfiguration } from "./prompts.js";
+import { participantMayEditEntry, participantMaySubmit, selectionAfterEntryChange, type ActivityParticipantStatus } from "./policy.js";
 import { combinedRating, memoryRevealDate, normalizeGuess, parseDrawingStrokes, validSongUrl } from "./rules.js";
 import { getActivityView } from "./view.js";
 
@@ -115,8 +116,11 @@ export async function commandActivity(userId: string, activityId: string, input:
     if (access.streamKind !== "conversation") throw forbidden();
     await assertDirectConversationMessagingAllowed(userId, row.conversation_id, client);
 
-    const duplicate = await client.query("SELECT 1 FROM cooperative_activity_commands WHERE activity_id=$1 AND user_id=$2 AND client_id=$3", [activityId, userId, input.clientId]);
-    if (duplicate.rowCount) return { message: await anchorMessage(client, row, userId), events: [] as StoredEvent[] };
+    const duplicate = await client.query<{ action: string }>("SELECT action FROM cooperative_activity_commands WHERE activity_id=$1 AND user_id=$2 AND client_id=$3", [activityId, userId, input.clientId]);
+    if (duplicate.rowCount) {
+      if (duplicate.rows[0]?.action !== input.action) throw conflict("Activity command ID was already used");
+      return { message: await anchorMessage(client, row, userId), events: [] as StoredEvent[] };
+    }
     if (Number(row.revision) !== input.expectedRevision) throw conflict("Activity changed; refresh and try again");
     if (["declined", "expired", "cancelled"].includes(row.state)) throw conflict("Activity is no longer active");
     if (row.state === "completed" && !["movie-list", "ideas-jar"].includes(row.type)) throw conflict("Activity is already complete");
@@ -164,26 +168,49 @@ export async function readActivity(userId: string, activityId: string) {
   return getActivityView(pool, activityId, userId);
 }
 
+export async function readActivityHistory(userId: string, conversationId: string) {
+  return readSnapshot(async (client) => {
+    const access = await resolveStreamAccess(userId, conversationId, client);
+    if (access.streamKind !== "conversation") throw forbidden("Together history is available in private chats only");
+    await assertDirectConversationMessagingAllowed(userId, conversationId, client);
+    const anchors = await client.query<{ anchor_message_id: string }>(
+      `SELECT ca.anchor_message_id
+         FROM cooperative_activities ca
+         JOIN messages anchor ON anchor.id=ca.anchor_message_id
+        WHERE ca.conversation_id=$1
+          AND ca.anchor_message_id IS NOT NULL
+          AND anchor.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM hidden_messages hidden WHERE hidden.message_id=anchor.id AND hidden.user_id=$2)
+          AND (ca.state IN ('completed','locked') OR ca.type IN ('movie-list','ideas-jar','milestone'))
+        ORDER BY ca.updated_at DESC,ca.id DESC
+        LIMIT 50`,
+      [conversationId, userId],
+    );
+    return getMessagesByIds(client, anchors.rows.map((anchor) => anchor.anchor_message_id), userId);
+  });
+}
+
 async function applyAction(client: DbClient, activity: ActivityRow, userId: string, action: ActivityCommandInput["action"], payload: Record<string, unknown>): Promise<ActionResult> {
   switch (activity.type) {
-    case "question": return submitPair(client, activity, userId, action, payload, "answer", { answer: requiredString(payload.answer, 1, 4_000) });
+    case "question": return submitPair(client, activity, userId, action, "answer", { answer: requiredString(payload.answer, 1, 4_000) });
     case "blitz": {
       if (action !== "submit") throw conflict("This action is not available for Blitz");
       const promptCount = Array.isArray(activity.config.prompts) ? activity.config.prompts.length : 0;
       const answers = Array.isArray(payload.answers) ? payload.answers : [];
       if (answers.length !== promptCount || answers.some((answer) => answer !== "left" && answer !== "right")) throw conflict("Answer every Blitz prompt");
-      return submitPair(client, activity, userId, action, payload, "blitz", { answers });
+      return submitPair(client, activity, userId, action, "blitz", { answers });
     }
     case "tiny-quest": {
       if (action !== "submit") throw conflict("This action is not available for Tiny Quest");
       const attachmentIds = attachmentIdsFrom(payload, 1, 1);
-      return submitPair(client, activity, userId, action, payload, "submission", { caption: optionalString(payload.caption, 500) }, attachmentIds);
+      await requireImageAttachments(client, userId, attachmentIds);
+      return submitPair(client, activity, userId, action, "submission", { caption: optionalString(payload.caption, 500) }, attachmentIds);
     }
     case "song-exchange": {
       if (action !== "submit") throw conflict("This action is not available for Song Exchange");
       const url = requiredString(payload.url, 8, 2_048);
       if (!validSongUrl(url)) throw conflict("Enter a valid HTTPS song link");
-      return submitPair(client, activity, userId, action, payload, "song", {
+      return submitPair(client, activity, userId, action, "song", {
         url, title: requiredString(payload.title, 1, 200), artist: optionalString(payload.artist, 200), artworkUrl: optionalString(payload.artworkUrl, 2_048),
       });
     }
@@ -196,8 +223,9 @@ async function applyAction(client: DbClient, activity: ActivityRow, userId: stri
   }
 }
 
-async function submitPair(client: DbClient, activity: ActivityRow, userId: string, action: string, source: Record<string, unknown>, kind: string, payload: Record<string, unknown>, attachmentIds: string[] = []) {
+async function submitPair(client: DbClient, activity: ActivityRow, userId: string, action: string, kind: string, payload: Record<string, unknown>, attachmentIds: string[] = []) {
   if (action !== "submit") throw conflict("This activity expects a submission");
+  await requireFreshSubmission(client, activity.id, userId);
   await replacePersonalEntry(client, activity.id, userId, kind, payload, attachmentIds);
   await markSubmitted(client, activity.id, userId);
   const complete = await allParticipantsSubmitted(client, activity.id);
@@ -209,11 +237,51 @@ async function mutateColorHunt(client: DbClient, activity: ActivityRow, userId: 
   const target = typeof activity.config.target === "number" ? activity.config.target : 9;
   const count = Number((await client.query<{ count: string }>("SELECT count(*)::text count FROM cooperative_activity_entries WHERE activity_id=$1 AND created_by=$2 AND kind='photo'", [activity.id, userId])).rows[0]?.count ?? 0);
   if (count >= target) throw conflict("Your color board is already full");
-  await insertEntry(client, activity.id, userId, "photo", {}, attachmentIdsFrom(payload, 1, 1), count);
+  const attachmentIds = attachmentIdsFrom(payload, 1, 1);
+  await requireImageAttachments(client, userId, attachmentIds);
+  await insertEntry(client, activity.id, userId, "photo", {}, attachmentIds, count);
   const newCount = count + 1;
-  if (newCount >= target) await markSubmitted(client, activity.id, userId);
+  if (newCount >= target) {
+    await markSubmitted(client, activity.id, userId);
+    await enqueueColorCollage(client, activity.id, userId, target);
+  }
   const complete = newCount >= target && await allParticipantsSubmitted(client, activity.id);
-  return { state: complete ? "completed" : "active", completed: complete, ...(complete ? { result: { target, collage: "client-grid" } } : {}) };
+  return { state: complete ? "completed" : "active", completed: complete, ...(complete ? { result: { target, collage: "media-worker" } } : {}) };
+}
+
+async function requireImageAttachments(client: DbClient, userId: string, attachmentIds: string[]) {
+  const images = await client.query("SELECT 1 FROM attachments WHERE id=ANY($1::uuid[]) AND owner_id=$2 AND kind='image' AND status IN ('ready','processing')", [attachmentIds, userId]);
+  if (images.rowCount !== attachmentIds.length) throw conflict("This activity accepts photos only");
+}
+
+async function enqueueColorCollage(client: DbClient, activityId: string, userId: string, target: number) {
+  if (target !== 9) throw conflict("Color collage requires nine photos");
+  const existing = await client.query("SELECT 1 FROM cooperative_activity_entries WHERE activity_id=$1 AND created_by=$2 AND kind='collage'", [activityId, userId]);
+  if (existing.rowCount) return;
+  const sources = (await client.query<{ attachment_id: string }>(
+    `SELECT link.attachment_id FROM cooperative_activity_entries entry
+       JOIN cooperative_activity_attachments link ON link.entry_id=entry.id
+      WHERE entry.activity_id=$1 AND entry.created_by=$2 AND entry.kind='photo'
+      ORDER BY entry.round,entry.created_at,entry.id,link.position LIMIT 9`,
+    [activityId, userId],
+  )).rows.map((row) => row.attachment_id);
+  if (sources.length !== 9) throw conflict("Color collage is missing source photos");
+  const attachmentId = newId();
+  const entryId = newId();
+  await client.query(
+    `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,width,height,quality,status)
+     VALUES ($1,$2,NULL,$3,'image','image/webp',0,1080,1080,'high','processing')`,
+    [attachmentId, userId, `snezhok-color-hunt-${activityId}.webp`],
+  );
+  await client.query(
+    "INSERT INTO cooperative_activity_entries(id,activity_id,created_by,kind,payload) VALUES ($1,$2,$3,'collage',$4)",
+    [entryId, activityId, userId, { sourceCount: 9 }],
+  );
+  await client.query("INSERT INTO cooperative_activity_attachments(entry_id,attachment_id,position) VALUES ($1,$2,0)", [entryId, attachmentId]);
+  await client.query(
+    "INSERT INTO media_jobs(id,attachment_id,profile,operation,source_attachment_ids) VALUES ($1,$2,'high','color-collage',$3)",
+    [newId(), attachmentId, sources],
+  );
 }
 
 async function mutateMovieList(client: DbClient, activity: ActivityRow, userId: string, action: string, payload: Record<string, unknown>): Promise<ActionResult> {
@@ -231,9 +299,10 @@ async function mutateMovieList(client: DbClient, activity: ActivityRow, userId: 
     return { state: "active", result: { selectedEntryId: available[randomInt(available.length)]!.id, pickedAt: Date.now() } };
   }
   const entry = await lockEntry(client, activity.id, requiredId(payload.entryId), "movie");
+  if (!participantMayEditEntry(entry.created_by, userId, action)) throw forbidden("Only the person who added this movie can change it");
   if (action === "remove-item") {
     await client.query("DELETE FROM cooperative_activity_entries WHERE id=$1", [entry.id]);
-    return { state: "active" };
+    return { state: "active", result: selectionAfterEntryChange(activity.result, entry.id, true) };
   }
   if (action === "rate") {
     const rating = requiredNumber(payload.rating, 1, 10);
@@ -245,7 +314,7 @@ async function mutateMovieList(client: DbClient, activity: ActivityRow, userId: 
   if (action === "set-status" || action === "confirm" || action === "complete") {
     const status = action === "complete" ? "watched" : payload.status === "watched" ? "watched" : "want";
     await updateEntry(client, entry.id, { ...entry.payload, status });
-    return { state: "active", result: activity.result ?? {} };
+    return { state: "active", result: selectionAfterEntryChange(activity.result, entry.id, status === "watched") };
   }
   if (action === "update-item") {
     await updateEntry(client, entry.id, { ...entry.payload, title: requiredString(payload.title, 1, 200), year: optionalInteger(payload.year, 1888, 2200) });
@@ -267,9 +336,10 @@ async function mutateIdeasJar(client: DbClient, activity: ActivityRow, userId: s
     return { state: "active", result: { selectedEntryId: available[randomInt(available.length)]!.id, pickedAt: Date.now() } };
   }
   const entry = await lockEntry(client, activity.id, requiredId(payload.entryId ?? activity.result?.selectedEntryId), "idea");
+  if (!participantMayEditEntry(entry.created_by, userId, action)) throw forbidden("Only the person who added this idea can change it");
   if (action === "remove-item") {
     await client.query("DELETE FROM cooperative_activity_entries WHERE id=$1", [entry.id]);
-    return { state: "active", result: activity.result?.selectedEntryId === entry.id ? {} : activity.result ?? {} };
+    return { state: "active", result: selectionAfterEntryChange(activity.result, entry.id, true) };
   }
   if (action === "update-item") {
     await updateEntry(client, entry.id, { ...entry.payload, title: requiredString(payload.title, 1, 240) });
@@ -278,7 +348,7 @@ async function mutateIdeasJar(client: DbClient, activity: ActivityRow, userId: s
   if (action === "confirm" || action === "complete" || action === "set-status") {
     const status = action === "complete" || action === "confirm" ? "done" : payload.status === "done" ? "done" : "planned";
     await updateEntry(client, entry.id, { ...entry.payload, status, completedAt: status === "done" ? Date.now() : null });
-    return { state: "active", result: status === "done" ? {} : activity.result ?? {} };
+    return { state: "active", result: selectionAfterEntryChange(activity.result, entry.id, status === "done") };
   }
   throw conflict("This ideas-jar action is not available");
 }
@@ -287,6 +357,7 @@ async function mutateDrawGuess(client: DbClient, activity: ActivityRow, userId: 
   const drawerId = typeof activity.config.drawerId === "string" ? activity.config.drawerId : "";
   if (action === "submit-drawing") {
     if (userId !== drawerId) throw forbidden("Only the drawer can submit the drawing");
+    await requireFreshSubmission(client, activity.id, userId);
     const width = requiredNumber(payload.width, 100, 4_000);
     const height = requiredNumber(payload.height, 100, 4_000);
     const strokes = parseDrawingStrokes(payload.strokes, width, height);
@@ -299,6 +370,8 @@ async function mutateDrawGuess(client: DbClient, activity: ActivityRow, userId: 
   if (userId === drawerId) throw forbidden("The drawer cannot guess the word");
   const drawing = await client.query("SELECT 1 FROM cooperative_activity_entries WHERE activity_id=$1 AND kind='drawing'", [activity.id]);
   if (!drawing.rowCount) throw conflict("Wait for the drawing");
+  const attemptCount = Number((await client.query<{ count: string }>("SELECT count(*)::text count FROM cooperative_activity_entries WHERE activity_id=$1 AND kind='guess'", [activity.id])).rows[0]?.count ?? 0);
+  if (attemptCount >= 100) throw conflict("This drawing has reached its guess limit");
   const guess = requiredString(payload.guess, 1, 100);
   const drawer = (await client.query<{ private_state: Record<string, unknown> }>("SELECT private_state FROM cooperative_activity_participants WHERE activity_id=$1 AND user_id=$2", [activity.id, drawerId])).rows[0];
   const word = objectValue(drawer?.private_state.word);
@@ -316,6 +389,8 @@ async function mutateMemoryCapsule(client: DbClient, activity: ActivityRow, user
   if (songUrl && !validSongUrl(songUrl)) throw conflict("Enter a valid HTTPS song link");
   const attachmentIds = attachmentIdsFrom(payload, 0, 4);
   if (!text && !songUrl && !attachmentIds.length) throw conflict("Add a message, photo, or song");
+  await requireFreshSubmission(client, activity.id, userId);
+  if (attachmentIds.length) await requireImageAttachments(client, userId, attachmentIds);
   await replacePersonalEntry(client, activity.id, userId, "memory", { text, songUrl }, attachmentIds);
   await markSubmitted(client, activity.id, userId);
   if (!(await allParticipantsSubmitted(client, activity.id))) return { state: "waiting" };
@@ -358,6 +433,14 @@ async function updateEntry(client: DbClient, id: string, payload: Record<string,
 
 async function markSubmitted(client: DbClient, activityId: string, userId: string) {
   await client.query("UPDATE cooperative_activity_participants SET status='submitted',submitted_at=now(),updated_at=now() WHERE activity_id=$1 AND user_id=$2", [activityId, userId]);
+}
+
+async function requireFreshSubmission(client: DbClient, activityId: string, userId: string) {
+  const participant = (await client.query<{ status: ActivityParticipantStatus }>(
+    "SELECT status FROM cooperative_activity_participants WHERE activity_id=$1 AND user_id=$2 FOR UPDATE",
+    [activityId, userId],
+  )).rows[0];
+  if (!participant || !participantMaySubmit(participant.status)) throw conflict("Your contribution is already final");
 }
 
 async function allParticipantsSubmitted(client: DbClient, activityId: string) {

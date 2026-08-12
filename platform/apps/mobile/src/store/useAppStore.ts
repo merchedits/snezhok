@@ -46,10 +46,10 @@ import { upsertConversation } from "./conversationIdentity";
 import { markMessageDeleted, mergeMessages as mergeUnboundedMessages, reconcilePinnedMessages } from "./messageReconciliation";
 import { enqueueOutbox, replayOutbox, resolveOutboxMessageId } from "./outboxReliability";
 
-// Keep the audited WorkManager transport available for a later rollout, but
-// prefer the same resumable protocol in-process while Android attachments are
-// being stabilized on the current two-person test fleet.
-const DURABLE_BACKGROUND_TRANSFERS_ENABLED = false;
+// A staged no-backup copy plus WorkManager is the authoritative Android path.
+// The in-process resumable implementation remains a compatibility fallback for
+// an older/restored native binary where the optional module is unavailable.
+const DURABLE_BACKGROUND_TRANSFERS_ENABLED = true;
 
 type Phase = "booting" | "signed-out" | "ready" | "error";
 
@@ -1024,7 +1024,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   createActivity: async (conversationId, type, options = {}) => {
     if (!get().online) throw new Error("Activities require a network connection");
-    const saved = await api.createActivity(conversationId, type, options);
+    const clientId = Crypto.randomUUID();
+    let saved: Message;
+    try {
+      saved = await api.createActivity(conversationId, type, options, clientId);
+    } catch (error) {
+      if (!activityTransportMayHaveCommitted(error)) throw error;
+      saved = await api.createActivity(conversationId, type, options, clientId);
+    }
     get().applyMessage(saved, "created");
     return saved;
   },
@@ -1032,7 +1039,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   commandActivity: async (message, action, payload = {}) => {
     if (!message.activity) throw new Error("Activity is no longer available");
     if (!get().online) throw new Error("Activities require a network connection");
-    const saved = await api.commandActivity(message.activity.id, message.activity.revision, action, payload);
+    const clientId = Crypto.randomUUID();
+    let expectedRevision = message.activity.revision;
+    let retriedTransport = false;
+    let retriedRevision = false;
+    let saved: Message | undefined;
+    while (!saved) {
+      try {
+        saved = await api.commandActivity(message.activity.id, expectedRevision, action, payload, clientId);
+      } catch (error) {
+        if (!retriedRevision && error instanceof ApiError && error.status === 409 && /changed/i.test(error.message)) {
+          retriedRevision = true;
+          expectedRevision = (await api.activity(message.activity.id)).revision;
+          continue;
+        }
+        if (!retriedTransport && activityTransportMayHaveCommitted(error)) {
+          retriedTransport = true;
+          continue;
+        }
+        throw error;
+      }
+    }
     get().applyMessage(saved, "updated");
     return saved;
   },
@@ -1698,6 +1725,10 @@ function reconcileBootstrapConversations(state: AppState, incoming: Conversation
 
 function isRetryable(error: unknown): boolean {
   return !(error instanceof ApiError) || error.status >= 500 || error.status === 408 || error.status === 425 || error.status === 429;
+}
+
+function activityTransportMayHaveCommitted(error: unknown): boolean {
+  return !(error instanceof ApiError) || error.status >= 500 || error.status === 408;
 }
 
 function updateOptimisticReaction(reactions: Message["reactions"], emoji: string, active: boolean, userId: string | undefined): Message["reactions"] {

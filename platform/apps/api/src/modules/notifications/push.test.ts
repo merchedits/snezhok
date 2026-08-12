@@ -32,11 +32,22 @@ test("attachment and call copy follows the recipient language", () => {
   }, { language: "en", showPreview: true });
   assert.equal(media?.body, "Voice message");
   const call = pushContentForEvent("u2", "call:updated", {
-    roomId: "r", streamId: "s", streamKind: "conversation", state: "started", callerId: "u1", callerName: "Anna",
+    roomId: "r", streamId: "s", streamKind: "conversation", state: "started", callerId: "u1", callerName: "Anna", startedAt: 123,
   }, { language: "en", showPreview: true });
   assert.equal(call?.title, "Incoming call · Anna");
   assert.equal(call?.body, "Tap to answer");
-  assert.deepEqual(call?.data, { notificationType: "call", roomId: "r", streamId: "s", streamKind: "conversation", title: "Anna", callerId: "u1", callerName: "Anna", startedAt: undefined });
+  assert.deepEqual(call?.data, { notificationType: "call", roomId: "r", streamId: "s", streamKind: "conversation", title: "Anna", callerId: "u1", callerName: "Anna", startedAt: 123 });
+});
+
+test("disabled call previews hide caller identity and unsafe undated calls are rejected", () => {
+  const hidden = pushContentForEvent("u2", "call:updated", {
+    roomId: "r", streamId: "s", streamKind: "conversation", state: "started", callerId: "u1", callerName: "Anna", startedAt: 123,
+  }, { language: "en", showPreview: false });
+  assert.equal(hidden?.title, "Incoming call");
+  assert.equal(JSON.stringify(hidden).includes("Anna"), false);
+  assert.equal(pushContentForEvent("u2", "call:updated", {
+    roomId: "r", streamId: "s", streamKind: "conversation", state: "started", callerId: "u1", callerName: "Anna",
+  }), null);
 });
 
 test("call end is a quiet background lifecycle event", () => {
@@ -48,7 +59,7 @@ test("call end is a quiet background lifecycle event", () => {
 
 test("voice channel joins never produce incoming-call push notifications", () => {
   const result = pushContentForEvent("u2", "call:updated", {
-    roomId: "r", streamId: "voice", streamKind: "channel", state: "started", callerId: "u1", callerName: "Anna",
+    roomId: "r", streamId: "voice", streamKind: "channel", state: "started", callerId: "u1", callerName: "Anna", startedAt: 123,
   });
   assert.equal(result, null);
 });

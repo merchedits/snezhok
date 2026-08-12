@@ -21,7 +21,7 @@ export type RootStackParamList = {
     targetMessageId?: string;
     openedAt?: number;
   };
-  Call: { streamId: string; title: string; startWithVideo?: boolean };
+  Call: { streamId: string; title: string; startWithVideo?: boolean; expectedCallId?: string };
   Profile: { userId: string };
   Diagnostics: undefined;
 };

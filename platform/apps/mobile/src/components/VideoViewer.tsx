@@ -8,6 +8,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTranslation } from "../i18n";
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppDialog } from "./AppDialogProvider";
 import { AppIcon } from "./AppIcon";
@@ -27,6 +28,7 @@ interface VideoViewerProps {
 }
 
 export function VideoViewer(props: VideoViewerProps) {
+  const [attempt, setAttempt] = useState(0);
   return (
     <Modal
       visible={props.visible}
@@ -36,12 +38,12 @@ export function VideoViewer(props: VideoViewerProps) {
       onRequestClose={props.onClose}
     >
       <StatusBar barStyle="light-content" backgroundColor="#000000" translucent={false} />
-      {props.visible ? <ActiveVideoViewer {...props} /> : null}
+      {props.visible ? <ActiveVideoViewer key={attempt} {...props} onRetry={() => setAttempt((value) => value + 1)} /> : null}
     </Modal>
   );
 }
 
-function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: VideoViewerProps) {
+function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose, onRetry }: VideoViewerProps & { onRetry: () => void }) {
   const { t } = useTranslation();
   const showDialog = useAppDialog();
   const insets = useSafeAreaInsets();
@@ -51,6 +53,7 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
   const [scrubberWidth, setScrubberWidth] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [playbackError, setPlaybackError] = useState(false);
   const controlsOpacity = useSharedValue(1);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoSource = useMemo(() => ({ ...source, useCaching: true, contentType: "progressive" as const }), [source.headers, source.uri]);
@@ -68,6 +71,14 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
   useEventListener(player, "playingChange", ({ isPlaying }) => setPlaying(isPlaying));
   useEventListener(player, "timeUpdate", (event) => setCurrentTime(event.currentTime));
   useEventListener(player, "sourceLoad", (event) => setDuration(event.duration));
+  useEventListener(player, "statusChange", ({ status }) => {
+    if (status !== "error") return;
+    setPlaybackError(true);
+    setPlaying(false);
+    setControlsVisible(true);
+    controlsOpacity.value = 1;
+    recordDiagnostic("warn", "media", "Video playback failed", { failure: "native-player" });
+  });
   useEventListener(player, "playToEnd", () => {
     setPlaying(false);
     setControlsVisible(true);
@@ -75,7 +86,10 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
   });
 
   useEffect(() => {
-    player.play();
+    try { player.play(); } catch (error) {
+      setPlaybackError(true);
+      recordDiagnostic("warn", "media", "Video playback failed", { failure: error instanceof Error ? error.name : "play" });
+    }
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
@@ -83,7 +97,7 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
 
   useEffect(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    if (!playing || !controlsVisible) return;
+    if (playbackError || !playing || !controlsVisible) return;
     hideTimer.current = setTimeout(() => {
       setControlsVisible(false);
       controlsOpacity.value = withTiming(0, { duration: 180 });
@@ -91,7 +105,7 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
     return () => {
       if (hideTimer.current) clearTimeout(hideTimer.current);
     };
-  }, [controlsOpacity, controlsVisible, playing]);
+  }, [controlsOpacity, controlsVisible, playbackError, playing]);
 
   const setControls = useCallback((visible: boolean) => {
     setControlsVisible(visible);
@@ -157,6 +171,14 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose }: 
         surfaceType="surfaceView"
         style={StyleSheet.absoluteFill}
       />
+      {playbackError ? <View style={styles.failure}>
+        <AppIcon name="alert-circle" size={34} color="white" />
+        <Text style={styles.failureText}>{t("videoPlaybackFailed")}</Text>
+        <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
+          <AppIcon name="refresh-outline" size={20} color="white" />
+          <Text style={styles.retryText}>{t("tryAgain")}</Text>
+        </Pressable>
+      </View> : null}
       <Pressable
         accessibilityLabel={controlsVisible ? t("hideVideoControls") : t("showVideoControls")}
         onPress={() => setControls(!controlsVisible)}
@@ -241,4 +263,8 @@ const styles = StyleSheet.create({
   scrubberTrack: { height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.42)" },
   scrubberProgress: { position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 2, backgroundColor: "white" },
   scrubberThumb: { position: "absolute", top: -5, width: 13, height: 13, marginLeft: -6.5, borderRadius: 7, backgroundColor: "white" },
+  failure: { position: "absolute", inset: 0, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 28, backgroundColor: "rgba(0,0,0,0.82)" },
+  failureText: { color: "white", fontSize: 16, fontWeight: "700", textAlign: "center" },
+  retryButton: { minWidth: 138, height: 46, borderRadius: 23, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.18)" },
+  retryText: { color: "white", fontSize: 15, fontWeight: "800" },
 });

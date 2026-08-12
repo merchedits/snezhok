@@ -205,11 +205,11 @@ Round video notes autoplay muted only while substantially visible. Selecting one
 
 ## Attachments and media
 
-Selecting the attachment control immediately opens a Telegram-style recent-media drawer. Its first tile is **Upload file**, which opens Android's document picker and sends the selected bytes as a file. There is no camera tile, video-message shortcut, overflow quality menu, or multi-mode picker in this drawer.
+Selecting the attachment control immediately opens a Telegram-style recent-media drawer. Its first tile is **Upload file**, which opens Android's document picker and sends the selected bytes as a file. The second tile is **Take a photo** and sends a new camera capture through the same authenticated upload pipeline with location metadata stripped. There is no video-message shortcut or overflow quality menu in this drawer.
 
 Recent photos and videos use adaptive compression by default. A single **HQ** toggle raises media quality and gives immediate localized enabled/disabled feedback. Sending through **Upload file** is the explicit byte-for-byte original path and retains the original filename.
 
-Documents are never automatically compressed. Compressed media preserves orientation and strips embedded location metadata by default. The client presents progress, cancellation, retry, and resumable transfer. During the private Android stabilization phase, attachments use the in-process resumable protocol; the audited WorkManager transport remains dormant until physical-device crash validation is complete.
+Documents are never automatically compressed. Compressed media preserves orientation and strips embedded location metadata by default. The client presents progress, cancellation, retry, and resumable transfer. Android stages user-selected sources into private no-backup storage and uses WorkManager so an upload can survive process death; an in-process resumable path remains available only when the optional native module is absent after an interrupted upgrade or OEM restore.
 
 One to ten media items are sent as one album with a single caption and a predictable tile layout. Larger selections are split deterministically into groups of ten, so 23 items become 10 + 10 + 3. A single image or video preserves its source aspect ratio within safe viewport bounds. Media viewers expose pinch and double-tap zoom, pan, download/save, open externally, and message navigation.
 

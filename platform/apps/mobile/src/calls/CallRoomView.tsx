@@ -109,6 +109,7 @@ export function CallRoomView({ onMinimize }: { onMinimize: () => void }) {
       `${copy.loss}: ${stats.packetLossPercent === null ? "—" : `${stats.packetLossPercent}%`}`,
       `${copy.bitrate}: ↓ ${stats.inboundKbps} / ↑ ${stats.outboundKbps} kbit/s`,
       `${copy.codec}: ${stats.codecs.join(", ") || "—"}`,
+      `${copy.transport}: ${[stats.iceCandidateType, stats.transportProtocol].filter(Boolean).join(" · ") || "—"}`,
       `${copy.reconnects}: ${session.reconnects}`,
     ];
     showDialog(copy.callDetails, lines.join("\n"), [

@@ -30,3 +30,12 @@ test("paired secrets omit peer counts and exact submission timing before reveal"
   assert.equal(participantDetailsArePrivate({ type: "question", state: "waiting", config: { secret: false } }), false);
   assert.equal(participantDetailsArePrivate({ type: "blitz", state: "completed", config: {} }), false);
 });
+
+test("cancel and decline never reveal paired or capsule contributions", () => {
+  for (const state of ["cancelled", "declined"] as const) {
+    assert.equal(entryVisibleToViewer({ type: "question", state, config: { secret: true } }, owner, other), false);
+    assert.equal(entryVisibleToViewer({ type: "tiny-quest", state, config: {} }, owner, other), false);
+    assert.equal(entryVisibleToViewer({ type: "song-exchange", state, config: {} }, owner, other), false);
+    assert.equal(entryVisibleToViewer({ type: "memory-capsule", state, config: {} }, owner, owner), false);
+  }
+});

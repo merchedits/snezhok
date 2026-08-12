@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { TrackSource } from "livekit-server-sdk";
 
-import { localLeaveEndsSession, voiceChannelGrantPolicy } from "./semantics.js";
+import { expectedCallMatches, localLeaveEndsSession, voiceChannelGrantPolicy } from "./semantics.js";
 import { allowedPublishSources, canEndCall, canEndCallWithAccess } from "./routes.js";
 
 test("a local leave ends only bilateral direct calls", () => {
@@ -29,4 +29,11 @@ test("participant leave and moderator end-for-all remain separate capabilities",
   assert.equal(canEndCall("moderator", "starter", "moderator"), true);
   assert.equal(canEndCallWithAccess("custom", "starter", { streamKind: "channel", memberRole: "member", serverPermissions: ["move_members"] }), true);
   assert.equal(canEndCallWithAccess("member", "starter", { streamKind: "channel", memberRole: "member", serverPermissions: ["connect"] }), false);
+});
+
+test("notification answers are bound to the exact active call", () => {
+  assert.equal(expectedCallMatches("call-1", "call-1"), true);
+  assert.equal(expectedCallMatches("call-2", "call-1"), false);
+  assert.equal(expectedCallMatches(undefined, "call-1"), false);
+  assert.equal(expectedCallMatches(undefined, undefined), true);
 });

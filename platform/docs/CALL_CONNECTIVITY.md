@@ -43,6 +43,12 @@ The deployment gate must confirm all of the following with two accounts:
 5. stopping LiveKit leaves pending database commands which complete after it
    restarts, without logging credentials or response bodies.
 
+Notification answers carry the exact call ID and the API refuses to mint media
+credentials if that call has ended or a newer call now occupies the chat. The
+client also rejects incoming-call actions more than 90 seconds after their
+server timestamp. Tapping a delayed Android notification must never create an
+unintended new call.
+
 The remaining production fallback is TURN/TLS. LiveKit's embedded TURN server
 listens on its configured backend port (5349 here), but advertises TURN/TLS to
 clients as public port 443. Exposing backend port 5349 directly therefore does
@@ -141,12 +147,18 @@ python3 scripts/livekit/connectivity-smoke.py
 It verifies public signal HTTPS, ICE/TCP, a STUN Binding transaction over
 TURN/UDP, and a certificate-verified STUN Binding transaction against the
 actual client endpoint `turn.merchedits.xyz:443`. Checking localhost or port
-5349 is not release evidence.
+5349 is not release evidence. The probe checks every published A and AAAA
+address independently. If IPv6 is not routed all the way to LiveKit, remove the
+AAAA record instead of accepting success from IPv4 while leaving intermittent
+IPv6 failures in production.
 
 The smoke test cannot authenticate a TURN allocation or prove media flow.
 Complete a two-device audio/video call with Wi-Fi disabled, then repeat through
 a network or VPN that blocks UDP. Diagnostics must show a relay/TCP candidate,
 and call setup, reconnect, mute, speaker route, and teardown must all succeed.
+Open Call details during the strict-firewall run and verify that the selected
+ICE candidate is `relay` and the expected TCP/TLS protocol is reported; a
+successful signaling websocket is not TURN evidence.
 
 Add the certificate installer to the Certbot deploy hook only after this route
 is live. Every renewal must be followed by the public smoke test and a failed

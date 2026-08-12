@@ -11,6 +11,7 @@ interface Props {
   busy: boolean;
   onClose: () => void;
   onStart: (type: CooperativeActivityType, options?: Record<string, unknown>) => void;
+  onOpenHistory: () => void;
 }
 
 interface LaunchItem { type: CooperativeActivityType; icon: AppIconName; color: string; ink: string; ru: string; en: string; ruHint: string; enHint: string; }
@@ -27,7 +28,7 @@ const items: LaunchItem[] = [
   item("memory-capsule", "archive-outline", "#FFE88A", "#6A5300", "Капсула памяти", "Memory Capsule", "Заприте и откройте позже", "Lock it and reopen later"),
 ];
 
-export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visible, busy, onClose, onStart }: Props) {
+export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visible, busy, onClose, onStart, onOpenHistory }: Props) {
   const palette = usePalette();
   const { language } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -62,7 +63,7 @@ export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visib
               <Pressable accessibilityRole="button" disabled={busy} onPress={() => onStart("memory-capsule", { months: 6 })} style={[styles.capsuleChoice, { backgroundColor: "#CDB5FF" }]}><Text style={styles.capsuleNumber}>6</Text><Text style={styles.capsuleLabel}>{language === "ru" ? "месяцев" : "months"}</Text></Pressable>
             </View>
             <Pressable disabled={busy} onPress={() => setCapsuleSetup(false)} style={styles.backSetup}><Text style={{ color: palette.secondaryText, fontWeight: "700" }}>{language === "ru" ? "Назад" : "Back"}</Text></Pressable>
-          </View> : <><Pressable accessibilityRole="button" disabled={busy} onPress={() => onStart(surprise[Math.floor(Math.random() * surprise.length)]!)} style={({ pressed }) => [styles.surprise, { backgroundColor: palette.accent, opacity: busy ? 0.45 : pressed ? 0.82 : 1 }]}>
+          </View> : <><Pressable accessibilityRole="button" disabled={busy} onPress={onOpenHistory} style={[styles.history, { backgroundColor: palette.surface }]}><View style={[styles.historyIcon, { backgroundColor: palette.accentSoft }]}><AppIcon name="archive-outline" size={20} color={palette.accent} /></View><View style={styles.flex}><Text style={[styles.historyTitle, { color: palette.text }]}>{language === "ru" ? "Вместе" : "Together"}</Text><Text style={[styles.historyHint, { color: palette.secondaryText }]}>{language === "ru" ? "Ваша общая история" : "Your shared history"}</Text></View><AppIcon name="chevron-forward" size={19} color={palette.secondaryText} /></Pressable><Pressable accessibilityRole="button" disabled={busy} onPress={() => onStart(surprise[Math.floor(Math.random() * surprise.length)]!)} style={({ pressed }) => [styles.surprise, { backgroundColor: palette.accent, opacity: busy ? 0.45 : pressed ? 0.82 : 1 }]}>
             <AppIcon name="sparkles-outline" size={22} color={palette.onAccent} />
             <View style={styles.flex}><Text style={[styles.surpriseTitle, { color: palette.onAccent }]}>{language === "ru" ? "Удиви нас" : "Surprise us"}</Text><Text style={[styles.surpriseHint, { color: palette.onAccent }]}>{language === "ru" ? "Snezhok сам выберет момент" : "Let Snezhok choose the moment"}</Text></View>
           </Pressable>
@@ -91,6 +92,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, lineHeight: 29, fontWeight: "800" },
   subtitle: { fontSize: 14, lineHeight: 19, marginTop: 4, maxWidth: 310 },
   surprise: { minHeight: 64, borderRadius: 20, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
+  history: { minHeight: 58, borderRadius: 18, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
+  historyIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  historyTitle: { fontSize: 15, fontWeight: "800" }, historyHint: { fontSize: 12, marginTop: 2 },
   surpriseTitle: { fontSize: 17, fontWeight: "800" }, surpriseHint: { fontSize: 12, marginTop: 2, opacity: 0.78 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingBottom: 8 },
   card: { width: "48%", minHeight: 132, borderRadius: 22, padding: 14 },

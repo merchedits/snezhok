@@ -53,8 +53,10 @@ sudo bash scripts/deploy/deploy-production.sh "$SOURCE_REVISION"
 The deployment helper refuses a permissive `.env`, creates a synchronized
 encrypted recovery point, builds all three revision-labelled images, runs the
 one-shot migration and role provisioning, waits for health, verifies OCI and
-API revision provenance through local TLS, and checks the Android channel's
-range response. The pre-deployment backup is deliberately labelled with the
+API revision provenance through local TLS, verifies that every PostgreSQL blob
+reference resolves to an immutable object with the expected byte count (and is
+readable by Nginx when running as root), and checks the Android channel's range
+response. The pre-deployment backup is deliberately labelled with the
 still-running revision; only after the new release passes verification does the
 helper update the maintenance environment and units to the new revision. It
 also refuses a dirty checkout or a revision that is not reachable from the
@@ -69,7 +71,8 @@ Authenticated attachments use `X-Accel-Redirect`: the API authorizes each
 request, then Nginx reads the immutable object. The canonical checkout remains
 private, while `deploy-production.sh` installs an execute-only ACL for
 `www-data` on `/home/merchedits/sites/snezhok-v3` and verifies traversal to the
-object directory. A missing ACL presents as successful API file lookups followed
+object directory. It also checks all database-referenced media before creating
+the deployment recovery point and after the new containers become healthy. A missing ACL presents as successful API file lookups followed
 by public HTTP 403 responses and `Permission denied` entries in Nginx's error
 log; do not diagnose that state as an Android decoder or upload failure.
 

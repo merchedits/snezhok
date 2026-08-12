@@ -6,9 +6,9 @@ import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, 
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Keyboard, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { ActivityIndicator, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import Animated, { cancelAnimation, Easing, interpolate, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { AppSettings, CooperativeActivityType, Message, UploadQuality, UserSummary } from "@snezhok/contracts";
@@ -25,12 +25,14 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { ScheduledMessagesModal } from "../components/ScheduledMessagesModal";
 import { ActivityLauncherSheet } from "../components/ActivityLauncherSheet";
 import { CooperativeActivityModal } from "../components/CooperativeActivityModal";
+import { TogetherHistoryModal } from "../components/TogetherHistoryModal";
 import { SwipeReplyRow } from "../components/SwipeReplyRow";
 import { TypingIndicator } from "../components/TypingIndicator";
 import { usePalette } from "../hooks/usePalette";
 import { useUiPreferences } from "../hooks/useUiPreferences";
 import { useTranslation } from "../i18n";
 import { recordDiagnostic, recordPerformance } from "../diagnostics/diagnostics";
+import { chatOpenPerformanceKind } from "../lib/chatWarmup";
 import { composerBottomPadding } from "../lib/keyboardLayout";
 import { renderableAttachments } from "../lib/messagePayload";
 import { activeMentionQuery, insertMention, mentionSuggestions } from "../lib/mentionAutocomplete";
@@ -79,6 +81,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const isGroup = conversation?.kind === "group";
   const online = useAppStore((state) => state.online);
   const loadMessages = useAppStore((state) => state.loadMessages);
+  const preloadCachedMessages = useAppStore((state) => state.preloadCachedMessages);
   const loadOlderMessages = useAppStore((state) => state.loadOlderMessages);
   const loadMessageContext = useAppStore((state) => state.loadMessageContext);
   const markStreamRead = useAppStore((state) => state.markStreamRead);
@@ -123,13 +126,19 @@ export function ChatScreen({ navigation, route }: Props) {
   const [scheduledVisible, setScheduledVisible] = useState(false);
   const [cancellingScheduledId, setCancellingScheduledId] = useState<string | null>(null);
   const [activityLauncher, setActivityLauncher] = useState(false);
+  const [togetherHistory, setTogetherHistory] = useState(false);
   const [creatingActivity, setCreatingActivity] = useState(false);
   const [activeActivityMessage, setActiveActivityMessage] = useState<Message | null>(null);
-  const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
   const [composerSelection, setComposerSelection] = useState({ start: draft.length, end: draft.length });
   const [routeSettled, setRouteSettled] = useState(false);
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
   const selectionProgress = useSharedValue(0);
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const composerClosedPadding = composerBottomPadding(insets.bottom, false);
+  const composerOpenPadding = composerBottomPadding(insets.bottom, true);
+  const composerKeyboardStyle = useAnimatedStyle(() => ({
+    paddingBottom: interpolate(keyboardProgress.value, [0, 1], [composerClosedPadding, composerOpenPadding]),
+  }), [composerClosedPadding, composerOpenPadding]);
   const selectionMode = selectedIds.size > 0;
   const userDraggedHistory = useRef(false);
   const loadingOlder = useRef(false);
@@ -179,9 +188,20 @@ export function ChatScreen({ navigation, route }: Props) {
   }, [navigation, streamId]);
 
   useEffect(() => {
+    // Row press-in normally starts this read before navigation. Deep links,
+    // notification opens and low-memory route recreation still need the same
+    // cache-first path, without waiting for the native transition to finish.
+    void preloadCachedMessages([streamId]).catch(() => undefined);
+  }, [preloadCachedMessages, streamId]);
+  useEffect(() => {
     if (!routeSettled) return;
-    void Promise.all([loadMessages(streamId), loadPinnedMessages(streamId)]).catch(() => undefined);
-  }, [loadMessages, loadPinnedMessages, routeSettled, streamId]);
+    // Join any in-flight SQLite warmup before reconciliation. This prevents a
+    // duplicate cache query while keeping network and pinned-message work away
+    // from the navigation animation.
+    void preloadCachedMessages([streamId])
+      .then(() => Promise.all([loadMessages(streamId), loadPinnedMessages(streamId)]))
+      .catch(() => undefined);
+  }, [loadMessages, loadPinnedMessages, preloadCachedMessages, routeSettled, streamId]);
   useEffect(() => {
     if (!isFocused || !routeSettled) return;
     joinRealtimeStream(streamId);
@@ -212,12 +232,6 @@ export function ChatScreen({ navigation, route }: Props) {
     setRouteSettled(false);
     setRenderLimit(INITIAL_RENDERED_MESSAGES);
   }, [streamId]);
-  useEffect(() => {
-    const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
-    const hidden = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
-    return () => { shown.remove(); hidden.remove(); };
-  }, []);
-
   // Store reconciliation already maintains chronological order. Avoid copying,
   // sorting and reversing the entire history during the first navigation frame.
   const displayMessages = useMemo(() => visibleMessages(messages), [messages]);
@@ -275,7 +289,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const recordFirstPaint = useCallback(() => {
     if (firstPaintRecorded.current || route.params.openedAt === undefined) return;
     firstPaintRecorded.current = true;
-    recordPerformance(cachedMessageCountAtOpen.current > 0 ? "cachedChatOpen" : "warmChatOpen", performance.now() - route.params.openedAt, {
+    recordPerformance(chatOpenPerformanceKind(cachedMessageCountAtOpen.current), performance.now() - route.params.openedAt, {
       cachedMessages: cachedMessageCountAtOpen.current,
     });
   }, [route.params.openedAt]);
@@ -610,11 +624,11 @@ export function ChatScreen({ navigation, route }: Props) {
         {suggestedMentions.length ? <MentionSuggestions participants={suggestedMentions} onSelect={chooseMention} /> : null}
         {recording ? <RecordingStatus levels={recordingLevels} durationMillis={recordingDuration} locked={voiceCommand === "locked"} /> : null}
         {editingMessage ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text style={[styles.replyName, { color: palette.accent }]}>{t("editMessage")}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{editingMessage.text}</Text></View><Pressable onPress={cancelEditing} style={styles.replyClose}><AppIcon name="close" size={21} color={palette.secondaryText} /></Pressable></View> : replyingTo ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{replyingTo.sender.displayName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{replyingTo.text || t("attachment")}</Text></View><Pressable onPress={() => setReplyingTo(null)} style={styles.replyClose}><AppIcon name="close" size={21} color={palette.secondaryText} /></Pressable></View> : null}
-        <View style={[styles.composer, { minHeight: ui.dense(58, 52), borderColor: palette.outline, backgroundColor: palette.composer, paddingBottom: composerBottomPadding(insets.bottom, keyboardVisible) }]}>
+        <Animated.View style={[styles.composer, { minHeight: ui.dense(58, 52), borderColor: palette.outline, backgroundColor: palette.composer }, composerKeyboardStyle]}>
           {voiceCommand === "locked" ? <Pressable onPress={() => updateVoiceCommand("cancel")} style={styles.composerButton} accessibilityLabel={t("cancel")}><AppIcon name="trash-outline" size={23} color={palette.danger} /></Pressable> : <Pressable disabled={uploading || voiceCommand !== "idle"} onPress={() => setAttachmentSheet(true)} style={styles.composerButton} accessibilityLabel={t("attachFile")}><AppIcon name="add-circle-outline" size={27} color={uploading || voiceCommand !== "idle" ? palette.faintText : palette.accent} /></Pressable>}
-          <View style={[styles.inputWrap, { minHeight: ui.dense(41, 37), borderRadius: Math.max(14, ui.bubbleRadius), backgroundColor: palette.elevated, borderColor: palette.outline }]}><TextInput value={text} selection={composerSelection} onSelectionChange={(event) => setComposerSelection(event.nativeEvent.selection)} onChangeText={handleTextChange} onFocus={() => setKeyboardVisible(true)} editable={!recording} multiline maxLength={16_000} placeholder={recording ? t("recording") : t("message")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text, fontSize: ui.font(16), lineHeight: ui.font(20), paddingVertical: ui.dense(9, 7) }]} /></View>
+          <View style={[styles.inputWrap, { minHeight: ui.dense(41, 37), borderRadius: Math.max(14, ui.bubbleRadius), backgroundColor: palette.elevated, borderColor: palette.outline }]}><TextInput value={text} selection={composerSelection} onSelectionChange={(event) => setComposerSelection(event.nativeEvent.selection)} onChangeText={handleTextChange} editable={!recording} multiline maxLength={16_000} placeholder={recording ? t("recording") : t("message")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text, fontSize: ui.font(16), lineHeight: ui.font(20), paddingVertical: ui.dense(9, 7) }]} /></View>
           {uploading ? <View style={styles.composerButton}><ActivityIndicator color={palette.accent} /></View> : text.trim() ? <Pressable delayLongPress={320} onPress={() => void sendText()} onLongPress={showSendOptions} style={[styles.send, { backgroundColor: palette.accent, borderColor: palette.outline }]} accessibilityLabel={t("sendMessage")}><AppIcon name="arrow-up" size={21} color={palette.onAccent} strokeWidth={2} /></Pressable> : <VoiceGestureButton command={voiceCommand} disabled={uploading} onStart={startVoiceRecording} onLock={() => updateVoiceCommand("locked")} onCancel={() => updateVoiceCommand("cancel")} onFinish={() => updateVoiceCommand("finish")} />}
-        </View>
+        </Animated.View>
         {recorderMounted ? <VoiceRecorderControl command={voiceCommand} quality={uploadQuality} microphoneMode={microphoneMode} onRecordingChange={setRecording} onMetering={(metering, durationMillis) => { setRecordingLevels((levels) => appendRecordingLevel(levels, metering)); setRecordingDuration(durationMillis); }} onTooShort={() => showDialog(t("voiceMessage"), t("voiceTooShort"))} onCancel={() => { updateVoiceCommand("idle"); setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); }} onComplete={async (input) => { updateVoiceCommand("idle"); setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); await handleUpload(input, "voice"); }} /> : null}
       </>}
       <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadProgress} onClose={closeAttachmentSheet} onCancel={() => void cancelUpload()} onSelect={handleUploads} />
@@ -635,7 +649,8 @@ export function ChatScreen({ navigation, route }: Props) {
           } },
         ]);
       }} />
-      <ActivityLauncherSheet visible={activityLauncher} busy={creatingActivity} onClose={() => { if (!creatingActivity) setActivityLauncher(false); }} onStart={(type, options) => void startActivity(type, options)} />
+      <ActivityLauncherSheet visible={activityLauncher} busy={creatingActivity} onClose={() => { if (!creatingActivity) setActivityLauncher(false); }} onOpenHistory={() => { setActivityLauncher(false); requestAnimationFrame(() => setTogetherHistory(true)); }} onStart={(type, options) => void startActivity(type, options)} />
+      <TogetherHistoryModal visible={togetherHistory} conversationId={streamId} onClose={() => setTogetherHistory(false)} onOpen={(activityMessage) => { setTogetherHistory(false); requestAnimationFrame(() => setActiveActivityMessage(activityMessage)); }} />
       <CooperativeActivityModal message={activeActivityMessage ? (messages.find((message) => message.id === activeActivityMessage.id) ?? activeActivityMessage) : null} onClose={() => setActiveActivityMessage(null)} />
     </KeyboardAvoidingView>
   );

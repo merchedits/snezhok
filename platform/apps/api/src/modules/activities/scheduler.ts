@@ -4,6 +4,30 @@ import { newId } from "../../lib/ids.js";
 import { publishStoredEvent, storeEvent, type StoredEvent } from "../realtime/events.js";
 import { createMilestoneEventsForActivity, personalizedActivityMessages } from "./service.js";
 
+export async function publishReadyActivityCollages() {
+  return transaction(async (client) => {
+    const ready = await client.query<{ id: string; activity_id: string; conversation_id: string; anchor_message_id: string }>(
+      `SELECT entry.id,activity.id activity_id,activity.conversation_id,activity.anchor_message_id
+         FROM cooperative_activity_entries entry
+         JOIN cooperative_activities activity ON activity.id=entry.activity_id AND activity.type='color-hunt'
+         JOIN cooperative_activity_attachments link ON link.entry_id=entry.id
+         JOIN attachments attachment ON attachment.id=link.attachment_id AND attachment.status='ready' AND attachment.blob_id IS NOT NULL
+        WHERE entry.kind='collage' AND coalesce((entry.payload->>'published')::boolean,false)=false
+          AND activity.anchor_message_id IS NOT NULL
+        ORDER BY entry.created_at,entry.id LIMIT 25 FOR UPDATE OF entry SKIP LOCKED`,
+    );
+    const events: StoredEvent[] = [];
+    for (const entry of ready.rows) {
+      await client.query("UPDATE cooperative_activity_entries SET payload=payload||'{\"published\":true}'::jsonb,updated_at=now() WHERE id=$1", [entry.id]);
+      await client.query("UPDATE cooperative_activities SET revision=revision+1,updated_at=now() WHERE id=$1", [entry.activity_id]);
+      const recipients = (await client.query<{ user_id: string }>("SELECT user_id FROM conversation_members WHERE conversation_id=$1", [entry.conversation_id])).rows.map((row) => row.user_id);
+      const messages = await personalizedActivityMessages(client, entry.anchor_message_id, recipients);
+      events.push(await storeEvent(client, recipients, "message:updated", (recipientId) => messages.get(recipientId)!));
+    }
+    return events;
+  });
+}
+
 export async function revealDueMemoryCapsules() {
   return transaction(async (client) => {
     const due = await client.query<{ id: string; conversation_id: string; anchor_message_id: string; created_by: string }>(
@@ -39,7 +63,8 @@ export function startActivityScheduler(logger: FastifyBaseLogger) {
     if (running) return;
     running = true;
     try {
-      (await revealDueMemoryCapsules()).forEach(publishStoredEvent);
+      const [capsules, collages] = await Promise.all([revealDueMemoryCapsules(), publishReadyActivityCollages()]);
+      [...capsules, ...collages].forEach(publishStoredEvent);
     } catch (error) {
       logger.error({ err: error }, "cooperative activity scheduler failed");
     } finally {

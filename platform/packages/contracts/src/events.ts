@@ -52,6 +52,7 @@ export interface ServerToClientEvents {
   "presence:updated": (payload: { userId: Id; presence: Presence; lastSeenAt: Timestamp }) => void;
   "user:deleted": (payload: { id: Id }) => void;
   "typing:updated": (payload: { streamId: Id; userId: Id; typing: boolean }) => void;
+  "activity:drawing:updated": (payload: { streamId: Id; activityId: Id; userId: Id; sequence: number; strokes: number[][][] }) => void;
   "read:updated": (payload: { streamId: Id; userId: Id; sequence: number; markedUnread?: boolean }) => void;
   "call:updated": (payload: CallUpdatePayload) => void;
 }
@@ -61,5 +62,6 @@ export interface ClientToServerEvents {
   "stream:join": (payload: { streamId: Id }, acknowledge: (accepted: boolean) => void) => void;
   "stream:leave": (payload: { streamId: Id }) => void;
   "typing:set": (payload: { streamId: Id; typing: boolean }) => void;
+  "activity:drawing:set": (payload: { streamId: Id; activityId: Id; sequence: number; strokes: number[][][] }) => void;
   "read:set": (payload: { streamId: Id; sequence: number }) => void;
 }

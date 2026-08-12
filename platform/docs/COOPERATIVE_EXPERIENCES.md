@@ -4,7 +4,9 @@
 
 The 4.0 Android/API release implements the shared framework and the complete first direct-chat set: Question Drop, Blitz, Tiny Quest, Color Hunt, Song Exchange, Movie List, Draw & Guess, Ideas Jar, Memory Capsule, the ✦ launcher, and derived milestone cards. Activity cards are ordinary cached chat messages, commands use client idempotency keys plus expected revisions, and all private projections are built on the server. Chat history embeds compact activity summaries; potentially large list, drawing, and revealed-capsule detail is fetched only when the card opens so it does not inflate every cached message page on A12-class devices.
 
-The current Color Hunt result is a deterministic paired 3 × 3 grid rendered from the eighteen authenticated source photos. A future media-worker derivative may add a single downloadable collage artifact without changing activity state. Song Exchange keeps a shared musical diary in chronological chat history. Memory Capsules accept text, up to four photos, and an optional song link, with one-month or six-month reveal choices; 4.0 locks automatically when both contributions are present and shows the authoritative server reveal date on the locked card. Yandex Music playback is an external app/universal-link handoff: Yandex's current official support documents sharing playlists and using its Android app, but does not publish a third-party playback/playlist-write API for this integration. Snezhok therefore does not scrape pages, copy cookies, proxy audio, or claim embedded native playback. See [Yandex Music playlists](https://yandex.ru/support/music/ru/collection/playlists) and [official Android app availability](https://yandex.ru/support/music/ru/new-template/appmusic).
+The current Color Hunt result retains all eighteen authenticated source photos and also creates one downloadable 1080 × 1080 WebP collage per participant in the bounded media worker. Song Exchange keeps a shared musical diary in chronological chat history. Memory Capsules accept text, up to four photos, and an optional song link, with one-month or six-month reveal choices; 4.0 locks automatically when both contributions are present and shows the authoritative server reveal date on the locked card. Yandex Music playback is an external app/universal-link handoff: Yandex's current official support documents sharing playlists and using its Android app, but does not publish a third-party playback/playlist-write API for this integration. Snezhok therefore does not scrape pages, copy cookies, proxy audio, or claim embedded native playback. See [Yandex Music playlists](https://yandex.ru/support/music/ru/collection/playlists) and [official Android app availability](https://yandex.ru/support/music/ru/new-template/appmusic).
+
+The ✦ sheet also exposes **Together / Вместе**, a read-only server projection of completed or locked activity anchor messages plus the two durable living lists. It creates no parallel scrapbook records: hiding or deleting an anchor message removes it from that viewer's projection, and opening an item resolves the same revisioned activity object as its chat card.
 
 ## Product contract
 
@@ -53,7 +55,7 @@ Create, contribute, reveal, reroll, confirm, and complete mutations require clie
 
 - Secret contributions are authorized per participant and inaccessible to the other participant until the reveal rule is committed.
 - The API must not leak secret text, choices, byte length, thumbnails, waveform, attachment metadata, edit history, or timing detail that reveals the answer.
-- A participant can replace their own contribution until it is locked unless the activity explicitly says otherwise.
+- A participant can edit a local draft until submitting it. Submission is final for paired secret/reveal activities, so a later retry cannot silently replace an answer that another participant acted on.
 - The card clearly distinguishes **saved**, **locked**, **waiting**, and **revealed**.
 - Romantic and NSFW content are separate opt-in categories. Surprise excludes them unless every participant has opted in for that conversation.
 - Decline and stop are always available without a guilt message or visible penalty.
@@ -125,7 +127,7 @@ Submissions stay locked until both contribute. The result pairs the two contribu
 
 Each participant receives a distinct color from an accessible palette. They photograph objects dominated by their assigned color. Progress is private by default except for a neutral count such as “6 of 9 found”.
 
-At nine accepted photos per participant, the 4.0 client creates a deterministic 3 × 3 visual collage for each person inside the durable paired result. The chat result keeps links to every authenticated source photo. A later media-worker job may materialize downloadable collage derivatives. Automated color validation, if introduced, is advisory and never rejects meaningful user content without a manual override.
+At nine accepted photos per participant, the API enqueues a bounded media-worker operation that center-crops the nine ordered sources into one 1080 × 1080 WebP. The activity shows the deterministic 3 × 3 source board while that derivative is processing, then replaces it with the single authenticated collage attachment. The chat result keeps links to every source photo for recovery. Automated color validation, if introduced, is advisory and never rejects meaningful user content without a manual override.
 
 ### Song Exchange
 
@@ -153,7 +155,7 @@ Picking a movie supports filters and one random choice. Reroll is available, but
 
 ### Draw & Guess
 
-The drawer receives a private word and a simple touch canvas: one pen, a small color set, eraser, undo, clear, and submit. No layers, imported images, text tool, or shape recognition are needed for the first release.
+The drawer receives a private word and a simple bounded-vector touch canvas. While it is open, throttled full snapshots travel over an authorized ephemeral Socket.IO channel so the guesser sees the picture develop live. Snapshots are ordered and size-limited; submitting persists the final vectors through the revisioned activity command, after which both users see the same saved drawing. No layers, imported images, text tool, or shape recognition are needed for the first release.
 
 The guesser submits guesses from the activity card or ordinary chat reply. Correct matching is case-insensitive and tolerant of Russian `ё/е`; synonyms require authored aliases or drawer confirmation. The result stores the drawing, word, attempts, and completion time. The fun is the imperfect drawing, not competitive ranking.
 
@@ -187,7 +189,7 @@ Counters derive from durable completed activity state. No streaks, missed-day wa
 
 ## Scrapbook and history
 
-The first release relies on chronological chat cards and search. A later chat-info **Together / Вместе** section may group completed questions, quests, songs, movies, drawings, ideas, capsules, and milestones. It is a projection of the same durable objects, not a second copy.
+The chat ✦ sheet includes a **Together / Вместе** section grouping completed questions, quests, songs, drawings, capsules and milestones, as well as the durable Movie List and Ideas Jar. It is a projection of the same activity-backed chat messages, not a second copy.
 
 Filters are object types, not algorithmic recommendations. Export and deletion respect attachment authorization and conversation membership. There is no public profile showcase.
 
@@ -199,7 +201,7 @@ Filters are object types, not algorithmic recommendations. Export and deletion r
 - Upload photos/audio through resumable background transfer and show 0–100% progress.
 - Generate collages and derived art in the bounded media worker, never on the chat JS thread.
 - Cancel obsolete requests and reconcile socket/HTTP responses by activity revision.
-- Use database constraints for participant uniqueness, one contribution per round, idempotency, and one timeline anchor.
+- Use database constraints for participant uniqueness, one contribution per round, idempotency, and one timeline anchor. A logical mobile command keeps the same idempotency key across transport and revision retries.
 - Activity failure never prevents ordinary chat from opening or sending.
 
 ## Delivery sequence

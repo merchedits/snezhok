@@ -390,6 +390,18 @@ export async function getMessageById(client: Pick<DbClient, "query">, id: string
   return viewerId ? (await mapMessagesForViewer(client, [row], viewerId))[0]! : mapMessage(row);
 }
 
+export async function getMessagesByIds(client: Pick<DbClient, "query">, ids: string[], viewerId: string) {
+  const uniqueIds = [...new Set(ids)];
+  if (!uniqueIds.length) return [];
+  const rows = await client.query<MessageRow>(`${messageSelectSql} WHERE m.id=ANY($1::uuid[])`, [uniqueIds]);
+  const messages = await mapMessagesForViewer(client, rows.rows, viewerId);
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  return ids.flatMap((id) => {
+    const message = byId.get(id);
+    return message ? [message] : [];
+  });
+}
+
 async function mapMessagesForViewer(client: Pick<DbClient, "query">, rows: MessageRow[], viewerId: string) {
   const senderIds = [...new Set(rows.map((row) => row.sender_id).filter((id) => id !== viewerId))];
   const blocked = senderIds.length ? await client.query<{ user_id: string }>(

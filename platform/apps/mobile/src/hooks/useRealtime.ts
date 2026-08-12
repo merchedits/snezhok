@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import * as Notifications from "expo-notifications";
+import { AppState } from "react-native";
 import { io, type Socket } from "socket.io-client";
 
 import type { ClientToServerEvents, ServerToClientEvents } from "@snezhok/contracts";
@@ -9,7 +10,7 @@ import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { API_URL } from "../lib/api";
 import { readSession } from "../lib/secureSession";
 import { bindBootstrapInvalidations } from "../lib/realtimeInvalidation";
-import { bindRealtimeSocket, receiveRealtimeTyping, rejoinRequestedStreams } from "../lib/realtimeBridge";
+import { bindRealtimeSocket, receiveRealtimeDrawing, receiveRealtimeTyping, rejoinRequestedStreams } from "../lib/realtimeBridge";
 import {
   handleCallUpdate,
   handleNotificationResponse,
@@ -36,7 +37,12 @@ export function useRealtime(enabled: boolean): void {
     if (!enabled) return;
     let socket: RealtimeSocket | null = null;
     let disposed = false;
-    void initializeAndroidNotifications().then(() => registerRemotePushDevice());
+    const synchronizePush = () => { void initializeAndroidNotifications().then(() => registerRemotePushDevice()); };
+    synchronizePush();
+    // Expo push tokens can change while an install remains signed in. Refresh
+    // the durable server registration whenever Android brings the app back to
+    // the foreground; registration is internally coalesced and idempotent.
+    const appState = AppState.addEventListener("change", (state) => { if (state === "active") synchronizePush(); });
     const notificationResponse = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
     const notificationReceived = Notifications.addNotificationReceivedListener((notification) => { void handleRemoteNotification(notification); });
     void Notifications.getLastNotificationResponseAsync().then((response) => {
@@ -57,6 +63,7 @@ export function useRealtime(enabled: boolean): void {
         timeout: 10_000,
       });
       socket.on("connect", () => {
+        synchronizePush();
         rejoinRequestedStreams();
         socket?.emit("sync:resume", { cursor: useAppStore.getState().eventCursor }, (accepted) => {
           if (!accepted) void refreshBootstrap({ force: true, silent: true });
@@ -81,6 +88,7 @@ export function useRealtime(enabled: boolean): void {
       });
       socket.on("presence:updated", ({ userId, presence, lastSeenAt }) => applyPresence(userId, presence, lastSeenAt));
       socket.on("typing:updated", ({ streamId, userId, typing }) => receiveRealtimeTyping(streamId, userId, typing));
+      socket.on("activity:drawing:updated", ({ activityId, sequence, strokes }) => receiveRealtimeDrawing(activityId, sequence, strokes));
       socket.io.on("reconnect_attempt", () => {
         void readSession().then((latest) => {
           if (socket && latest) socket.auth = { token: latest.accessToken };
@@ -93,6 +101,7 @@ export function useRealtime(enabled: boolean): void {
       disposed = true;
       notificationResponse.remove();
       notificationReceived.remove();
+      appState.remove();
       bindRealtimeSocket(null);
       socket?.disconnect();
     };

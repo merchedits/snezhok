@@ -40,6 +40,7 @@ MEDIA_OBJECT_ROOT="$PLATFORM_ROOT/data-v3/storage/objects"
 setfacl -m u:www-data:--x "$CHECKOUT_ROOT"
 runuser -u www-data -- test -x "$CHECKOUT_ROOT"
 runuser -u www-data -- test -x "$MEDIA_OBJECT_ROOT"
+"$SCRIPT_DIR/verify-media-storage.sh"
 
 # The recovery point is made from the still-running release. Require its
 # image tag and maintenance provenance to remain current until the synchronized

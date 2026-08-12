@@ -9,6 +9,7 @@ import type { MediaJob, OutputVariant, Quality } from "./types.js";
 export interface ProcessContext {
   signal: AbortSignal;
   heartbeat: () => Promise<void>;
+  collageInputs?: string[];
 }
 
 const imageProfiles: Record<Exclude<Quality, "original">, { size: number; quality: number }> = {
@@ -24,6 +25,11 @@ const videoProfiles: Record<Exclude<Quality, "original">, { maxDimension: number
 };
 
 export async function processMedia(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  if (job.operation === "color-collage") {
+    const outputs = await processColorCollage(context.collageInputs ?? [], directory, context);
+    validateOutputVariants(job, outputs);
+    return outputs;
+  }
   if (job.kind === "image") {
     const metadata = await sharp(input, { failOn: "warning", limitInputPixels: MEDIA_LIMITS.maxImagePixels }).metadata();
     const rotated = metadata.orientation !== undefined && metadata.orientation >= 5 && metadata.orientation <= 8;
@@ -40,6 +46,27 @@ export async function processMedia(job: MediaJob, input: string, directory: stri
               : [];
   validateOutputVariants(job, outputs);
   return outputs;
+}
+
+async function processColorCollage(inputs: string[], directory: string, context: ProcessContext): Promise<OutputVariant[]> {
+  if (inputs.length !== 9) throw new Error("Color collage requires exactly nine source images");
+  const tileSize = 360;
+  const tiles: Buffer[] = [];
+  // Decode one source at a time. Nine concurrent phone photos can otherwise
+  // exceed the small production host's memory even though each output tile is bounded.
+  for (const [index, source] of inputs.entries()) {
+    if (context.signal.aborted) throw new DOMException("Media job cancelled", "AbortError");
+    tiles.push(await sharp(source, { failOn: "warning", limitInputPixels: MEDIA_LIMITS.maxImagePixels })
+      .rotate().resize(tileSize, tileSize, { fit: "cover", position: "attention" }).webp({ quality: 88 }).toBuffer());
+    if (index === 2 || index === 5) await context.heartbeat();
+  }
+  const primary = path.join(directory, "color-collage.webp");
+  const thumbnail = path.join(directory, "thumbnail.webp");
+  const primaryMeta = await sharp({ create: { width: 1080, height: 1080, channels: 3, background: "#121218" } })
+    .composite(tiles.map((input, index) => ({ input, left: (index % 3) * tileSize, top: Math.floor(index / 3) * tileSize })))
+    .webp({ quality: 90, effort: 4 }).toFile(primary);
+  const thumbnailMeta = await sharp(await readFile(primary)).resize(320, 320, { fit: "cover" }).webp({ quality: 76, effort: 4 }).toFile(thumbnail);
+  return [variant("primary", "color-collage-1080", primary, "image/webp", primaryMeta.width, primaryMeta.height), variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", thumbnailMeta.width, thumbnailMeta.height)];
 }
 
 async function processOriginal(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {

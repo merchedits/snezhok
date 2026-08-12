@@ -8,6 +8,8 @@ const mobileRoot = path.resolve(scriptDirectory, "../../apps/mobile");
 const mobilePackage = JSON.parse(await readFile(path.join(mobileRoot, "package.json"), "utf8"));
 const eas = JSON.parse(await readFile(path.join(mobileRoot, "eas.json"), "utf8"));
 const contractsPackage = JSON.parse(await readFile(path.resolve(mobileRoot, "../../packages/contracts/package.json"), "utf8"));
+const appConfig = await readFile(path.join(mobileRoot, "app.config.ts"), "utf8");
+const entrypoint = await readFile(path.join(mobileRoot, "index.ts"), "utf8");
 const failures = [];
 
 if (mobilePackage.dependencies?.["expo-dev-client"]) failures.push("expo-dev-client must not be a production dependency");
@@ -28,6 +30,9 @@ if (eas.build?.development?.environment !== "development") failures.push("develo
 if (eas.build?.preview?.distribution !== "internal" || eas.build?.preview?.android?.buildType !== "apk") failures.push("preview must produce an internally distributed APK");
 if (eas.build?.production?.distribution !== "store" || eas.build?.production?.android?.buildType !== "app-bundle") failures.push("production must produce a store-distributed Android App Bundle");
 if (contractsPackage.exports?.["."]?.["react-native"] !== "./src/index.ts") failures.push("contracts must expose source to clean React Native builds without build-only devDependencies");
+if (!mobilePackage.dependencies?.["expo-notifications"] || !mobilePackage.dependencies?.["expo-task-manager"]) failures.push("production notification dependencies are incomplete");
+if (!appConfig.includes('"expo-notifications"')) failures.push("expo-notifications config plugin is missing");
+if (!entrypoint.includes('import "./src/notifications/backgroundNotificationTask"')) failures.push("background notification task must load before the app root");
 
 if (failures.length) {
   process.stderr.write(`release configuration verification failed:\n- ${failures.join("\n- ")}\n`);

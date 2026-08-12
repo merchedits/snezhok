@@ -27,3 +27,8 @@ export function voiceChannelGrantPolicy(permissions: readonly string[]): VoiceCh
     canShareScreen: allowed.has("screen_share"),
   };
 }
+
+/** A notification answer must never create or join a different call. */
+export function expectedCallMatches(activeCallId: string | undefined, expectedCallId: string | undefined): boolean {
+  return expectedCallId === undefined || activeCallId === expectedCallId;
+}

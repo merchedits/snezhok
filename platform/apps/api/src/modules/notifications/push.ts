@@ -73,11 +73,11 @@ export function pushContentForEvent(
   if (name === "call:updated" && value.state === "started") {
     // Joining a Discord-style voice channel is intentional and must not ring
     // every server member like a direct or group call.
-    if (value.streamKind === "channel" || value.callerId === recipientId || typeof value.streamId !== "string" || typeof value.roomId !== "string") return null;
+    if (value.streamKind === "channel" || value.callerId === recipientId || typeof value.streamId !== "string" || typeof value.roomId !== "string" || typeof value.startedAt !== "number" || !Number.isFinite(value.startedAt)) return null;
     const caller = typeof value.callerName === "string" ? value.callerName : "Snezhok";
     const copy = localized(options.language);
     return {
-      title: `${copy.incomingCall} · ${caller}`,
+      title: options.showPreview ? `${copy.incomingCall} · ${caller}` : copy.incomingCall,
       body: copy.tapToAnswer,
       ...(options.sound === false ? {} : { sound: "default" as const }),
       priority: "high",
@@ -90,9 +90,9 @@ export function pushContentForEvent(
         roomId: value.roomId,
         streamId: value.streamId,
         streamKind: value.streamKind,
-        title: typeof value.title === "string" ? value.title : caller,
+        title: options.showPreview && typeof value.title === "string" ? value.title : options.showPreview ? caller : "Snezhok",
         callerId: value.callerId,
-        callerName: caller,
+        callerName: options.showPreview ? caller : "Snezhok",
         startedAt: value.startedAt,
       },
     };

@@ -4,6 +4,7 @@ import { ActivityIndicator, type GestureResponderEvent, Pressable, StyleSheet, T
 
 import type { Attachment } from "@snezhok/contracts";
 
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia, type AuthenticatedMediaSource } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
@@ -94,8 +95,14 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   const progress = duration > 0 ? clamp(currentTime / duration, 0, 1) : 0;
   const completed = useRef(false);
   const autoStarted = useRef(false);
+  const recordedNativeFailure = useRef(false);
+  const [playbackFailed, setPlaybackFailed] = useState(false);
   const play = useCallback(() => {
-    void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).then(() => player.play()).catch(() => undefined);
+    setPlaybackFailed(false);
+    void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).then(() => player.play()).catch((error) => {
+      setPlaybackFailed(true);
+      recordDiagnostic("warn", "media", "Voice playback failed", { failure: error instanceof Error ? error.name : "audio-mode" });
+    });
   }, [player]);
 
   useEffect(() => {
@@ -113,6 +120,12 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   }, [play, status.error, status.isLoaded]);
 
   useEffect(() => {
+    if (!status.error || recordedNativeFailure.current) return;
+    recordedNativeFailure.current = true;
+    recordDiagnostic("warn", "media", "Voice playback failed", { failure: "native-player" });
+  }, [status.error]);
+
+  useEffect(() => {
     player.setPlaybackRate(speed);
   }, [player, speed]);
 
@@ -127,7 +140,7 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   }, [attachment.id, status.didJustFinish, streamId]);
 
   const toggle = () => {
-    if (status.error) {
+    if (status.error || playbackFailed) {
       onRetry();
       return;
     }
@@ -154,7 +167,7 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
       currentSeconds={displayedTime}
       durationSeconds={duration}
       loading={!status.error && (!status.isLoaded || status.isBuffering && !status.playing)}
-      failed={Boolean(status.error)}
+      failed={Boolean(status.error) || playbackFailed}
       playing={status.playing}
       progress={progress}
       speed={speed}

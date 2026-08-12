@@ -5,6 +5,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ProfilePhoto, UserProfile } from "@snezhok/contracts";
@@ -145,7 +146,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
     <View style={[styles.screen, { backgroundColor: palette.profileCanvas }]}>
       <PlayfulBackdrop variant="profile" />
       <ScreenHeader tone="profile" prominent={embedded} title={t("profile")} {...(!embedded && onBack ? { left: { icon: "chevron-back" as const, label: t("back"), onPress: onBack } } : {})} right={own ? [{ icon: editing ? "checkmark" : "create-outline", label: editing ? t("save") : t("editProfile"), onPress: editing ? () => void saveProfile() : () => setEditing(true) }] : []} />
-      <ScrollView contentContainerStyle={[styles.content, !embedded && { paddingBottom: Math.max(insets.bottom + 16, 34) }]} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScrollView bottomOffset={24} contentContainerStyle={[styles.content, !embedded && { paddingBottom: Math.max(insets.bottom + 16, 34) }]} keyboardShouldPersistTaps="handled">
         <View style={[styles.hero, { backgroundColor: palette.group.lime, borderColor: palette.border }]}>
           <Avatar uri={heroUri} label={user.displayName} color={user.avatarColor} online={user.presence === "online"} size={112} />
           {own ? <Pressable disabled={busy} onPress={() => void addPhoto()} style={[styles.camera, { backgroundColor: palette.accent, borderColor: palette.group.lime }]}><AppIcon name="camera" size={19} color={palette.onAccent} /></Pressable> : null}
@@ -175,7 +176,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
           <Text style={[styles.sectionTitle, { color: palette.text }]}>{t("contacts")}</Text>
           {contactEntries.map((entry) => <Pressable key={entry.user.id} onPress={() => openContact(entry.user.id)} style={[styles.contact, { backgroundColor: palette.surface, borderColor: palette.border }]}><Avatar uri={entry.user.avatarUrl} label={entry.user.displayName} color={entry.user.avatarColor} size={46} /><View style={styles.contactCopy}><Text style={[styles.contactName, { color: palette.text }]}>{entry.user.displayName}</Text><Text style={[styles.contactUsername, { color: palette.secondaryText }]}>@{entry.user.username}</Text></View><AppIcon name="chevron-forward" size={18} color={palette.faintText} /></Pressable>)}
         </View> : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
       {busy && !editing ? <View style={[styles.busyOverlay, { backgroundColor: palette.overlay }]}><ActivityIndicator color="white" /></View> : null}
     </View>
   );
@@ -189,7 +190,7 @@ function ProfileInput({ label, ...props }: { label: string; value: string; onCha
 
 function PhotoThumbnail({ photo, selected, primary, onPress, onLongPress }: { photo: ProfilePhoto; selected: boolean; primary: boolean; onPress: () => void; onLongPress?: () => void }) {
   const palette = usePalette();
-  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><AuthenticatedImage uri={photo.thumbnailUrl ?? photo.url} cacheKey={`${photo.id}-thumbnail`} mimeType="image/webp" style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><AppIcon name="checkmark" size={11} color={palette.onAccent} strokeWidth={2} /></View> : null}</Pressable>;
+  return <Pressable onPress={onPress} onLongPress={onLongPress} style={[styles.thumbnailFrame, { borderColor: selected ? palette.accent : "transparent" }]}><AuthenticatedImage uri={photo.thumbnailUrl ?? photo.url} fallbackUri={photo.thumbnailUrl ? photo.url : null} cacheKey={`${photo.id}-thumbnail`} mimeType="image/webp" style={styles.thumbnail} />{primary ? <View style={[styles.primaryBadge, { backgroundColor: palette.accent }]}><AppIcon name="checkmark" size={11} color={palette.onAccent} strokeWidth={2} /></View> : null}</Pressable>;
 }
 
 const styles = StyleSheet.create({

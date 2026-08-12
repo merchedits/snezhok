@@ -247,10 +247,10 @@ class ApiClient {
     }).then((result) => result.message);
   }
 
-  createActivity(conversationId: string, type: CooperativeActivityType, options: Record<string, unknown> = {}): Promise<Message> {
+  createActivity(conversationId: string, type: CooperativeActivityType, options: Record<string, unknown> = {}, clientId = Crypto.randomUUID()): Promise<Message> {
     return this.request<{ message: Message }>(`/conversations/${encodeURIComponent(conversationId)}/activities`, {
       method: "POST",
-      body: { clientId: Crypto.randomUUID(), type, options },
+      body: { clientId, type, options },
     }).then((result) => result.message);
   }
 
@@ -258,10 +258,14 @@ class ApiClient {
     return this.request<{ activity: CooperativeActivity }>(`/activities/${encodeURIComponent(activityId)}`).then((result) => result.activity);
   }
 
-  commandActivity(activityId: string, expectedRevision: number, action: string, payload: Record<string, unknown> = {}): Promise<Message> {
+  activityHistory(conversationId: string): Promise<Message[]> {
+    return this.request<{ messages: Message[] }>(`/conversations/${encodeURIComponent(conversationId)}/activities/history`).then((result) => result.messages);
+  }
+
+  commandActivity(activityId: string, expectedRevision: number, action: string, payload: Record<string, unknown> = {}, clientId = Crypto.randomUUID()): Promise<Message> {
     return this.request<{ message: Message }>(`/activities/${encodeURIComponent(activityId)}/commands`, {
       method: "POST",
-      body: { clientId: Crypto.randomUUID(), expectedRevision, action, payload },
+      body: { clientId, expectedRevision, action, payload },
     }).then((result) => result.message);
   }
 
@@ -551,8 +555,8 @@ class ApiClient {
     });
   }
 
-  joinCall(streamId: string): Promise<CallJoinResponse> {
-    return this.request<CallJoinResponse>("/calls/token", { method: "POST", body: { streamId } });
+  joinCall(streamId: string, expectedCallId?: string): Promise<CallJoinResponse> {
+    return this.request<CallJoinResponse>("/calls/token", { method: "POST", body: { streamId, ...(expectedCallId ? { expectedCallId } : {}) } });
   }
 
   endCall(callId: string): Promise<void> {

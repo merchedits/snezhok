@@ -40,10 +40,10 @@ export function CallScreen({ navigation, route }: Props) {
     if (requestedStream.current === route.params.streamId) return;
     requestedStream.current = route.params.streamId;
     setError(null);
-    void startCall({ streamId: route.params.streamId, title: route.params.title, ...(startWithVideo === undefined ? {} : { startWithVideo }) }).catch((reason: unknown) => {
+    void startCall({ streamId: route.params.streamId, title: route.params.title, ...(startWithVideo === undefined ? {} : { startWithVideo }), ...(route.params.expectedCallId ? { expectedCallId: route.params.expectedCallId } : {}) }).catch((reason: unknown) => {
       setError(reason instanceof ActiveCallConflictError ? copy.alreadyActive : userFacingError(reason, t, "callUnavailable"));
     });
-  }, [copy.alreadyActive, route.params.streamId, route.params.title, startCall, startWithVideo, t]);
+  }, [copy.alreadyActive, route.params.expectedCallId, route.params.streamId, route.params.title, startCall, startWithVideo, t]);
 
   useEffect(() => {
     if (session?.streamId === route.params.streamId) hadMatchingSession.current = true;

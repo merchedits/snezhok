@@ -10,7 +10,7 @@ import { requireAuth } from "../auth/middleware.js";
 import { publishStoredEvent, storeEvent } from "../realtime/events.js";
 import { resolveStreamAccess, streamRecipients, type StreamAccess } from "../streams/access.js";
 import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
-import { localLeaveEndsSession, voiceChannelGrantPolicy } from "./semantics.js";
+import { expectedCallMatches, localLeaveEndsSession, voiceChannelGrantPolicy } from "./semantics.js";
 import { requireGlobalPermission } from "../admin/policy.js";
 import {
   endCallFromRoom, enqueueRoomTermination,
@@ -19,14 +19,14 @@ import {
 } from "./mediaControl.js";
 import { getCallMediaPlane } from "./mediaPlane.js";
 
-const tokenSchema = z.object({ streamId: z.string().uuid() });
+const tokenSchema = z.object({ streamId: z.string().uuid(), expectedCallId: z.string().uuid().optional() });
 const callParams = z.object({ id: z.string().uuid() });
 const webhookReceiver = new WebhookReceiver(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET);
 
 export async function callRoutes(app: FastifyInstance) {
   app.post("/calls/token", { preHandler: requireAuth }, async (request) => {
     incrementMetric("calls.token.requested");
-    const { streamId } = tokenSchema.parse(request.body);
+    const { streamId, expectedCallId } = tokenSchema.parse(request.body);
     const result = await transaction(async (client) => {
       const access = await resolveStreamAccess(request.auth.id, streamId, client);
       if (access.streamKind === "channel" && access.channelKind !== "voice") throw forbidden("Join the voice channel, not a text channel");
@@ -48,6 +48,7 @@ export async function callRoutes(app: FastifyInstance) {
         staleEvents.push(await storeEvent(client, recipients, "call:updated", { roomId: old.id, state: "ended", participantIds: [], endedAt: old.ended_at.getTime(), answeredByIds: old.answered_by, reason: "stale-timeout" }));
       }
       let call = (await client.query<{ id: string; livekit_room: string; started_by: string }>("SELECT id,livekit_room,started_by FROM call_sessions WHERE stream_kind=$1 AND stream_id=$2 AND ended_at IS NULL LIMIT 1", [access.streamKind, streamId])).rows[0];
+      if (!expectedCallMatches(call?.id, expectedCallId)) throw notFound("Incoming call is no longer active");
       let event = null;
       if (!call) {
         await requireGlobalPermission(request.auth.id, "startCalls", client);

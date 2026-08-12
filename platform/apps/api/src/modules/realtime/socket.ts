@@ -38,6 +38,8 @@ export async function setupRealtime(server: HttpServer) {
     // Register every handler synchronously. Awaiting presence/database work
     // before this point can drop a sync:resume emitted immediately on connect.
     let replaying = false;
+    const drawingSequences = new Map<string, { sequence: number; emittedAt: number }>();
+    const authorizedDrawings = new Map<string, { streamId: string; expiresAt: number }>();
     socket.on("sync:resume", async ({ cursor }, acknowledge) => {
       if (replaying) { acknowledge(false); return; }
       replaying = true;
@@ -60,6 +62,31 @@ export async function setupRealtime(server: HttpServer) {
         if (access.streamKind === "conversation") await assertDirectConversationMessagingAllowed(userId, streamId);
         socket.to(`stream:${streamId}`).volatile.emit("typing:updated", { streamId, userId, typing });
       } catch { /* unauthorized */ }
+    });
+    socket.on("activity:drawing:set", async ({ streamId, activityId, sequence, strokes }) => {
+      try {
+        const previous = drawingSequences.get(activityId);
+        const now = Date.now();
+        if (!Number.isSafeInteger(sequence) || sequence < 0 || (previous && sequence <= previous.sequence) || (previous && now - previous.emittedAt < 60)) return;
+        if (!validLiveDrawing(strokes)) return;
+        const cached = authorizedDrawings.get(activityId);
+        if (!cached || cached.streamId !== streamId || cached.expiresAt <= now) {
+          const activity = (await pool.query<{ conversation_id: string; drawer_id: string }>(
+            `SELECT activity.conversation_id,activity.config->>'drawerId' drawer_id
+               FROM cooperative_activities activity
+               JOIN conversations conversation ON conversation.id=activity.conversation_id AND conversation.kind='direct'
+               JOIN conversation_members member ON member.conversation_id=activity.conversation_id AND member.user_id=$2
+               JOIN cooperative_activity_participants participant ON participant.activity_id=activity.id AND participant.user_id=$2
+              WHERE activity.id=$1 AND activity.conversation_id=$3 AND activity.type='draw-guess'
+                AND activity.state IN ('active','waiting')`,
+            [activityId, userId, streamId],
+          )).rows[0];
+          if (!activity || activity.drawer_id !== userId) return;
+          authorizedDrawings.set(activityId, { streamId, expiresAt: now + 10_000 });
+        }
+        drawingSequences.set(activityId, { sequence, emittedAt: now });
+        socket.to(`stream:${streamId}`).volatile.emit("activity:drawing:updated", { streamId, activityId, userId, sequence, strokes });
+      } catch { /* malformed or unauthorized ephemeral drawing */ }
     });
     socket.on("read:set", async ({ streamId, sequence }) => { try { await markRead(userId, streamId, sequence); } catch { /* HTTP sync will reconcile */ } });
     socket.on("disconnect", () => {
@@ -166,6 +193,20 @@ export async function setupRealtime(server: HttpServer) {
     activeListener = null;
   });
   return io;
+}
+
+export function validLiveDrawing(value: unknown): value is number[][][] {
+  if (!Array.isArray(value) || value.length > 200) return false;
+  let points = 0;
+  for (const stroke of value) {
+    if (!Array.isArray(stroke) || stroke.length < 2 || stroke.length > 500) return false;
+    points += stroke.length;
+    if (points > 2_000) return false;
+    for (const point of stroke) {
+      if (!Array.isArray(point) || point.length !== 2 || typeof point[0] !== "number" || !Number.isFinite(point[0]) || point[0] < 0 || point[0] > 300 || typeof point[1] !== "number" || !Number.isFinite(point[1]) || point[1] < 0 || point[1] > 240) return false;
+    }
+  }
+  return true;
 }
 
 export async function presenceRecipients(userId: string) {
