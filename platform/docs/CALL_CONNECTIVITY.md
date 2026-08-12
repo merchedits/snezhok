@@ -104,9 +104,11 @@ sudo TURN_DOMAIN=turn.merchedits.xyz \
   /etc/letsencrypt/live/turn.merchedits.xyz/privkey.pem
 ```
 
-The installer rejects mismatched, expired, incorrectly named, and
-group/world-readable destination layouts. Use `--restart` only after the merged
-Compose configuration is the normal production configuration.
+The installer rejects mismatched, expired, and incorrectly named material. It
+keeps the copied private key readable only by root and LiveKit's runtime group
+(GID 65532 by default); it never makes the key world-readable. Use `--restart`
+only after the merged Compose configuration is the normal production
+configuration.
 
 ## Migrate Nginx TCP 443 without losing HTTPS
 
