@@ -165,6 +165,8 @@ Open Call details during the strict-firewall run and verify that the selected
 ICE candidate is `relay` and the expected TCP/TLS protocol is reported; a
 successful signaling websocket is not TURN evidence.
 
-Add the certificate installer to the Certbot deploy hook only after this route
-is live. Every renewal must be followed by the public smoke test and a failed
-test must alert an operator.
+After this route is live, install `scripts/livekit/certbot-deploy-hook.sh` as
+`/etc/letsencrypt/renewal-hooks/deploy/snezhok-turn-livekit`. It validates and
+copies only the renewed `turn.merchedits.xyz` lineage, preserves the restricted
+runtime-group permissions, and recreates LiveKit. Every renewal must be
+followed by the public smoke test and a failed test must alert an operator.
