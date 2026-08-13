@@ -15,6 +15,8 @@ import java.net.URL
 internal class RetryableTransferException(message: String, cause: Throwable? = null) : IOException(message, cause)
 internal class TerminalTransferException(val errorCode: String) : IOException(errorCode)
 internal class OffsetConflictException : IOException("upload_offset_conflict")
+internal const val FINALIZE_CONTENT_TYPE = "application/json"
+internal val FINALIZE_BODY = byteArrayOf('{'.code.toByte(), '}'.code.toByte())
 
 internal object UploadProtocol {
   suspend fun head(spec: TransferSpec): RemoteUploadState = withContext(Dispatchers.IO) {
@@ -70,10 +72,14 @@ internal object UploadProtocol {
   suspend fun complete(spec: TransferSpec): String = withContext(Dispatchers.IO) {
     val connection = open(spec, "uploads/${spec.uploadId}/complete", "POST").apply {
       doOutput = true
-      setFixedLengthStreamingMode(0)
+      setRequestProperty("Content-Type", FINALIZE_CONTENT_TYPE)
+      setFixedLengthStreamingMode(FINALIZE_BODY.size)
     }
     try {
-      connection.outputStream.use { it.flush() }
+      connection.outputStream.use { output ->
+        output.write(FINALIZE_BODY)
+        output.flush()
+      }
       checkStatus(connection.responseCode)
       val bytes = connection.inputStream.use { input ->
         val output = ByteArrayOutputStream()

@@ -531,7 +531,7 @@ class ApiClient {
       if (active.cancelled) throw new UploadCancelledError();
       if (attempt > 0) await delay(uploadRetryDelayMs(attempt));
       try {
-        return await this.request<UploadResponse>(`/uploads/${uploadId}/complete`, { method: "POST" });
+        return await this.request<UploadResponse>(`/uploads/${uploadId}/complete`, { method: "POST", body: {} });
       } catch (error) {
         lastError = error;
         if (error instanceof ApiError && !retryableUploadStatus(error.status)) throw error;

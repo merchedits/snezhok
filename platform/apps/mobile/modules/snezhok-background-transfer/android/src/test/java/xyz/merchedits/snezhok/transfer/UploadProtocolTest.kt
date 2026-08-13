@@ -5,6 +5,11 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class UploadProtocolTest {
+  @Test fun finalizationUsesExplicitJsonInsteadOfHttpUrlConnectionFormDefault() {
+    assertEquals("application/json", FINALIZE_CONTENT_TYPE)
+    assertEquals("{}", FINALIZE_BODY.toString(Charsets.UTF_8))
+  }
+
   @Test fun acceptsOnlyCredentialFreeHttpsApiOrigins() {
     assertEquals("https://merchedits.xyz/chat/api/v1", UploadProtocol.validatedBaseUrl("https://merchedits.xyz/chat/api/v1/"))
     for (invalid in listOf(
