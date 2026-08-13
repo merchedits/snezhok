@@ -7,6 +7,8 @@ JavaScript process remains responsible for creating the eventual message, but
 the file transfer itself survives navigation, process death, network changes,
 and device reboot.
 
+Normal image sends are resized on-device to a 1600-pixel long edge and encoded as metadata-free JPEG at 80% before durable staging. Data Saver uses 1280/72%. HQ and explicit original-file sends bypass this policy. This keeps phone originals from consuming upload bandwidth or media-worker decode memory while preserving the resumable protocol.
+
 ## Security model
 
 1. The signed-in client creates an upload session with its normal bearer token.

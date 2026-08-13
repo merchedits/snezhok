@@ -100,6 +100,9 @@ export interface UploadInput {
   stripLocation?: boolean;
   /** User-initiated uploads allow mobile data unless a future picker opts out. */
   allowMetered?: boolean;
+  /** Picker dimensions let the normal-send compressor avoid upscaling. */
+  sourceWidth?: number | null;
+  sourceHeight?: number | null;
 }
 
 export type UploadProgressCallback = (progress: number) => void;

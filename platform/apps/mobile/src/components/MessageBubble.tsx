@@ -37,120 +37,179 @@ interface MessageBubbleProps {
   onOpenActivity?: () => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ streamId, message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions, onReplyPress, onOpenActivity }: MessageBubbleProps) {
-  const palette = usePalette();
-  const ui = useUiPreferences();
-  const displayAttachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
-  const mediaOnly = !message.activity && !message.text && !message.replyTo && !message.forwardedFrom
-    && displayAttachments.length > 0 && displayAttachments.every((attachment) => attachment.kind === "image" || attachment.kind === "video")
-    && variant === "bubble";
-  const lastTapAt = useRef(0);
-  const tapAnchorY = useRef(0);
-  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressTriggered = useRef(false);
-  useEffect(() => () => {
-    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-  }, []);
-  useEffect(() => {
-    // FlashList recycles the native row for another message. Gesture state must
-    // never leak from the previously displayed item into the recycled cell.
-    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-    singleTapTimer.current = null;
-    lastTapAt.current = 0;
-    longPressTriggered.current = false;
-  }, [message.id]);
-  useEffect(() => {
-    if (!selectionMode || !singleTapTimer.current) return;
-    clearTimeout(singleTapTimer.current);
-    singleTapTimer.current = null;
-    lastTapAt.current = 0;
-  }, [selectionMode]);
-  const selectionContentStyle = useAnimatedStyle(() => ({
-    // Incoming/direct and server messages need to clear the selector. Outgoing
-    // bubbles already live on the opposite edge, so keeping them stationary
-    // avoids clipping and leaves this as a compositor-only animation.
-    transform: [{ translateX: mine && variant === "bubble" ? 0 : 34 * selectionProgress.value }],
-  }));
-  const selectionMarkerStyle = useAnimatedStyle(() => ({
-    opacity: selectionProgress.value,
-    transform: [{ scale: 0.76 + 0.24 * selectionProgress.value }],
-  }));
-  const handlePress = (event: GestureResponderEvent) => {
-    if (longPressTriggered.current) {
-      longPressTriggered.current = false;
-      return;
-    }
-    tapAnchorY.current = event.nativeEvent.pageY;
-    if (selectionMode) {
-      lastTapAt.current = 0;
-      onPress?.();
-      return;
-    }
-    const now = Date.now();
-    if (now - lastTapAt.current <= 280) {
+export const MessageBubble = memo(
+  function MessageBubble({ streamId, message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions, onReplyPress, onOpenActivity }: MessageBubbleProps) {
+    const palette = usePalette();
+    const ui = useUiPreferences();
+    const displayAttachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
+    const mediaOnly = !message.activity && !message.text && !message.replyTo && !message.forwardedFrom && displayAttachments.length > 0 && displayAttachments.every((attachment) => attachment.kind === "image" || attachment.kind === "video") && variant === "bubble";
+    const lastTapAt = useRef(0);
+    const tapAnchorY = useRef(0);
+    const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const longPressTriggered = useRef(false);
+    useEffect(
+      () => () => {
+        if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+      },
+      [],
+    );
+    useEffect(() => {
+      // FlashList recycles the native row for another message. Gesture state must
+      // never leak from the previously displayed item into the recycled cell.
       if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
       singleTapTimer.current = null;
       lastTapAt.current = 0;
-      onReact?.("\u2764\uFE0F");
-      return;
-    }
-    lastTapAt.current = now;
-    singleTapTimer.current = setTimeout(() => {
+      longPressTriggered.current = false;
+    }, [message.id]);
+    useEffect(() => {
+      if (!selectionMode || !singleTapTimer.current) return;
+      clearTimeout(singleTapTimer.current);
       singleTapTimer.current = null;
       lastTapAt.current = 0;
-      onOpenReactions?.(tapAnchorY.current);
-    }, 280);
-  };
-  const handleLongPress = () => {
-    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-    singleTapTimer.current = null;
-    longPressTriggered.current = true;
-    lastTapAt.current = 0;
-    onLongPress?.();
-  };
-  if (message.deletedAt) return null;
-  if (variant === "channel") {
+    }, [selectionMode]);
+    const selectionContentStyle = useAnimatedStyle(() => ({
+      // Incoming/direct and server messages need to clear the selector. Outgoing
+      // bubbles already live on the opposite edge, so keeping them stationary
+      // avoids clipping and leaves this as a compositor-only animation.
+      transform: [
+        {
+          translateX: mine && variant === "bubble" ? 0 : 34 * selectionProgress.value,
+        },
+      ],
+    }));
+    const selectionMarkerStyle = useAnimatedStyle(() => ({
+      opacity: selectionProgress.value,
+      transform: [{ scale: 0.76 + 0.24 * selectionProgress.value }],
+    }));
+    const handlePress = (event: GestureResponderEvent) => {
+      if (longPressTriggered.current) {
+        longPressTriggered.current = false;
+        return;
+      }
+      tapAnchorY.current = event.nativeEvent.pageY;
+      if (selectionMode) {
+        lastTapAt.current = 0;
+        onPress?.();
+        return;
+      }
+      const now = Date.now();
+      if (now - lastTapAt.current <= 280) {
+        if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+        singleTapTimer.current = null;
+        lastTapAt.current = 0;
+        onReact?.("\u2764\uFE0F");
+        return;
+      }
+      lastTapAt.current = now;
+      singleTapTimer.current = setTimeout(() => {
+        singleTapTimer.current = null;
+        lastTapAt.current = 0;
+        onOpenReactions?.(tapAnchorY.current);
+      }, 280);
+    };
+    const handleLongPress = () => {
+      if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+      singleTapTimer.current = null;
+      longPressTriggered.current = true;
+      lastTapAt.current = 0;
+      onLongPress?.();
+    };
+    if (message.deletedAt) return null;
+    if (variant === "channel") {
+      return (
+        <View style={styles.selectionFrame}>
+          <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
+          <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
+            <Pressable
+              delayLongPress={240}
+              onPress={handlePress}
+              onLongPress={handleLongPress}
+              style={({ pressed }) => [
+                styles.channelRow,
+                {
+                  paddingVertical: ui.dense(3, 1),
+                  opacity: pressed ? 0.72 : 1,
+                },
+              ]}
+            >
+              <View style={styles.channelAvatar}>{showSender ? <Avatar uri={message.sender.avatarUrl} label={message.sender.displayName} color={message.sender.avatarColor} size={40} /> : null}</View>
+              <View style={[styles.channelContent, selected && { backgroundColor: palette.accentSoft }]}>
+                {showSender ? (
+                  <View style={styles.authorLine}>
+                    <Text
+                      style={[
+                        styles.channelAuthor,
+                        {
+                          color: message.sender.avatarColor || palette.text,
+                          fontSize: ui.font(15),
+                        },
+                      ]}
+                    >
+                      {message.sender.displayName}
+                    </Text>
+                    <Text style={[styles.channelTime, { color: palette.faintText, fontSize: ui.font(11) }]}>
+                      {new Date(message.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                  </View>
+                ) : null}
+                <MessageContent streamId={streamId} message={message} mine={mine} foreground={palette.text} mutedForeground={palette.secondaryText} showSender={false} showTime={false} mediaOnly={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+              </View>
+            </Pressable>
+          </Animated.View>
+        </View>
+      );
+    }
     return (
       <View style={styles.selectionFrame}>
         <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
         <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
-          <Pressable delayLongPress={240} onPress={handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.channelRow, { paddingVertical: ui.dense(3, 1), opacity: pressed ? 0.72 : 1 }]}>
-            <View style={styles.channelAvatar}>{showSender ? <Avatar uri={message.sender.avatarUrl} label={message.sender.displayName} color={message.sender.avatarColor} size={40} /> : null}</View>
-            <View style={[styles.channelContent, selected && { backgroundColor: palette.accentSoft }]}>
-              {showSender ? <View style={styles.authorLine}><Text style={[styles.channelAuthor, { color: message.sender.avatarColor || palette.text, fontSize: ui.font(15) }]}>{message.sender.displayName}</Text><Text style={[styles.channelTime, { color: palette.faintText, fontSize: ui.font(11) }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text></View> : null}
-              <MessageContent streamId={streamId} message={message} mine={mine} foreground={palette.text} mutedForeground={palette.secondaryText} showSender={false} showTime={false} mediaOnly={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
-            </View>
-          </Pressable>
+          <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, { marginVertical: ui.dense(2, 1) }]}>
+            <Pressable
+              delayLongPress={240}
+              onPress={message.activity ? undefined : handlePress}
+              onLongPress={handleLongPress}
+              style={({ pressed }) => [
+                styles.bubble,
+                message.activity && styles.activityBubble,
+                mediaOnly && styles.mediaBubble,
+                mine ? styles.mineBubble : styles.theirBubble,
+                {
+                  borderRadius: message.activity ? 24 : mediaOnly ? 16 : ui.bubbleRadius,
+                  paddingHorizontal: message.activity || mediaOnly ? 0 : ui.dense(12, 10),
+                  paddingVertical: message.activity || mediaOnly ? 0 : ui.dense(8, 5),
+                  backgroundColor: message.activity || mediaOnly ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming,
+                  borderWidth: selected && !message.activity ? (mediaOnly ? 2 : 1.5) : 0,
+                  borderColor: selected ? palette.accent : "transparent",
+                  opacity: pressed ? 0.82 : 1,
+                },
+              ]}
+            >
+              <MessageContent streamId={streamId} message={message} mine={mine} foreground={selected || !mine ? palette.text : palette.onAccent} mutedForeground={selected || !mine ? palette.secondaryText : "rgba(255,255,255,0.76)"} showSender={showSender && !mine} showTime mediaOnly={mediaOnly} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+            </Pressable>
+          </View>
         </Animated.View>
       </View>
     );
-  }
-  return (
-    <View style={styles.selectionFrame}>
-      <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
-      <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
-        <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, { marginVertical: ui.dense(2, 1) }]}>
-          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, mediaOnly && styles.mediaBubble, mine ? styles.mineBubble : styles.theirBubble, { borderRadius: message.activity ? 24 : mediaOnly ? 16 : ui.bubbleRadius, paddingHorizontal: message.activity || mediaOnly ? 0 : ui.dense(12, 10), paddingVertical: message.activity || mediaOnly ? 0 : ui.dense(8, 5), backgroundColor: message.activity || mediaOnly ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderWidth: selected && !message.activity ? (mediaOnly ? 2 : 1.5) : 0, borderColor: selected ? palette.accent : "transparent", opacity: pressed ? 0.82 : 1 }]}>
-            <MessageContent streamId={streamId} message={message} mine={mine} foreground={selected || !mine ? palette.text : palette.onAccent} mutedForeground={selected || !mine ? palette.secondaryText : "rgba(255,255,255,0.76)"} showSender={showSender && !mine} showTime mediaOnly={mediaOnly} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
-          </Pressable>
-        </View>
-      </Animated.View>
-    </View>
-  );
-}, (previous, next) => previous.message === next.message
-  && previous.streamId === next.streamId
-  && previous.mine === next.mine
-  && previous.showSender === next.showSender
-  && previous.variant === next.variant
-  && previous.selected === next.selected
-  && previous.selectionMode === next.selectionMode
-  && previous.selectionProgress === next.selectionProgress);
+  },
+  (previous, next) => previous.message === next.message && previous.streamId === next.streamId && previous.mine === next.mine && previous.showSender === next.showSender && previous.variant === next.variant && previous.selected === next.selected && previous.selectionMode === next.selectionMode && previous.selectionProgress === next.selectionProgress,
+);
 
 function SelectionMarker({ selected, animatedStyle }: { selected: boolean; animatedStyle: ReturnType<typeof useAnimatedStyle> }) {
   const palette = usePalette();
   return (
     <Animated.View pointerEvents="none" style={[styles.selectionMarker, animatedStyle]}>
-      <View style={[styles.selectionCircle, { borderColor: selected ? palette.accent : palette.faintText, backgroundColor: selected ? palette.accent : "transparent" }]}>
+      <View
+        style={[
+          styles.selectionCircle,
+          {
+            borderColor: selected ? palette.accent : palette.faintText,
+            backgroundColor: selected ? palette.accent : "transparent",
+          },
+        ]}
+      >
         {selected ? <AppIcon name="checkmark" size={15} color={palette.onAccent} strokeWidth={2} /> : null}
       </View>
     </Animated.View>
@@ -167,29 +226,91 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
   const showMeta = showTime || Boolean(message.editedAt) || Boolean(message.pinnedAt) || (mine && Boolean(message.pending || message.failed));
   const metadata = showMeta ? <MessageMetadata message={message} mine={mine} showTime={showTime} foreground={mediaOnly ? "white" : foreground} mutedForeground={mediaOnly ? "rgba(255,255,255,0.94)" : mutedForeground} overlay={mediaOnly} /> : null;
   const reactionBar = reactions.length > 0 ? <ReactionBar reactions={reactions} overlay={mediaOnly} onReact={onReact} /> : null;
+  const inlineMetadata = Boolean(message.text && !attachments.length && !message.replyTo && !message.forwardedFrom && !reactionBar && metadata);
   if (message.activity) return <CooperativeActivityCard activity={message.activity} onOpen={() => onOpenActivity?.()} />;
   return (
     <View pointerEvents={interactionDisabled ? "none" : "auto"}>
-      {showSender && !mediaOnly ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent, fontSize: ui.font(13) }]}>{message.sender.displayName}</Text> : null}
+      {showSender && !mediaOnly ? (
+        <Text
+          style={[
+            styles.sender,
+            {
+              color: message.sender.avatarColor || palette.accent,
+              fontSize: ui.font(13),
+            },
+          ]}
+        >
+          {message.sender.displayName}
+        </Text>
+      ) : null}
       {message.replyTo ? (
         <Pressable accessibilityRole="button" onPress={() => onReplyPress?.(message.replyTo!.id)} style={[styles.reply, { borderColor: palette.accent }]}>
-          <Text numberOfLines={1} style={[styles.replyName, { color: palette.accent, fontSize: ui.font(12) }]}>{message.replyTo.senderName}</Text>
-          <Text numberOfLines={1} style={[styles.replyText, { color: mutedForeground, fontSize: ui.font(12) }]}>{message.replyTo.text}</Text>
+          <Text numberOfLines={1} style={[styles.replyName, { color: palette.accent, fontSize: ui.font(12) }]}>
+            {message.replyTo.senderName}
+          </Text>
+          <Text numberOfLines={1} style={[styles.replyText, { color: mutedForeground, fontSize: ui.font(12) }]}>
+            {message.replyTo.text}
+          </Text>
         </Pressable>
       ) : null}
-      {message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}
-      {mediaOnly ? <View style={styles.mediaStage}>
-        {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
-        {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />)}
-        {showSender ? <View style={[styles.mediaSenderOverlay, styles.overlayIsland]}><Text numberOfLines={1} style={styles.mediaSender}>{message.sender.displayName}</Text></View> : null}
-        {reactionBar ? <View style={styles.mediaReactionOverlay}>{reactionBar}</View> : null}
-        {metadata ? <View style={styles.mediaMetaOverlay}>{metadata}</View> : null}
-      </View> : <>
-        {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
-        {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />)}
-      </>}
-      {message.text ? <Text selectable={false} style={[styles.text, { color: foreground, fontSize: ui.font(16), lineHeight: ui.font(21) }]}>{message.text}</Text> : null}
-      {!mediaOnly && (reactionBar || metadata) ? <View style={[styles.footer, !showTime && styles.channelFooter]}>{reactionBar}<View style={styles.footerSpacer} />{metadata}</View> : null}
+      {message.forwardedFrom ? (
+        <View style={styles.forwarded}>
+          <AppIcon name="return-up-forward" size={13} color={palette.accent} />
+          <Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>
+            {message.forwardedFrom.senderName}
+          </Text>
+        </View>
+      ) : null}
+      {mediaOnly ? (
+        <View style={styles.mediaStage}>
+          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
+          {otherAttachments.map((attachment) => (
+            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />
+          ))}
+          {showSender ? (
+            <View style={[styles.mediaSenderOverlay, styles.overlayIsland]}>
+              <Text numberOfLines={1} style={styles.mediaSender}>
+                {message.sender.displayName}
+              </Text>
+            </View>
+          ) : null}
+          {reactionBar ? <View style={styles.mediaReactionOverlay}>{reactionBar}</View> : null}
+          {metadata ? <View style={styles.mediaMetaOverlay}>{metadata}</View> : null}
+        </View>
+      ) : (
+        <>
+          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
+          {otherAttachments.map((attachment) => (
+            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />
+          ))}
+        </>
+      )}
+      {message.text ? (
+        <View style={inlineMetadata ? styles.inlineTextWrap : undefined}>
+          <Text
+            selectable={false}
+            style={[
+              styles.text,
+              {
+                color: foreground,
+                fontSize: ui.font(16),
+                lineHeight: ui.font(21),
+              },
+            ]}
+          >
+            {message.text}
+            {inlineMetadata ? <Text style={styles.inlineMetaSpacer}>        </Text> : null}
+          </Text>
+          {inlineMetadata ? <View style={styles.inlineMeta}>{metadata}</View> : null}
+        </View>
+      ) : null}
+      {!mediaOnly && !inlineMetadata && (reactionBar || metadata) ? (
+        <View style={[styles.footer, !showTime && styles.channelFooter]}>
+          {reactionBar}
+          <View style={styles.footerSpacer} />
+          {metadata}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -197,35 +318,92 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
 function MessageMetadata({ message, mine, showTime, foreground, mutedForeground, overlay }: { message: Message; mine: boolean; showTime: boolean; foreground: string; mutedForeground: string; overlay: boolean }) {
   const palette = usePalette();
   const { t } = useTranslation();
-  return <View style={[styles.meta, overlay && styles.overlayIsland]}>
-    {message.pinnedAt ? <View style={styles.pinned}><AppIcon name="pin" size={10} color={overlay ? "white" : palette.accent} /><Text style={[styles.edited, { color: overlay ? "white" : palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}
-    {message.editedAt ? <Text style={[styles.edited, { color: mutedForeground }]}>edited</Text> : null}
-    {showTime ? <Text style={[styles.time, { color: mutedForeground }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
-    {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : foreground} /> : null}
-  </View>;
+  return (
+    <View style={[styles.meta, overlay && styles.overlayIsland]}>
+      {message.pinnedAt ? (
+        <View style={styles.pinned}>
+          <AppIcon name="pin" size={10} color={overlay ? "white" : palette.accent} />
+          <Text style={[styles.edited, { color: overlay ? "white" : palette.accent }]}>{t("pinnedMessage")}</Text>
+        </View>
+      ) : null}
+      {message.editedAt ? <Text style={[styles.edited, { color: mutedForeground }]}>edited</Text> : null}
+      {showTime ? (
+        <Text style={[styles.time, { color: mutedForeground }]}>
+          {new Date(message.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </Text>
+      ) : null}
+      {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : foreground} /> : null}
+    </View>
+  );
 }
 
 function ReactionBar({ reactions, overlay, onReact }: { reactions: ReturnType<typeof renderableReactions>; overlay: boolean; onReact?: ((emoji: string) => void) | undefined }) {
   const palette = usePalette();
-  return <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, overlay ? styles.overlayReaction : { backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink, borderColor: reaction.reacted ? palette.accent : palette.outline }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View>;
+  return (
+    <View style={styles.reactions}>
+      {reactions.map((reaction) => (
+        <Pressable
+          accessibilityLabel={reaction.emoji}
+          key={reaction.emoji}
+          onPress={() => onReact?.(reaction.emoji)}
+          style={[
+            styles.reaction,
+            overlay
+              ? styles.overlayReaction
+              : {
+                  backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink,
+                  borderColor: reaction.reacted ? palette.accent : palette.outline,
+                },
+          ]}
+        >
+          <Text style={styles.emoji}>{reaction.emoji}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
 }
 
 function MediaAlbum({ attachments }: { attachments: Attachment[] }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
   const rows = mediaAlbumRows(attachments);
   const rowHeight = rows.length === 1 ? 178 : rows.length === 2 ? 126 : 94;
-  return <View style={styles.album}>{rows.map((row) => <View key={row.map((attachment) => attachment.id).join(":")} style={[styles.albumRow, { height: rowHeight }]}>{row.map((attachment) => <SafeAlbumMediaTile key={attachment.id} attachment={attachment} />)}</View>)}</View>;
+  return (
+    <>
+      <View style={styles.album}>
+        {rows.map((row) => (
+          <View key={row.map((attachment) => attachment.id).join(":")} style={[styles.albumRow, { height: rowHeight }]}>
+            {row.map((attachment) => (
+              <SafeAlbumMediaTile key={attachment.id} attachment={attachment} onOpen={() => setOpenIndex(attachments.indexOf(attachment))} />
+            ))}
+          </View>
+        ))}
+      </View>
+      {openIndex !== null ? <AlbumAttachmentViewer attachments={attachments} index={openIndex} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} /> : null}
+    </>
+  );
 }
 
 function SafeAttachmentView({ attachment, streamId, mine, foreground, mutedForeground }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string }) {
   const palette = usePalette();
   const { t } = useTranslation();
-  return <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}><AttachmentView attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} /></AttachmentFailureBoundary>;
+  return (
+    <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}>
+      <AttachmentView attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />
+    </AttachmentFailureBoundary>
+  );
 }
 
-function SafeAlbumMediaTile({ attachment }: { attachment: Attachment }) {
+function SafeAlbumMediaTile({ attachment, onOpen }: { attachment: Attachment; onOpen: () => void }) {
   const palette = usePalette();
   const { t } = useTranslation();
-  return <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")} compact><AlbumMediaTile attachment={attachment} /></AttachmentFailureBoundary>;
+  return (
+    <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")} compact>
+      <AlbumMediaTile attachment={attachment} onOpen={onOpen} />
+    </AttachmentFailureBoundary>
+  );
 }
 
 interface AttachmentFailureBoundaryProps {
@@ -245,7 +423,10 @@ class AttachmentFailureBoundary extends Component<AttachmentFailureBoundaryProps
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    recordDiagnostic("error", "crash", "Unhandled JavaScript error", { name: error.name, description: attachmentComponentName(info.componentStack) });
+    recordDiagnostic("error", "crash", "Unhandled JavaScript error", {
+      name: error.name,
+      description: attachmentComponentName(info.componentStack),
+    });
   }
 
   componentDidUpdate(previous: AttachmentFailureBoundaryProps) {
@@ -254,7 +435,14 @@ class AttachmentFailureBoundary extends Component<AttachmentFailureBoundaryProps
 
   render() {
     if (!this.state.failed) return this.props.children;
-    return <View style={[this.props.compact ? styles.failedAttachmentCompact : styles.failedAttachment, { backgroundColor: this.props.backgroundColor }]}><AppIcon name="document-outline" size={20} color={this.props.color} /><Text numberOfLines={1} style={[styles.failedAttachmentText, { color: this.props.color }]}>{this.props.label}</Text></View>;
+    return (
+      <View style={[this.props.compact ? styles.failedAttachmentCompact : styles.failedAttachment, { backgroundColor: this.props.backgroundColor }]}>
+        <AppIcon name="document-outline" size={20} color={this.props.color} />
+        <Text numberOfLines={1} style={[styles.failedAttachmentText, { color: this.props.color }]}>
+          {this.props.label}
+        </Text>
+      </View>
+    );
   }
 }
 
@@ -262,16 +450,33 @@ function attachmentComponentName(componentStack?: string | null): string {
   return componentStack?.match(/\bat ([A-Za-z][A-Za-z0-9_]*)\b/)?.[1] ?? "AttachmentComponent";
 }
 
-function AlbumMediaTile({ attachment }: { attachment: Attachment }) {
-  const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
-  const open = openAttachmentId === attachment.id;
-  return <>
-    <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={styles.albumTile}>
-      <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
-      {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
-    </Pressable>
-    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
-  </>;
+function AlbumMediaTile({ attachment, onOpen }: { attachment: Attachment; onOpen: () => void }) {
+  return (
+    <>
+      <Pressable accessibilityRole="button" onPress={onOpen} style={styles.albumTile}>
+        <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
+        {attachment.kind === "video" ? (
+          <>
+            <View style={styles.albumPlay}>
+              <AppIcon name="play" size={19} color="white" />
+            </View>
+            {attachment.durationMs ? (
+              <View style={styles.albumDuration}>
+                <Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text>
+              </View>
+            ) : null}
+          </>
+        ) : null}
+      </Pressable>
+    </>
+  );
+}
+
+function AlbumAttachmentViewer({ attachments, index, onIndex, onClose }: { attachments: Attachment[]; index: number; onIndex: (index: number) => void; onClose: () => void }) {
+  const attachment = attachments[index]!;
+  const source = useAuthorizedMedia(attachment.url);
+  if (attachment.kind === "video") return <VideoViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={onClose} />;
+  return <ImageViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={onClose} {...(index > 0 ? { onPrevious: () => onIndex(index - 1) } : {})} {...(index < attachments.length - 1 ? { onNext: () => onIndex(index + 1) } : {})} />;
 }
 
 function AttachmentView({ attachment, streamId, mine, foreground, mutedForeground }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string }) {
@@ -280,9 +485,18 @@ function AttachmentView({ attachment, streamId, mine, foreground, mutedForegroun
   if (attachment.kind === "video") return <InlineVideo attachment={attachment} />;
   if (attachment.kind === "audio") return <VoiceMessageAttachment attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
   return (
-    <Pressable onPress={() => void Linking.openURL(attachment.url)} style={[styles.file, { backgroundColor: palette.surface }]}> 
-      <View style={[styles.fileIcon, { backgroundColor: palette.accentSoft }]}><AppIcon name="document-outline" size={23} color={palette.accent} /></View>
-      <View style={styles.fileText}><Text numberOfLines={1} style={[styles.filename, { color: palette.text }]}>{attachment.filename}</Text><Text style={[styles.filesize, { color: palette.secondaryText }]}>{formatBytes(attachment.bytes)} · {attachment.quality}</Text></View>
+    <Pressable onPress={() => void Linking.openURL(attachment.url)} style={[styles.file, { backgroundColor: palette.surface }]}>
+      <View style={[styles.fileIcon, { backgroundColor: palette.accentSoft }]}>
+        <AppIcon name="document-outline" size={23} color={palette.accent} />
+      </View>
+      <View style={styles.fileText}>
+        <Text numberOfLines={1} style={[styles.filename, { color: palette.text }]}>
+          {attachment.filename}
+        </Text>
+        <Text style={[styles.filesize, { color: palette.secondaryText }]}>
+          {formatBytes(attachment.bytes)} · {attachment.quality}
+        </Text>
+      </View>
       <AppIcon name="download-outline" size={20} color={palette.accent} />
     </Pressable>
   );
@@ -292,37 +506,53 @@ function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
   const [size, onIntrinsicSize] = useMediaFrame(attachment);
-  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} resizeMode="contain" showLoader onIntrinsicSize={onIntrinsicSize} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
+  return (
+    <>
+      <Pressable onPress={() => setOpenAttachmentId(attachment.id)}>
+        <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} resizeMode="contain" showLoader onIntrinsicSize={onIntrinsicSize} style={[styles.photo, size]} />
+      </Pressable>
+      {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
+    </>
+  );
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
   const [size, onIntrinsicSize] = useMediaFrame(attachment);
-  return <>
-    <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={[styles.videoPreview, size]}>
-      {attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" onIntrinsicSize={onIntrinsicSize} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
-      <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
-      {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
-    </Pressable>
-    {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
-  </>;
+  return (
+    <>
+      <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={[styles.videoPreview, size]}>
+        {attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" onIntrinsicSize={onIntrinsicSize} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
+        <View style={styles.videoPlay}>
+          <AppIcon name="play" size={23} color="white" />
+        </View>
+        {attachment.durationMs ? (
+          <View style={styles.videoDurationBadge}>
+            <Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text>
+          </View>
+        ) : null}
+      </Pressable>
+      {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
+    </>
+  );
 }
 
 function useMediaFrame(attachment: Attachment): [ReturnType<typeof messageMediaSize>, (width: number, height: number) => void] {
-  const [decodedSize, setDecodedSize] = useState<{ width: number; height: number } | null>(null);
+  const [decodedSize, setDecodedSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   useEffect(() => setDecodedSize(null), [attachment.id]);
   const onIntrinsicSize = useCallback((width: number, height: number) => {
-    setDecodedSize((current) => current?.width === width && current.height === height ? current : { width, height });
+    setDecodedSize((current) => (current?.width === width && current.height === height ? current : { width, height }));
   }, []);
   return [messageMediaSize(decodedSize?.width ?? attachment.width, decodedSize?.height ?? attachment.height), onIntrinsicSize];
 }
 
 function AttachmentViewer({ attachment, onClose }: { attachment: Attachment; onClose: () => void }) {
   const source = useAuthorizedMedia(attachment.url);
-  return attachment.kind === "video"
-    ? <VideoViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={onClose} />
-    : <ImageViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={onClose} />;
+  return attachment.kind === "video" ? <VideoViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={onClose} /> : <ImageViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={onClose} />;
 }
 
 function formatBytes(bytes: number): string {
@@ -340,64 +570,237 @@ function formatDuration(seconds: number): string {
 const styles = StyleSheet.create({
   selectionFrame: { width: "100%", position: "relative" },
   selectionContent: { width: "100%" },
-  selectionMarker: { position: "absolute", left: 8, top: "50%", marginTop: -11, zIndex: 2 },
-  selectionCircle: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  selectionMarker: {
+    position: "absolute",
+    left: 8,
+    top: "50%",
+    marginTop: -11,
+    zIndex: 2,
+  },
+  selectionCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   row: { width: "100%", paddingHorizontal: 8, marginVertical: 2 },
   mineRow: { alignItems: "flex-end" },
   theirRow: { alignItems: "flex-start" },
-  bubble: { maxWidth: "82%", minWidth: 78, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  bubble: {
+    maxWidth: "82%",
+    minWidth: 78,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
   mediaBubble: { maxWidth: "86%", minWidth: 0, overflow: "hidden" },
   mineBubble: { borderTopRightRadius: 8 },
   theirBubble: { borderTopLeftRadius: 8 },
   activityBubble: { maxWidth: "94%", width: 302, borderWidth: 0 },
-  channelRow: { width: "100%", flexDirection: "row", paddingHorizontal: 12, paddingVertical: 3 },
+  channelRow: {
+    width: "100%",
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 3,
+  },
   channelAvatar: { width: 40, marginRight: 10 },
   channelContent: { flex: 1, minWidth: 0, paddingRight: 8, borderRadius: 10 },
-  authorLine: { flexDirection: "row", alignItems: "baseline", gap: 7, marginBottom: 2 },
+  authorLine: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 7,
+    marginBottom: 2,
+  },
   channelAuthor: { fontSize: 15, fontWeight: "700" },
   channelTime: { fontSize: 11 },
   channelFooter: { justifyContent: "flex-start" },
   sender: { fontSize: 13, fontWeight: "700", marginBottom: 3 },
   text: { fontSize: 16, lineHeight: 21 },
+  inlineTextWrap: { position: "relative" },
+  inlineMetaSpacer: { color: "transparent" },
+  inlineMeta: { position: "absolute", right: 0, bottom: 1 },
   reply: { borderLeftWidth: 3, paddingLeft: 7, marginBottom: 6 },
   replyName: { fontSize: 12, fontWeight: "700" },
   replyText: { fontSize: 12, marginTop: 1 },
-  forwarded: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 5 },
+  forwarded: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 5,
+  },
   forwardedText: { fontSize: 12, fontWeight: "700" },
-  footer: { minHeight: 20, flexDirection: "row", alignItems: "flex-end", marginTop: 3, gap: 5 },
+  footer: {
+    minHeight: 20,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    marginTop: 3,
+    gap: 5,
+  },
   footerSpacer: { flex: 1, minWidth: 5 },
   meta: { flexDirection: "row", alignItems: "center", gap: 3 },
-  overlayIsland: { minHeight: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: "rgba(17,18,24,0.58)" },
+  overlayIsland: {
+    minHeight: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: "rgba(17,18,24,0.58)",
+  },
   pinned: { flexDirection: "row", alignItems: "center", gap: 2 },
   time: { fontSize: 10 },
   edited: { fontSize: 10 },
   mediaStage: { position: "relative" },
-  mediaSenderOverlay: { position: "absolute", left: 6, top: 6, maxWidth: "72%" },
+  mediaSenderOverlay: {
+    position: "absolute",
+    left: 6,
+    top: 6,
+    maxWidth: "72%",
+  },
   mediaSender: { color: "white", fontSize: 12, fontWeight: "800" },
-  mediaReactionOverlay: { position: "absolute", left: 6, bottom: 6, maxWidth: "62%" },
+  mediaReactionOverlay: {
+    position: "absolute",
+    left: 6,
+    bottom: 6,
+    maxWidth: "62%",
+  },
   mediaMetaOverlay: { position: "absolute", right: 6, bottom: 6 },
-  photo: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "#202329" },
-  album: { width: 286, gap: 2, borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)" },
+  photo: {
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "#202329",
+  },
+  album: {
+    width: 286,
+    gap: 2,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
   albumRow: { flexDirection: "row", gap: 2 },
-  albumTile: { flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: "#202329" },
-  albumPlay: { position: "absolute", left: "50%", top: "50%", width: 36, height: 36, marginLeft: -18, marginTop: -18, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
-  albumDuration: { position: "absolute", right: 5, top: 5, minWidth: 30, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
+  albumTile: {
+    flex: 1,
+    minWidth: 0,
+    overflow: "hidden",
+    backgroundColor: "#202329",
+  },
+  albumPlay: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: 36,
+    height: 36,
+    marginLeft: -18,
+    marginTop: -18,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  albumDuration: {
+    position: "absolute",
+    right: 5,
+    top: 5,
+    minWidth: 30,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.62)",
+  },
   video: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
-  videoPreview: { borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "#202329" },
+  videoPreview: {
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "#202329",
+  },
   videoPlaceholder: { backgroundColor: "#202329" },
-  videoPlay: { position: "absolute", left: "50%", top: "50%", width: 44, height: 44, marginLeft: -22, marginTop: -22, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
-  videoDurationBadge: { position: "absolute", right: 7, top: 7, minWidth: 34, height: 20, paddingHorizontal: 6, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
-  videoDurationText: { color: "white", fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
-  file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
-  fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  videoPlay: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: 44,
+    height: 44,
+    marginLeft: -22,
+    marginTop: -22,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoDurationBadge: {
+    position: "absolute",
+    right: 7,
+    top: 7,
+    minWidth: 34,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.62)",
+  },
+  videoDurationText: {
+    color: "white",
+    fontSize: 11,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
+  file: {
+    width: 250,
+    minHeight: 58,
+    borderRadius: 11,
+    padding: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    marginBottom: 4,
+  },
+  fileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   fileText: { flex: 1 },
   filename: { fontSize: 13, fontWeight: "600" },
   filesize: { fontSize: 11, marginTop: 3 },
   reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, flexShrink: 1 },
-  reaction: { borderWidth: 1, borderRadius: 12, minWidth: 27, height: 24, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
-  overlayReaction: { backgroundColor: "rgba(17,18,24,0.58)", borderColor: "rgba(255,255,255,0.22)" },
+  reaction: {
+    borderWidth: 1,
+    borderRadius: 12,
+    minWidth: 27,
+    height: 24,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  overlayReaction: {
+    backgroundColor: "rgba(17,18,24,0.58)",
+    borderColor: "rgba(255,255,255,0.22)",
+  },
   emoji: { fontSize: 13 },
-  failedAttachment: { width: 238, minHeight: 48, borderRadius: 11, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  failedAttachmentCompact: { flex: 1, minWidth: 0, height: "100%", alignItems: "center", justifyContent: "center" },
+  failedAttachment: {
+    width: 238,
+    minHeight: 48,
+    borderRadius: 11,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  failedAttachmentCompact: {
+    flex: 1,
+    minWidth: 0,
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   failedAttachmentText: { flexShrink: 1, fontSize: 12, fontWeight: "700" },
 });

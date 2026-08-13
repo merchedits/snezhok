@@ -25,7 +25,7 @@ const profileSource = readFileSync(new URL("./ProfileScreen.tsx", import.meta.ur
 
 test("chat external-store selectors never allocate a filtered snapshot", () => {
   assert.doesNotMatch(chatSource, /useAppStore\(\(state\)\s*=>\s*state\.[^)]+\.filter\(/);
-  assert.match(chatSource, /useMemo\(\(\)\s*=>\s*allScheduledMessages\.filter/);
+  assert.match(chatSource, /useMemo\([\s\S]{0,80}allScheduledMessages\.filter/);
 });
 
 test("startup-warmed server administration keeps external-store snapshots stable", () => {
@@ -86,7 +86,7 @@ test("cached chats use one bottom-anchor mechanism without a duplicate overlay",
   assert.match(chatSource, /startRenderingFromBottom: true/);
   assert.match(chatSource, /onLoad=\{recordFirstPaint\}/);
   assert.doesNotMatch(chatSource, /FIRST_FRAME_MESSAGES|firstFrameMessages|onContentSizeChange=/);
-  assert.match(chatSource, /onScrollBeginDrag=\{\(\) => \{ userDraggedHistory\.current = true/);
+  assert.match(chatSource, /onScrollBeginDrag=\{\(\) => \{[\s\S]{0,40}userDraggedHistory\.current = true/);
 });
 
 test("conversation touch warms SQLite without pre-mounting the native route", () => {
@@ -110,12 +110,12 @@ test("chat reconciliation waits for the native transition to settle", () => {
   assert.match(chatSource, /navigation\.addListener\("transitionEnd"/);
   assert.match(chatSource, /if \(!routeSettled\) return/);
   assert.match(chatSource, /preloadCachedMessages\(\[streamId\]\)/);
-  assert.match(chatSource, /recordPerformance\(chatOpenPerformanceKind\(cachedMessageCountAtOpen\.current\)/);
+  assert.match(chatSource, /recordPerformance\([\s\S]{0,80}chatOpenPerformanceKind\([\s\S]{0,80}cachedMessageCountAtOpen\.current/);
 });
 
 test("chat composer follows keyboard progress without late JS visibility jumps", () => {
   assert.match(chatSource, /useReanimatedKeyboardAnimation/);
-  assert.match(chatSource, /interpolate\(keyboardProgress\.value/);
+  assert.match(chatSource, /interpolate\([\s\S]{0,40}keyboardProgress\.value/);
   assert.doesNotMatch(chatSource, /Keyboard\.addListener|keyboardDidShow|keyboardDidHide|keyboardVisible/);
 });
 
@@ -128,7 +128,7 @@ test("text-entry screens and management forms keep focused inputs above the keyb
 });
 
 test("attachments expose camera capture without replacing original-file sending", () => {
-  assert.match(attachmentSheetSource, /\.\.\.\(imagesOnly \? \[\] : \[UPLOAD_ITEM\]\), CAMERA_ITEM,/);
+  assert.match(attachmentSheetSource, /\.\.\.\(imagesOnly \? \[\] : \[UPLOAD_ITEM\]\),[\s\S]{0,30}CAMERA_ITEM/);
   assert.match(attachmentSheetSource, /requestCameraPermissionsAsync/);
   assert.match(attachmentSheetSource, /launchCameraAsync/);
   assert.match(attachmentSheetSource, /stripLocation: true/);
@@ -137,7 +137,7 @@ test("attachments expose camera capture without replacing original-file sending"
 test("cooperative drawing is live and color hunt resolves to generated collage media", () => {
   assert.match(activityModalSource, /subscribeRealtimeDrawing/);
   assert.match(activityModalSource, /emitRealtimeDrawing/);
-  assert.match(activityModalSource, /ownCollage \? <CollagePhoto/);
+  assert.match(activityModalSource, /ownCollage[\s\S]{0,80}<CollagePhoto/);
   assert.match(activityModalSource, /entry\.kind === "collage"/);
 });
 

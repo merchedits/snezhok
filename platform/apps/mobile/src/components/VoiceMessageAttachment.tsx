@@ -8,20 +8,8 @@ import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia, type AuthenticatedMediaSource } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
-import {
-  VOICE_WAVEFORM_HEIGHT,
-  voiceWaveformBars,
-} from "../lib/voiceWaveform";
-import {
-  completeVoicePlayback,
-  cycleVoicePlaybackSpeed,
-  pauseVoicePlayback,
-  registerVoiceController,
-  requestVoicePlayback,
-  subscribeVoicePlayback,
-  voicePlaybackSnapshot,
-  type VoicePlaybackSpeed,
-} from "../lib/voicePlaybackCoordinator";
+import { VOICE_WAVEFORM_HEIGHT, voiceWaveformBars } from "../lib/voiceWaveform";
+import { completeVoicePlayback, pauseVoicePlayback, registerVoiceController, requestVoicePlayback, subscribeVoicePlayback, updateVoicePlaybackProgress, voicePlaybackSnapshot, type VoicePlaybackSpeed } from "../lib/voicePlaybackCoordinator";
 import { AppIcon } from "./AppIcon";
 
 const DEFAULT_WAVEFORM_WIDTH = 176;
@@ -50,22 +38,7 @@ export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ att
   if (activated) {
     return <ActiveVoiceMessage attachment={attachment} bars={bars} source={source} speed={playback.speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
   }
-  return (
-    <VoiceMessageFrame
-      bars={bars}
-      currentSeconds={attachmentDuration(attachment)}
-      durationSeconds={attachmentDuration(attachment)}
-      loading={false}
-      playing={false}
-      progress={0}
-      speed={playback.speed}
-      mine={mine}
-      foreground={foreground}
-      mutedForeground={mutedForeground}
-      onSpeedChange={cycleVoicePlaybackSpeed}
-      onToggle={() => requestVoicePlayback(streamId, attachment.id)}
-    />
-  );
+  return <VoiceMessageFrame bars={bars} currentSeconds={attachmentDuration(attachment)} durationSeconds={attachmentDuration(attachment)} loading={false} playing={false} progress={0} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onToggle={() => requestVoicePlayback(streamId, attachment.id)} />;
 });
 
 interface ActiveVoiceMessageProps {
@@ -99,10 +72,14 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   const [playbackFailed, setPlaybackFailed] = useState(false);
   const play = useCallback(() => {
     setPlaybackFailed(false);
-    void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).then(() => player.play()).catch((error) => {
-      setPlaybackFailed(true);
-      recordDiagnostic("warn", "media", "Voice playback failed", { failure: error instanceof Error ? error.name : "audio-mode" });
-    });
+    void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true })
+      .then(() => player.play())
+      .catch((error) => {
+        setPlaybackFailed(true);
+        recordDiagnostic("warn", "media", "Voice playback failed", {
+          failure: error instanceof Error ? error.name : "audio-mode",
+        });
+      });
   }, [player]);
 
   useEffect(() => {
@@ -110,8 +87,15 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
       pause: () => player.pause(),
       play,
       setRate: (rate) => player.setPlaybackRate(rate),
+      seekTo: (seconds) => {
+        void player.seekTo(seconds);
+      },
     });
   }, [attachment.id, play, player, streamId]);
+
+  useEffect(() => {
+    updateVoicePlaybackProgress(`${streamId}:${attachment.id}`, currentTime, duration, status.playing);
+  }, [attachment.id, currentTime, duration, status.playing, streamId]);
 
   useEffect(() => {
     if (!status.isLoaded || status.error || autoStarted.current) return;
@@ -122,7 +106,9 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   useEffect(() => {
     if (!status.error || recordedNativeFailure.current) return;
     recordedNativeFailure.current = true;
-    recordDiagnostic("warn", "media", "Voice playback failed", { failure: "native-player" });
+    recordDiagnostic("warn", "media", "Voice playback failed", {
+      failure: "native-player",
+    });
   }, [status.error]);
 
   useEffect(() => {
@@ -148,7 +134,7 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
       pauseVoicePlayback(streamId, attachment.id);
       return;
     }
-    if (status.didJustFinish || duration > 0 && currentTime >= duration - 0.05) {
+    if (status.didJustFinish || (duration > 0 && currentTime >= duration - 0.05)) {
       void player.seekTo(0).then(() => requestVoicePlayback(streamId, attachment.id));
       return;
     }
@@ -161,24 +147,7 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   };
 
   const displayedTime = status.didJustFinish || currentTime <= 0 ? duration : currentTime;
-  return (
-    <VoiceMessageFrame
-      bars={bars}
-      currentSeconds={displayedTime}
-      durationSeconds={duration}
-      loading={!status.error && (!status.isLoaded || status.isBuffering && !status.playing)}
-      failed={Boolean(status.error) || playbackFailed}
-      playing={status.playing}
-      progress={progress}
-      speed={speed}
-      mine={mine}
-      foreground={foreground}
-      mutedForeground={mutedForeground}
-      onSpeedChange={cycleVoicePlaybackSpeed}
-      onSeek={seekToProgress}
-      onToggle={toggle}
-    />
-  );
+  return <VoiceMessageFrame bars={bars} currentSeconds={displayedTime} durationSeconds={duration} loading={!status.error && (!status.isLoaded || (status.isBuffering && !status.playing))} failed={Boolean(status.error) || playbackFailed} playing={status.playing} progress={progress} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onSeek={seekToProgress} onToggle={toggle} />;
 }
 
 interface VoiceMessageFrameProps {
@@ -189,16 +158,14 @@ interface VoiceMessageFrameProps {
   failed?: boolean;
   playing: boolean;
   progress: number;
-  speed: VoicePlaybackSpeed;
   mine: boolean;
   foreground: string;
   mutedForeground: string;
   onToggle: () => void;
-  onSpeedChange: () => void;
   onSeek?: (progress: number) => void;
 }
 
-function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, failed = false, playing, progress, speed, mine, foreground, mutedForeground, onToggle, onSpeedChange, onSeek }: VoiceMessageFrameProps) {
+function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, failed = false, playing, progress, mine, mutedForeground, onToggle, onSeek }: VoiceMessageFrameProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const [waveformWidth, setWaveformWidth] = useState(DEFAULT_WAVEFORM_WIDTH);
@@ -219,15 +186,8 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, fai
 
   return (
     <View style={styles.container}>
-      <Pressable
-        accessibilityLabel={t("voiceMessage")}
-        accessibilityRole="button"
-        onPress={onToggle}
-        style={[styles.playButton, { backgroundColor: controlColor }]}
-      >
-        {loading
-          ? <ActivityIndicator color={controlForeground} size="small" />
-          : <AppIcon name={failed ? "refresh-outline" : playing ? "pause" : "play"} size={19} color={controlForeground} />}
+      <Pressable accessibilityLabel={t("voiceMessage")} accessibilityRole="button" onPress={onToggle} style={[styles.playButton, { backgroundColor: controlColor }]}>
+        {loading ? <ActivityIndicator color={controlForeground} size="small" /> : <AppIcon name={failed ? "refresh-outline" : playing ? "pause" : "play"} size={19} color={controlForeground} />}
       </Pressable>
       <View style={styles.content}>
         <Pressable
@@ -243,14 +203,22 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, fai
           style={styles.waveform}
         >
           <View pointerEvents="none" style={styles.waveformCanvas}>
-            {bars.map((height, index) => <View key={index} style={[styles.waveformBar, { height, backgroundColor: index < playedBars ? controlColor : idleWaveform }]} />)}
+            {bars.map((height, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.waveformBar,
+                  {
+                    height,
+                    backgroundColor: index < playedBars ? controlColor : idleWaveform,
+                  },
+                ]}
+              />
+            ))}
           </View>
         </Pressable>
         <View style={styles.meta}>
           <Text style={[styles.time, { color: mutedForeground }]}>{formatDuration(currentSeconds || durationSeconds)}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={t("playbackSpeed")} onPress={onSpeedChange} hitSlop={7}>
-            <Text style={[styles.speed, { color: mine ? foreground : palette.accent }]}>{speed}x</Text>
-          </Pressable>
         </View>
       </View>
     </View>
@@ -322,11 +290,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-  },
-  speed: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: "800",
-    fontVariant: ["tabular-nums"],
   },
 });

@@ -1,15 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  completeVoicePlayback,
-  cycleVoicePlaybackSpeed,
-  registerVoiceController,
-  requestVoicePlayback,
-  resetVoicePlaybackForTests,
-  setVoicePlaybackQueue,
-  voicePlaybackSnapshot,
-} from "./voicePlaybackCoordinator";
+import { completeVoicePlayback, cycleVoicePlaybackSpeed, registerVoiceController, requestVoicePlayback, resetVoicePlaybackForTests, setVoicePlaybackQueue, voicePlaybackSnapshot, seekVoicePlayback, stopVoicePlayback, updateVoicePlaybackProgress, voicePlaybackProgressSnapshot } from "./voicePlaybackCoordinator";
 
 test("starting another note pauses the current note", () => {
   resetVoicePlaybackForTests();
@@ -19,6 +11,26 @@ test("starting another note pauses the current note", () => {
   requestVoicePlayback("s", "a");
   requestVoicePlayback("s", "b");
   assert.deepEqual(calls, ["play-a", "pause-a", "play-b"]);
+});
+
+test("top player controls seek and clear the active note", () => {
+  resetVoicePlaybackForTests();
+  let sought = 0;
+  registerVoiceController("s", "a", {
+    play: () => undefined,
+    pause: () => undefined,
+    setRate: () => undefined,
+    seekTo: (seconds) => {
+      sought = seconds;
+    },
+  });
+  requestVoicePlayback("s", "a");
+  updateVoicePlaybackProgress("s:a", 3, 12, true);
+  assert.deepEqual(voicePlaybackProgressSnapshot(), { key: "s:a", currentSeconds: 3, durationSeconds: 12, playing: true });
+  seekVoicePlayback(7);
+  assert.equal(sought, 7);
+  stopVoicePlayback();
+  assert.equal(voicePlaybackProgressSnapshot().key, null);
 });
 
 test("completion requests the next voice note in stream order", () => {

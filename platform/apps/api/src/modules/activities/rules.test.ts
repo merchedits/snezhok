@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { combinedRating, isYandexMusicUrl, memoryRevealDate, normalizeGuess, parseDrawingStrokes, validSongUrl } from "./rules.js";
+import { colorHuntBatchLimit, combinedRating, isYandexMusicUrl, memoryRevealDate, normalizeGuess, parseDrawingStrokes, validSongUrl } from "./rules.js";
 
 test("draw guesses compare normalized Russian text", () => {
   assert.equal(normalizeGuess("  ЁЖИК!!! "), "ежик");
   assert.equal(normalizeGuess("СНЕЖНЫЙ—ШАР"), "снежный шар");
+});
+
+test("color hunts accept a bounded batch up to the remaining board slots", () => {
+  assert.equal(colorHuntBatchLimit(9, 0), 9);
+  assert.equal(colorHuntBatchLimit(9, 7), 2);
+  assert.equal(colorHuntBatchLimit(9, 9), 0);
 });
 
 test("movie ratings expose the arithmetic mean without a compatibility score", () => {
@@ -25,8 +31,47 @@ test("song links require HTTPS and recognize Yandex Music hosts exactly", () => 
 });
 
 test("drawings accept only bounded numeric strokes inside their canvas", () => {
-  assert.deepEqual(parseDrawingStrokes([[[0, 0], [300, 240]]], 300, 240), [[[0, 0], [300, 240]]]);
+  assert.deepEqual(
+    parseDrawingStrokes(
+      [
+        [
+          [0, 0],
+          [300, 240],
+        ],
+      ],
+      300,
+      240,
+    ),
+    [
+      [
+        [0, 0],
+        [300, 240],
+      ],
+    ],
+  );
   assert.equal(parseDrawingStrokes([[{ x: 1 }, [2, 2]]], 300, 240), null);
-  assert.equal(parseDrawingStrokes([[[0, 0], [301, 2]]], 300, 240), null);
-  assert.equal(parseDrawingStrokes(Array.from({ length: 201 }, () => [[0, 0], [1, 1]]), 300, 240), null);
+  assert.equal(
+    parseDrawingStrokes(
+      [
+        [
+          [0, 0],
+          [301, 2],
+        ],
+      ],
+      300,
+      240,
+    ),
+    null,
+  );
+  assert.equal(
+    parseDrawingStrokes(
+      Array.from({ length: 201 }, () => [
+        [0, 0],
+        [1, 1],
+      ]),
+      300,
+      240,
+    ),
+    null,
+  );
 });

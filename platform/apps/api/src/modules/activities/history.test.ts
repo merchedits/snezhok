@@ -10,5 +10,5 @@ test("Together history is a bounded projection of visible durable anchor message
   assert.match(source, /ca\.state IN \('completed','locked'\)/);
   assert.match(source, /ca\.type IN \('movie-list','ideas-jar','milestone'\)/);
   assert.match(source, /LIMIT 50/);
-  assert.match(source, /getMessagesByIds\(client, anchors\.rows\.map/);
+  assert.match(source, /getMessagesByIds\([\s\S]{0,80}anchors\.rows\.map/);
 });

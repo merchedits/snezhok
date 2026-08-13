@@ -27,6 +27,7 @@ import { acknowledgePendingSettings, hasPendingSettings, mergePendingSettings, t
 import { clearSession, getRuntimeSession, readSession, sessionOwnerId, subscribeToSession, writeSession } from "../lib/secureSession";
 import { mergeAcknowledgedPatch } from "../lib/settingsSync";
 import type { MessageCreateInput, OutboxEntry, SettingsPatch, UploadInput } from "../types";
+import { prepareMediaUpload, prepareMediaUploads } from "../lib/prepareMediaUpload";
 import type { ChatFolder, ScheduledMessage } from "../types";
 import {
   cancelBackgroundBatch,
@@ -875,8 +876,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const guard = captureAccountOperation();
     set({ uploadProgress: 0 });
     try {
+      const preparedInput = await prepareMediaUpload(input);
       const attachment = await api.upload(
-        { ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation },
+        { ...preparedInput, stripLocation: preparedInput.stripLocation ?? get().settings.stripMediaLocation },
         (uploadProgress) => { if (accountOperationIsCurrent(guard)) set({ uploadProgress }); },
       );
       if (!accountOperationIsCurrent(guard)) throw new StaleAccountOperationError();
@@ -893,7 +895,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const guard = captureAccountOperation();
     if (!get().online) throw new Error("Attachments require a network connection");
     if (activeBackgroundBatchId) throw new Error("Another attachment batch is already being prepared");
-    const prepared = inputs.map((input) => ({
+    const compressed = await prepareMediaUploads(inputs);
+    const prepared = compressed.map((input) => ({
       ...input,
       stripLocation: input.stripLocation ?? get().settings.stripMediaLocation,
     }));

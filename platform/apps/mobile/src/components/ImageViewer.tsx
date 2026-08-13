@@ -4,7 +4,7 @@ import * as MediaLibrary from "expo-media-library";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTranslation } from "../i18n";
@@ -17,7 +17,7 @@ type AuthorizedImageSource = {
   headers: Record<string, string>;
 };
 
-export function ImageViewer({ visible, source, filename, mimeType, onClose }: { visible: boolean; source: AuthorizedImageSource; filename: string; mimeType: string; onClose: () => void }) {
+export function ImageViewer({ visible, source, filename, mimeType, onClose, onNext, onPrevious }: { visible: boolean; source: AuthorizedImageSource; filename: string; mimeType: string; onClose: () => void; onNext?: () => void; onPrevious?: () => void }) {
   const { t } = useTranslation();
   const showDialog = useAppDialog();
   const insets = useSafeAreaInsets();
@@ -41,81 +41,100 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
     savedTranslateY.value = 0;
   }, [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, visible]);
 
-  const pinch = useMemo(() => Gesture.Pinch()
-    .onBegin(() => {
-      savedScale.value = scale.value;
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    })
-    .onUpdate((event) => {
-      const nextScale = Math.max(1, Math.min(6, savedScale.value * event.scale));
-      const maxX = Math.max(0, (viewportWidth.value * (nextScale - 1)) / (2 * nextScale));
-      const maxY = Math.max(0, (viewportHeight.value * (nextScale - 1)) / (2 * nextScale));
-      scale.value = nextScale;
-      translateX.value = Math.max(-maxX, Math.min(maxX, savedTranslateX.value));
-      translateY.value = Math.max(-maxY, Math.min(maxY, savedTranslateY.value));
-    })
-    .onEnd(() => {
-      savedScale.value = scale.value;
-      if (scale.value <= 1) {
-        translateX.value = withTiming(0);
-        translateY.value = withTiming(0);
-        savedTranslateX.value = 0;
-        savedTranslateY.value = 0;
-      } else {
-        savedTranslateX.value = translateX.value;
-        savedTranslateY.value = translateY.value;
-      }
-    }), [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth]);
+  const pinch = useMemo(
+    () =>
+      Gesture.Pinch()
+        .onBegin(() => {
+          savedScale.value = scale.value;
+          savedTranslateX.value = translateX.value;
+          savedTranslateY.value = translateY.value;
+        })
+        .onUpdate((event) => {
+          const nextScale = Math.max(1, Math.min(6, savedScale.value * event.scale));
+          const maxX = Math.max(0, (viewportWidth.value * (nextScale - 1)) / (2 * nextScale));
+          const maxY = Math.max(0, (viewportHeight.value * (nextScale - 1)) / (2 * nextScale));
+          scale.value = nextScale;
+          translateX.value = Math.max(-maxX, Math.min(maxX, savedTranslateX.value));
+          translateY.value = Math.max(-maxY, Math.min(maxY, savedTranslateY.value));
+        })
+        .onEnd(() => {
+          savedScale.value = scale.value;
+          if (scale.value <= 1) {
+            translateX.value = withTiming(0);
+            translateY.value = withTiming(0);
+            savedTranslateX.value = 0;
+            savedTranslateY.value = 0;
+          } else {
+            savedTranslateX.value = translateX.value;
+            savedTranslateY.value = translateY.value;
+          }
+        }),
+    [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
+  );
 
-  const pan = useMemo(() => Gesture.Pan()
-    .minPointers(1)
-    .maxPointers(1)
-    .minDistance(2)
-    .onBegin(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    })
-    .onUpdate((event) => {
-      if (scale.value <= 1) return;
-      const maxX = Math.max(0, (viewportWidth.value * (scale.value - 1)) / (2 * scale.value));
-      const maxY = Math.max(0, (viewportHeight.value * (scale.value - 1)) / (2 * scale.value));
-      translateX.value = Math.max(-maxX, Math.min(maxX, savedTranslateX.value + event.translationX));
-      translateY.value = Math.max(-maxY, Math.min(maxY, savedTranslateY.value + event.translationY));
-    })
-    .onEnd(() => {
-      savedTranslateX.value = translateX.value;
-      savedTranslateY.value = translateY.value;
-    }), [savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth]);
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .minPointers(1)
+        .maxPointers(1)
+        .minDistance(2)
+        .onBegin(() => {
+          savedTranslateX.value = translateX.value;
+          savedTranslateY.value = translateY.value;
+        })
+        .onUpdate((event) => {
+          if (scale.value <= 1) {
+            if (onNext || onPrevious) translateX.value = event.translationX;
+            return;
+          }
+          const maxX = Math.max(0, (viewportWidth.value * (scale.value - 1)) / (2 * scale.value));
+          const maxY = Math.max(0, (viewportHeight.value * (scale.value - 1)) / (2 * scale.value));
+          translateX.value = Math.max(-maxX, Math.min(maxX, savedTranslateX.value + event.translationX));
+          translateY.value = Math.max(-maxY, Math.min(maxY, savedTranslateY.value + event.translationY));
+        })
+        .onEnd(() => {
+          if (scale.value <= 1 && Math.abs(savedTranslateX.value) < 1) {
+            if (onNext && translateX.value < -55) runOnJS(onNext)();
+            else if (onPrevious && translateX.value > 55) runOnJS(onPrevious)();
+            translateX.value = withTiming(0, { duration: 120 });
+          }
+          savedTranslateX.value = translateX.value;
+          savedTranslateY.value = translateY.value;
+        }),
+    [onNext, onPrevious, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
+  );
 
-  const doubleTap = useMemo(() => Gesture.Tap().numberOfTaps(2).maxDuration(280).onEnd((event) => {
-    if (scale.value > 1) {
-      scale.value = withTiming(1);
-      savedScale.value = 1;
-      translateX.value = withTiming(0);
-      translateY.value = withTiming(0);
-      savedTranslateX.value = 0;
-      savedTranslateY.value = 0;
-    } else {
-      const targetScale = 2.5;
-      const targetX = ((viewportWidth.value / 2) - event.x) * ((targetScale - 1) / targetScale);
-      const targetY = ((viewportHeight.value / 2) - event.y) * ((targetScale - 1) / targetScale);
-      scale.value = withTiming(targetScale);
-      savedScale.value = targetScale;
-      translateX.value = withTiming(targetX);
-      translateY.value = withTiming(targetY);
-      savedTranslateX.value = targetX;
-      savedTranslateY.value = targetY;
-    }
-  }), [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth]);
+  const doubleTap = useMemo(
+    () =>
+      Gesture.Tap()
+        .numberOfTaps(2)
+        .maxDuration(280)
+        .onEnd((event) => {
+          if (scale.value > 1) {
+            scale.value = withTiming(1);
+            savedScale.value = 1;
+            translateX.value = withTiming(0);
+            translateY.value = withTiming(0);
+            savedTranslateX.value = 0;
+            savedTranslateY.value = 0;
+          } else {
+            const targetScale = 2.5;
+            const targetX = (viewportWidth.value / 2 - event.x) * ((targetScale - 1) / targetScale);
+            const targetY = (viewportHeight.value / 2 - event.y) * ((targetScale - 1) / targetScale);
+            scale.value = withTiming(targetScale);
+            savedScale.value = targetScale;
+            translateX.value = withTiming(targetX);
+            translateY.value = withTiming(targetY);
+            savedTranslateX.value = targetX;
+            savedTranslateY.value = targetY;
+          }
+        }),
+    [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
+  );
 
   const gesture = useMemo(() => Gesture.Race(doubleTap, Gesture.Simultaneous(pinch, pan)), [doubleTap, pan, pinch]);
   const imageStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { scale: scale.value },
-    ],
+    transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }],
   }));
 
   const savePhoto = useCallback(async () => {
@@ -130,7 +149,9 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose }: { 
       }
       const extension = imageExtension(filename, mimeType);
       temporaryFile = new File(Paths.cache, `snezhok-photo-${Date.now()}.${extension}`);
-      const task = File.createDownloadTask(source.uri, temporaryFile, { headers: source.headers });
+      const task = File.createDownloadTask(source.uri, temporaryFile, {
+        headers: source.headers,
+      });
       try {
         const downloaded = await task.downloadAsync();
         if (!downloaded?.exists) throw new Error(t("tryAgain"));
@@ -190,10 +211,23 @@ export function imageExtension(filename: string, mimeType: string): "jpg" | "png
 
 const styles = StyleSheet.create({
   viewer: { flex: 1, backgroundColor: "#000" },
-  viewport: { flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  viewport: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
   imageStage: { width: "100%", height: "100%" },
   image: { width: "100%", height: "100%" },
-  control: { position: "absolute", width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18, 22, 29, 0.76)" },
+  control: {
+    position: "absolute",
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(18, 22, 29, 0.76)",
+  },
   close: { left: 12 },
   download: { right: 12 },
 });

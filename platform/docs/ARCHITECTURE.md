@@ -49,7 +49,7 @@ Message history carries compact activity summaries. The authenticated activity-d
 
 Memory Capsule reveal is a server-time scheduler transition. Cooperative milestones derive from completed durable state and create one deterministic chat card, never a streak or mutable score. The first release restricts activities to two-person direct conversations. Movie List and Ideas Jar are unique living objects per conversation.
 
-Draw & Guess uses an authorized ephemeral Socket.IO preview stream for throttled bounded vectors; the revisioned HTTP command remains the only durable final drawing. Color Hunt uses the ordinary media job table with the `color-collage` operation introduced by migration `0019_activity_collages.sql`. Nine ready source attachments produce one immutable 1080 × 1080 WebP plus thumbnail in the media worker, and the activity scheduler advances the anchor revision and publishes the resulting attachment to both cached chats.
+Draw & Guess uses an authorized ephemeral Socket.IO preview stream for throttled bounded vectors; guesses are accepted during that live preview, while the revisioned HTTP command remains the only durable final drawing. Color Hunt uses the ordinary media job table with the `color-collage` operation introduced by migration `0019_activity_collages.sql`. A participant may add the remaining photos in one bounded command. Nine ready source attachments produce one immutable, share-ready 1080 × 1080 PNG plus a lightweight WebP thumbnail in the media worker, and the activity scheduler advances the anchor revision and publishes the resulting attachment to both cached chats.
 
 ## Client storage
 

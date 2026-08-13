@@ -7,6 +7,8 @@ small eight-port pool is sufficient for the current two-person private test
 deployment and can be forwarded as individual ports on consumer routers that
 do not support ranges.
 
+The TURN certificate renewal is pinned to an RSA key and the `ISRG Root X1` preferred chain for compatibility with older Android/WebRTC trust stores. After renewal, run the public connectivity smoke test; HTTPS signaling, ICE/TCP, TURN/UDP, and TURN/TLS must all pass before a call release. A healthy LiveKit container alone does not prove certificate compatibility.
+
 ## Authoritative room lifecycle
 
 Client tokens never create rooms. `room.auto_create` is disabled and the API

@@ -5,8 +5,8 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from "expo-audio";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { ActivityIndicator, type GestureResponderEvent, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Animated, { cancelAnimation, Easing, interpolate, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,14 +43,17 @@ import { dismissMessageNotifications } from "../notifications/androidNotificatio
 import { emitRealtimeTyping, joinRealtimeStream, leaveRealtimeStream } from "../lib/realtimeBridge";
 import { appendRecordingLevel, recordingSourceForMicrophone, routeThroughEarpieceForMicrophone } from "../lib/recordingWaveform";
 import { voiceGestureDecision } from "../lib/voiceRecordingGesture";
-import { clearVoicePlaybackQueue, setVoicePlaybackQueue } from "../lib/voicePlaybackCoordinator";
+import { clearVoicePlaybackQueue, cycleVoicePlaybackSpeed, seekVoicePlayback, setVoicePlaybackQueue, stopVoicePlayback, subscribeVoicePlayback, subscribeVoicePlaybackProgress, toggleCurrentVoicePlayback, voicePlaybackProgressSnapshot, voicePlaybackSnapshot } from "../lib/voicePlaybackCoordinator";
 import { visibleMessages } from "../store/messageReconciliation";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList, UploadInput } from "../types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Chat">;
 
-const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2 } as const;
+const maintainVisibleMessagePosition = {
+  startRenderingFromBottom: true,
+  autoscrollToBottomThreshold: 0.2,
+} as const;
 const INITIAL_RENDERED_MESSAGES = 80;
 const MESSAGE_PAGE_SIZE = 60;
 const emptyMessages: Message[] = [];
@@ -77,7 +80,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const me = useAppStore((state) => state.me);
   const conversation = useAppStore((state) => state.conversations.find((item) => item.id === streamId));
   const channel = useAppStore((state) => state.channels.find((item) => item.id === streamId));
-  const peer = conversation?.saved ? undefined : conversation?.participants.find((participant) => participant.id !== me?.id) ?? conversation?.participants[0];
+  const peer = conversation?.saved ? undefined : (conversation?.participants.find((participant) => participant.id !== me?.id) ?? conversation?.participants[0]);
   const isGroup = conversation?.kind === "group";
   const online = useAppStore((state) => state.online);
   const loadMessages = useAppStore((state) => state.loadMessages);
@@ -119,7 +122,10 @@ export function ChatScreen({ navigation, route }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [forwardPicker, setForwardPicker] = useState(false);
   const [forwarding, setForwarding] = useState(false);
-  const [reactionTarget, setReactionTarget] = useState<{ message: Message; anchorY: number } | null>(null);
+  const [reactionTarget, setReactionTarget] = useState<{
+    message: Message;
+    anchorY: number;
+  } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [searchVisible, setSearchVisible] = useState(false);
@@ -129,16 +135,22 @@ export function ChatScreen({ navigation, route }: Props) {
   const [togetherHistory, setTogetherHistory] = useState(false);
   const [creatingActivity, setCreatingActivity] = useState(false);
   const [activeActivityMessage, setActiveActivityMessage] = useState<Message | null>(null);
-  const [composerSelection, setComposerSelection] = useState({ start: draft.length, end: draft.length });
+  const [composerSelection, setComposerSelection] = useState({
+    start: draft.length,
+    end: draft.length,
+  });
   const [routeSettled, setRouteSettled] = useState(false);
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
   const selectionProgress = useSharedValue(0);
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const composerClosedPadding = composerBottomPadding(insets.bottom, false);
   const composerOpenPadding = composerBottomPadding(insets.bottom, true);
-  const composerKeyboardStyle = useAnimatedStyle(() => ({
-    paddingBottom: interpolate(keyboardProgress.value, [0, 1], [composerClosedPadding, composerOpenPadding]),
-  }), [composerClosedPadding, composerOpenPadding]);
+  const composerKeyboardStyle = useAnimatedStyle(
+    () => ({
+      paddingBottom: interpolate(keyboardProgress.value, [0, 1], [composerClosedPadding, composerOpenPadding]),
+    }),
+    [composerClosedPadding, composerOpenPadding],
+  );
   const selectionMode = selectedIds.size > 0;
   const userDraggedHistory = useRef(false);
   const loadingOlder = useRef(false);
@@ -149,7 +161,11 @@ export function ChatScreen({ navigation, route }: Props) {
   const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceCommandRef = useRef<VoiceRecordCommand>("idle");
   voiceCommandRef.current = voiceCommand;
-  const unreadBoundary = useRef<{ streamId: string; initialCount: number; sequence: number | null }>({
+  const unreadBoundary = useRef<{
+    streamId: string;
+    initialCount: number;
+    sequence: number | null;
+  }>({
     streamId,
     initialCount: Math.max(conversation?.unreadCount ?? 0, channel?.unreadCount ?? 0),
     sequence: null,
@@ -260,16 +276,18 @@ export function ChatScreen({ navigation, route }: Props) {
     if (me) users.delete(me.id);
     return [...users.values()];
   }, [channel?.connectedMembers, conversation?.participants, me, messages]);
-  const voiceAttachmentIds = useMemo(() => displayMessages.flatMap((message) => renderableAttachments(message.attachments)
-    .filter((attachment) => attachment.kind === "audio")
-    .map((attachment) => attachment.id)), [displayMessages]);
+  const voiceAttachmentIds = useMemo(
+    () =>
+      displayMessages.flatMap((message) =>
+        renderableAttachments(message.attachments)
+          .filter((attachment) => attachment.kind === "audio")
+          .map((attachment) => attachment.id),
+      ),
+    [displayMessages],
+  );
   const voiceAttachmentKey = voiceAttachmentIds.join(",");
-  const mentionQuery = useMemo(() => streamKind === "channel" || isGroup
-    ? activeMentionQuery(text, composerSelection.end)
-    : null, [composerSelection.end, isGroup, streamKind, text]);
-  const suggestedMentions = useMemo(() => mentionQuery
-    ? mentionSuggestions(typingParticipants, mentionQuery.query, me?.id)
-    : [], [me?.id, mentionQuery, typingParticipants]);
+  const mentionQuery = useMemo(() => (streamKind === "channel" || isGroup ? activeMentionQuery(text, composerSelection.end) : null), [composerSelection.end, isGroup, streamKind, text]);
+  const suggestedMentions = useMemo(() => (mentionQuery ? mentionSuggestions(typingParticipants, mentionQuery.query, me?.id) : []), [me?.id, mentionQuery, typingParticipants]);
 
   useEffect(() => {
     setVoicePlaybackQueue(streamId, voiceAttachmentIds);
@@ -294,19 +312,28 @@ export function ChatScreen({ navigation, route }: Props) {
     });
   }, [route.params.openedAt]);
 
-  const jumpToMessage = useCallback(async (messageId: string) => {
-    await loadMessageContext(streamId, messageId).catch(() => undefined);
-    const current = visibleMessages(useAppStore.getState().messages[streamId] ?? []);
-    const index = current.findIndex((message) => message.id === messageId);
-    if (index < 0) return;
-    const required = Math.min(current.length, current.length - index + 12);
-    const nextLimit = Math.max(renderLimit, required);
-    setRenderLimit(nextLimit);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const windowStart = Math.max(0, current.length - nextLimit);
-      list.current?.scrollToIndex({ index: index - windowStart, animated: true, viewPosition: 0.25 });
-    }));
-  }, [loadMessageContext, renderLimit, streamId]);
+  const jumpToMessage = useCallback(
+    async (messageId: string) => {
+      await loadMessageContext(streamId, messageId).catch(() => undefined);
+      const current = visibleMessages(useAppStore.getState().messages[streamId] ?? []);
+      const index = current.findIndex((message) => message.id === messageId);
+      if (index < 0) return;
+      const required = Math.min(current.length, current.length - index + 12);
+      const nextLimit = Math.max(renderLimit, required);
+      setRenderLimit(nextLimit);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const windowStart = Math.max(0, current.length - nextLimit);
+          list.current?.scrollToIndex({
+            index: index - windowStart,
+            animated: true,
+            viewPosition: 0.25,
+          });
+        }),
+      );
+    },
+    [loadMessageContext, renderLimit, streamId],
+  );
 
   const jumpToPinned = useCallback(() => {
     if (latestPin) void jumpToMessage(latestPin.id);
@@ -333,27 +360,33 @@ export function ChatScreen({ navigation, route }: Props) {
     emitRealtimeTyping(streamId, false);
   }, [streamId]);
 
-  const handleTextChange = useCallback((value: string) => {
-    setText(value);
-    if (!editingMessage) setDraft(streamId, value);
-    if (!value.trim() || editingMessage || !online) {
-      stopTyping();
-      return;
-    }
-    if (!typingActive.current) {
-      typingActive.current = true;
-      emitRealtimeTyping(streamId, true);
-    }
-    if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
-    typingStopTimer.current = setTimeout(stopTyping, 4_000);
-  }, [editingMessage, online, setDraft, stopTyping, streamId]);
+  const handleTextChange = useCallback(
+    (value: string) => {
+      setText(value);
+      if (!editingMessage) setDraft(streamId, value);
+      if (!value.trim() || editingMessage || !online) {
+        stopTyping();
+        return;
+      }
+      if (!typingActive.current) {
+        typingActive.current = true;
+        emitRealtimeTyping(streamId, true);
+      }
+      if (typingStopTimer.current) clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = setTimeout(stopTyping, 4_000);
+    },
+    [editingMessage, online, setDraft, stopTyping, streamId],
+  );
 
-  const chooseMention = useCallback((username: string) => {
-    if (!mentionQuery) return;
-    const inserted = insertMention(text, mentionQuery, username);
-    handleTextChange(inserted.text);
-    setComposerSelection({ start: inserted.caret, end: inserted.caret });
-  }, [handleTextChange, mentionQuery, text]);
+  const chooseMention = useCallback(
+    (username: string) => {
+      if (!mentionQuery) return;
+      const inserted = insertMention(text, mentionQuery, username);
+      handleTextChange(inserted.text);
+      setComposerSelection({ start: inserted.caret, end: inserted.caret });
+    },
+    [handleTextChange, mentionQuery, text],
+  );
 
   const sendText = async (silent = false) => {
     const value = text.trim();
@@ -362,7 +395,10 @@ export function ChatScreen({ navigation, route }: Props) {
     if (editingMessage) {
       const restoringDraft = draftBeforeEdit.current;
       setText(restoringDraft);
-      setComposerSelection({ start: restoringDraft.length, end: restoringDraft.length });
+      setComposerSelection({
+        start: restoringDraft.length,
+        end: restoringDraft.length,
+      });
       setEditingMessage(null);
       await editMessage(editingMessage, value);
       return;
@@ -372,7 +408,13 @@ export function ChatScreen({ navigation, route }: Props) {
     setDraft(streamId, "");
     const replyToId = replyingTo?.id ?? null;
     setReplyingTo(null);
-    await sendMessage(streamId, { text: value, kind: "text", replyToId, attachmentIds: [], silent });
+    await sendMessage(streamId, {
+      text: value,
+      kind: "text",
+      replyToId,
+      attachmentIds: [],
+      silent,
+    });
     void Haptics.selectionAsync().catch(() => undefined);
   };
 
@@ -384,33 +426,52 @@ export function ChatScreen({ navigation, route }: Props) {
     setDraft(streamId, "");
     const replyToId = replyingTo?.id ?? null;
     setReplyingTo(null);
-    await scheduleTextMessage(streamId, { text: value, kind: "text", replyToId, attachmentIds: [], silent: false }, Date.now() + delayMs);
+    await scheduleTextMessage(
+      streamId,
+      {
+        text: value,
+        kind: "text",
+        replyToId,
+        attachmentIds: [],
+        silent: false,
+      },
+      Date.now() + delayMs,
+    );
   };
 
-  const handleUploads = useCallback(async (inputs: UploadInput[], messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
-    if (!inputs.length) return;
-    if (!online) return showDialog(t("offline"), t("attachmentOnline"));
-    setUploading(true);
-    try {
-      const replyToId = replyingTo?.id ?? null;
-      await sendAttachmentBatch(streamId, inputs, messageKind, replyToId);
-      setReplyingTo(null);
-      setAttachmentSheet(false);
-    } catch (error) {
-      if (!isUploadCancelled(error)) {
-        showDialog(t("uploadFailed"), userFacingError(error, t), [
-          { text: t("cancel"), style: "cancel" },
-          { text: t("retry"), onPress: () => void handleUploads(inputs, messageKind) },
-        ]);
+  const handleUploads = useCallback(
+    async (inputs: UploadInput[], messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
+      if (!inputs.length) return;
+      if (!online) return showDialog(t("offline"), t("attachmentOnline"));
+      setUploading(true);
+      try {
+        const replyToId = replyingTo?.id ?? null;
+        await sendAttachmentBatch(streamId, inputs, messageKind, replyToId);
+        setReplyingTo(null);
+        setAttachmentSheet(false);
+      } catch (error) {
+        if (!isUploadCancelled(error)) {
+          showDialog(t("uploadFailed"), userFacingError(error, t), [
+            { text: t("cancel"), style: "cancel" },
+            {
+              text: t("retry"),
+              onPress: () => void handleUploads(inputs, messageKind),
+            },
+          ]);
+        }
+      } finally {
+        setUploading(false);
       }
-    } finally {
-      setUploading(false);
-    }
-  }, [online, replyingTo?.id, sendAttachmentBatch, streamId, t]);
+    },
+    [online, replyingTo?.id, sendAttachmentBatch, streamId, t],
+  );
 
-  const handleUpload = useCallback(async (input: UploadInput, messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
-    await handleUploads([input], messageKind);
-  }, [handleUploads]);
+  const handleUpload = useCallback(
+    async (input: UploadInput, messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
+      await handleUploads([input], messageKind);
+    },
+    [handleUploads],
+  );
 
   const updateVoiceCommand = useCallback((command: VoiceRecordCommand) => {
     voiceCommandRef.current = command;
@@ -447,34 +508,80 @@ export function ChatScreen({ navigation, route }: Props) {
     void beginRecording();
   };
 
-  const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
-    const previous = renderedMessages[index - 1];
-    const showDay = !previous || new Date(previous.createdAt).toDateString() !== new Date(item.createdAt).toDateString();
-    const groupedWithPrevious = !showDay && previous?.sender.id === item.sender.id && item.createdAt - previous.createdAt <= 5 * 60_000;
-    const showSender = (streamKind === "channel" || isGroup) && !groupedWithPrevious;
-    const showUnread = unreadBoundary.current.sequence === item.sequence;
-    return <View>
-      {showUnread ? <UnreadDivider /> : null}
-      {showDay ? <View style={styles.day}><View style={[styles.dayLine, { backgroundColor: palette.border }]} /><Text style={[styles.dayText, { color: palette.secondaryText }]}>{new Date(item.createdAt).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</Text><View style={[styles.dayLine, { backgroundColor: palette.border }]} /></View> : null}
-      <SwipeReplyRow disabled={selectionMode || Boolean(item.pending || item.failed || item.activity)} onReply={() => { setReplyingTo(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }}>
-        <MessageBubble streamId={streamId} message={item} mine={item.sender.id === me?.id} showSender={showSender} variant={streamKind === "channel" ? "channel" : "bubble"} selected={selectedIds.has(item.id)} selectionMode={selectionMode} selectionProgress={selectionProgress} onPress={() => toggleSelected(item)} onLongPress={() => { if (!selectedIds.has(item.id)) toggleSelected(item); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); }} onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })} onReplyPress={(messageId) => void jumpToMessage(messageId)} onReact={(emoji) => void toggleReaction(item, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")))} onOpenActivity={() => setActiveActivityMessage(item)} />
-      </SwipeReplyRow>
-    </View>;
-  }, [isGroup, jumpToMessage, me?.id, palette.border, palette.secondaryText, renderedMessages, selectedIds, selectionMode, selectionProgress, streamId, streamKind, t, toggleReaction, toggleSelected]);
+  const renderMessage = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      const previous = renderedMessages[index - 1];
+      const showDay = !previous || new Date(previous.createdAt).toDateString() !== new Date(item.createdAt).toDateString();
+      const groupedWithPrevious = !showDay && previous?.sender.id === item.sender.id && item.createdAt - previous.createdAt <= 5 * 60_000;
+      const showSender = (streamKind === "channel" || isGroup) && !groupedWithPrevious;
+      const showUnread = unreadBoundary.current.sequence === item.sequence;
+      return (
+        <View>
+          {showUnread ? <UnreadDivider /> : null}
+          {showDay ? (
+            <View style={styles.day}>
+              <View style={[styles.dayLine, { backgroundColor: palette.border }]} />
+              <Text style={[styles.dayText, { color: palette.secondaryText }]}>
+                {new Date(item.createdAt).toLocaleDateString([], {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </Text>
+              <View style={[styles.dayLine, { backgroundColor: palette.border }]} />
+            </View>
+          ) : null}
+          <SwipeReplyRow
+            disabled={selectionMode || Boolean(item.pending || item.failed || item.activity)}
+            onReply={() => {
+              setReplyingTo(item);
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+            }}
+          >
+            <MessageBubble
+              streamId={streamId}
+              message={item}
+              mine={item.sender.id === me?.id}
+              showSender={showSender}
+              variant={streamKind === "channel" ? "channel" : "bubble"}
+              selected={selectedIds.has(item.id)}
+              selectionMode={selectionMode}
+              selectionProgress={selectionProgress}
+              onPress={() => toggleSelected(item)}
+              onLongPress={() => {
+                if (!selectedIds.has(item.id)) toggleSelected(item);
+                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+              }}
+              onOpenReactions={(anchorY) => setReactionTarget({ message: item, anchorY })}
+              onReplyPress={(messageId) => void jumpToMessage(messageId)}
+              onReact={(emoji) => void toggleReaction(item, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")))}
+              onOpenActivity={() => setActiveActivityMessage(item)}
+            />
+          </SwipeReplyRow>
+        </View>
+      );
+    },
+    [isGroup, jumpToMessage, me?.id, palette.border, palette.secondaryText, renderedMessages, selectedIds, selectionMode, selectionProgress, streamId, streamKind, t, toggleReaction, toggleSelected],
+  );
 
-  const startActivity = useCallback(async (type: CooperativeActivityType, options: Record<string, unknown> = {}) => {
-    if (creatingActivity) return;
-    setCreatingActivity(true);
-    try {
-      const message = await createActivity(streamId, type, options);
-      setActivityLauncher(false);
-      setActiveActivityMessage(message);
-      requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-    } catch (error) {
-      showDialog(t("requestFailed"), userFacingError(error, t));
-    } finally { setCreatingActivity(false); }
-  }, [createActivity, creatingActivity, showDialog, streamId, t]);
+  const startActivity = useCallback(
+    async (type: CooperativeActivityType, options: Record<string, unknown> = {}) => {
+      if (creatingActivity) return;
+      setCreatingActivity(true);
+      try {
+        const message = await createActivity(streamId, type, options);
+        setActivityLauncher(false);
+        setActiveActivityMessage(message);
+        requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+      } catch (error) {
+        showDialog(t("requestFailed"), userFacingError(error, t));
+      } finally {
+        setCreatingActivity(false);
+      }
+    },
+    [createActivity, creatingActivity, showDialog, streamId, t],
+  );
 
   const revealOlderMessages = useCallback(async () => {
     if (!userDraggedHistory.current || loadingOlder.current) return;
@@ -493,30 +600,44 @@ export function ChatScreen({ navigation, route }: Props) {
     }
   }, [displayMessages.length, loadOlderMessages, renderLimit, streamId]);
 
-  const emptyState = useMemo(() => <View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>, [palette.secondaryText, palette.text, t, title]);
+  const emptyState = useMemo(
+    () => (
+      <View style={styles.empty}>
+        <Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text>
+        <Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text>
+      </View>
+    ),
+    [palette.secondaryText, palette.text, t, title],
+  );
 
-  const performForward = useCallback(async (targetStreamId: string) => {
-    const messagesToForward = selectedMessages;
-    setForwardPicker(false);
-    setSelectedIds(new Set());
-    setForwarding(true);
-    try {
-      await Promise.all(messagesToForward.map((message) => forwardMessage(message.id, targetStreamId)));
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-    } catch {
-      showDialog(t("requestFailed"), t("tryAgain"));
-    } finally {
-      setForwarding(false);
-    }
-  }, [forwardMessage, selectedMessages, t]);
+  const performForward = useCallback(
+    async (targetStreamId: string) => {
+      const messagesToForward = selectedMessages;
+      setForwardPicker(false);
+      setSelectedIds(new Set());
+      setForwarding(true);
+      try {
+        await Promise.all(messagesToForward.map((message) => forwardMessage(message.id, targetStreamId)));
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+      } catch {
+        showDialog(t("requestFailed"), t("tryAgain"));
+      } finally {
+        setForwarding(false);
+      }
+    },
+    [forwardMessage, selectedMessages, t],
+  );
 
   const closeAttachmentSheet = useCallback(() => setAttachmentSheet(false), []);
   const closeForwardPicker = useCallback(() => {
     if (!forwarding) setForwardPicker(false);
   }, [forwarding]);
-  const selectForwardTarget = useCallback((target: { id: string }) => {
-    void performForward(target.id);
-  }, [performForward]);
+  const selectForwardTarget = useCallback(
+    (target: { id: string }) => {
+      void performForward(target.id);
+    },
+    [performForward],
+  );
 
   const confirmDeleteSelected = () => {
     const remove = async (scope: "me" | "everyone") => {
@@ -528,17 +649,20 @@ export function ChatScreen({ navigation, route }: Props) {
         showDialog(t("requestFailed"), userFacingError(error, t));
       }
     };
-    const canDeleteForEveryone = selectedMessages.every((message) => message.sender.id === me?.id)
-      || (streamKind === "conversation" && !isGroup);
-    showDialog(
-      t("deleteMessagesTitle", { count: selectedMessages.length }),
-      t("deleteMessagesAudience"),
-      [
-        { text: t("cancel"), style: "cancel" },
-        { text: t("deleteForMe"), onPress: () => void remove("me") },
-        ...(canDeleteForEveryone ? [{ text: t("deleteForEveryone"), style: "destructive" as const, onPress: () => void remove("everyone") }] : []),
-      ],
-    );
+    const canDeleteForEveryone = selectedMessages.every((message) => message.sender.id === me?.id) || (streamKind === "conversation" && !isGroup);
+    showDialog(t("deleteMessagesTitle", { count: selectedMessages.length }), t("deleteMessagesAudience"), [
+      { text: t("cancel"), style: "cancel" },
+      { text: t("deleteForMe"), onPress: () => void remove("me") },
+      ...(canDeleteForEveryone
+        ? [
+            {
+              text: t("deleteForEveryone"),
+              style: "destructive" as const,
+              onPress: () => void remove("everyone"),
+            },
+          ]
+        : []),
+    ]);
   };
 
   const toggleSelectedPins = async () => {
@@ -560,122 +684,500 @@ export function ChatScreen({ navigation, route }: Props) {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
   };
 
-  const editableMessage = selectedMessages.length === 1
-    ? selectedMessages[0]?.sender.id === me?.id && selectedMessages[0]?.kind === "text" && !selectedMessages[0]?.pending && !selectedMessages[0]?.failed
-      ? selectedMessages[0]
-      : null
-    : null;
+  const editableMessage = selectedMessages.length === 1 ? (selectedMessages[0]?.sender.id === me?.id && selectedMessages[0]?.kind === "text" && !selectedMessages[0]?.pending && !selectedMessages[0]?.failed ? selectedMessages[0] : null) : null;
 
   const beginEditing = () => {
     if (!editableMessage) return;
     draftBeforeEdit.current = useAppStore.getState().drafts[streamId] ?? "";
     setEditingMessage(editableMessage);
     setText(editableMessage.text);
-    setComposerSelection({ start: editableMessage.text.length, end: editableMessage.text.length });
+    setComposerSelection({
+      start: editableMessage.text.length,
+      end: editableMessage.text.length,
+    });
     setSelectedIds(new Set());
   };
 
   const cancelEditing = () => {
     setEditingMessage(null);
     setText(draftBeforeEdit.current);
-    setComposerSelection({ start: draftBeforeEdit.current.length, end: draftBeforeEdit.current.length });
+    setComposerSelection({
+      start: draftBeforeEdit.current.length,
+      end: draftBeforeEdit.current.length,
+    });
   };
 
-  const activeReactionEmojis = useMemo(() => new Set(
-    reactionTarget?.message.reactions.filter((reaction) => reaction.reacted).map((reaction) => reaction.emoji) ?? [],
-  ), [reactionTarget]);
+  const activeReactionEmojis = useMemo(() => new Set(reactionTarget?.message.reactions.filter((reaction) => reaction.reacted).map((reaction) => reaction.emoji) ?? []), [reactionTarget]);
 
-  const selectReaction = useCallback((emoji: string) => {
-    const target = reactionTarget;
-    setReactionTarget(null);
-    if (!target) return;
-    void Haptics.selectionAsync().catch(() => undefined);
-    void toggleReaction(target.message, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")));
-  }, [reactionTarget, t, toggleReaction]);
+  const selectReaction = useCallback(
+    (emoji: string) => {
+      const target = reactionTarget;
+      setReactionTarget(null);
+      if (!target) return;
+      void Haptics.selectionAsync().catch(() => undefined);
+      void toggleReaction(target.message, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")));
+    },
+    [reactionTarget, t, toggleReaction],
+  );
 
   const showSendOptions = () => {
     if (!text.trim() || editingMessage) return;
     showDialog(t("sendOptions"), undefined, [
       { text: t("cancel"), style: "cancel" },
       { text: t("sendSilently"), onPress: () => void sendText(true) },
-      { text: t("schedule15Minutes"), onPress: () => void scheduleText(15 * 60_000).catch(() => showDialog(t("requestFailed"), t("tryAgain"))) },
-      { text: t("scheduleOneHour"), onPress: () => void scheduleText(60 * 60_000).catch(() => showDialog(t("requestFailed"), t("tryAgain"))) },
-      { text: t("scheduleTomorrow"), onPress: () => void scheduleText(24 * 60 * 60_000).catch(() => showDialog(t("requestFailed"), t("tryAgain"))) },
+      {
+        text: t("schedule15Minutes"),
+        onPress: () => void scheduleText(15 * 60_000).catch(() => showDialog(t("requestFailed"), t("tryAgain"))),
+      },
+      {
+        text: t("scheduleOneHour"),
+        onPress: () => void scheduleText(60 * 60_000).catch(() => showDialog(t("requestFailed"), t("tryAgain"))),
+      },
+      {
+        text: t("scheduleTomorrow"),
+        onPress: () => void scheduleText(24 * 60 * 60_000).catch(() => showDialog(t("requestFailed"), t("tryAgain"))),
+      },
     ]);
   };
 
   return (
     <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.chatCanvas }]} behavior="translate-with-padding" automaticOffset keyboardVerticalOffset={0}>
       <PlayfulBackdrop variant="chat" />
-      {selectedIds.size > 0
-        ? <ScreenHeader tone="chat" title={String(selectedIds.size)} left={{ icon: "close", label: t("cancel"), onPress: () => setSelectedIds(new Set()) }} />
-        : <ScreenHeader tone="chat" title={title} {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})} left={{ icon: "chevron-back", label: t("back"), onPress: navigation.goBack }} center={peer ? <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button"><Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} /><View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text, fontSize: ui.font(15) }]}>{peer.displayName}</Text><Text numberOfLines={1} style={[styles.headerSubtitle, { color: peer.presence === "online" ? palette.success : palette.secondaryText, fontSize: ui.font(11) }]}>{peer.presence === "online" ? t("online") : t("lastSeen", { date: formatLastSeen(peer.lastSeenAt) })}</Text></View></Pressable> : undefined} right={[...(conversation?.kind === "direct" && !conversation.saved ? [{ icon: "sparkles-outline" as const, label: language === "ru" ? "Сделать вместе" : "Do something together", onPress: () => setActivityLauncher(true) }] : []), ...(scheduledMessages.length ? [{ icon: "time-outline" as const, label: t("scheduledMessages"), onPress: () => setScheduledVisible(true) }] : []), ...(streamKind === "conversation" ? [{ icon: "call-outline" as const, label: t("startCall"), onPress: () => navigation.navigate("Call", { streamId, title }) }] : []), { icon: "search", label: t("search"), onPress: () => setSearchVisible(true) }]} />}
-      {latestPin ? <Pressable onPress={jumpToPinned} style={({ pressed }) => [styles.pinBanner, { borderColor: palette.outline, backgroundColor: pressed ? palette.accentSoft : palette.moment.butter }]}><View style={[styles.pinAccent, { backgroundColor: palette.accent }]} /><AppIcon name="pin" size={17} color={palette.accent} /><View style={styles.pinCopy}><Text style={[styles.pinLabel, { color: palette.accent }]}>{t("pinnedMessage")}</Text><Text numberOfLines={1} style={[styles.pinText, { color: palette.secondaryText }]}>{latestPin.text || t("attachment")}</Text></View></Pressable> : null}
+      {selectedIds.size > 0 ? (
+        <ScreenHeader
+          tone="chat"
+          title={String(selectedIds.size)}
+          left={{
+            icon: "close",
+            label: t("cancel"),
+            onPress: () => setSelectedIds(new Set()),
+          }}
+        />
+      ) : (
+        <ScreenHeader
+          tone="chat"
+          title={title}
+          {...(route.params.subtitle ? { subtitle: route.params.subtitle } : {})}
+          left={{
+            icon: "chevron-back",
+            label: t("back"),
+            onPress: navigation.goBack,
+          }}
+          center={
+            peer ? (
+              <Pressable onPress={() => navigation.navigate("Profile", { userId: peer.id })} style={styles.headerIdentity} accessibilityRole="button">
+                <Avatar uri={peer.avatarUrl} label={peer.displayName} color={peer.avatarColor} online={peer.presence === "online"} size={34} />
+                <View style={styles.headerCopy}>
+                  <Text numberOfLines={1} style={[styles.headerTitle, { color: palette.text, fontSize: ui.font(15) }]}>
+                    {peer.displayName}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.headerSubtitle,
+                      {
+                        color: peer.presence === "online" ? palette.success : palette.secondaryText,
+                        fontSize: ui.font(11),
+                      },
+                    ]}
+                  >
+                    {peer.presence === "online"
+                      ? t("online")
+                      : t("lastSeen", {
+                          date: formatLastSeen(peer.lastSeenAt),
+                        })}
+                  </Text>
+                </View>
+              </Pressable>
+            ) : undefined
+          }
+          right={[
+            ...(conversation?.kind === "direct" && !conversation.saved
+              ? [
+                  {
+                    icon: "sparkles-outline" as const,
+                    label: language === "ru" ? "Сделать вместе" : "Do something together",
+                    onPress: () => setActivityLauncher(true),
+                  },
+                ]
+              : []),
+            ...(scheduledMessages.length
+              ? [
+                  {
+                    icon: "time-outline" as const,
+                    label: t("scheduledMessages"),
+                    onPress: () => setScheduledVisible(true),
+                  },
+                ]
+              : []),
+            ...(streamKind === "conversation"
+              ? [
+                  {
+                    icon: "call-outline" as const,
+                    label: t("startCall"),
+                    onPress: () => navigation.navigate("Call", { streamId, title }),
+                  },
+                ]
+              : []),
+            {
+              icon: "search",
+              label: t("search"),
+              onPress: () => setSearchVisible(true),
+            },
+          ]}
+        />
+      )}
+      {latestPin ? (
+        <Pressable
+          onPress={jumpToPinned}
+          style={({ pressed }) => [
+            styles.pinBanner,
+            {
+              borderColor: palette.outline,
+              backgroundColor: pressed ? palette.accentSoft : palette.moment.butter,
+            },
+          ]}
+        >
+          <View style={[styles.pinAccent, { backgroundColor: palette.accent }]} />
+          <AppIcon name="pin" size={17} color={palette.accent} />
+          <View style={styles.pinCopy}>
+            <Text style={[styles.pinLabel, { color: palette.accent }]}>{t("pinnedMessage")}</Text>
+            <Text numberOfLines={1} style={[styles.pinText, { color: palette.secondaryText }]}>
+              {latestPin.text || t("attachment")}
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+      <VoicePlaybackBanner streamId={streamId} />
       <View style={styles.messageViewport}>
-        <FlashList ref={list} data={renderedMessages} keyExtractor={messageKey} getItemType={messageCellType} renderItem={renderMessage} style={styles.messageList} contentContainerStyle={styles.list} drawDistance={360} keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"} keyboardShouldPersistTaps="handled" maintainVisibleContentPosition={maintainVisibleMessagePosition} onScrollBeginDrag={() => { userDraggedHistory.current = true; }} onStartReached={() => void revealOlderMessages().catch(() => undefined)} onStartReachedThreshold={0.2} onLoad={recordFirstPaint} ListEmptyComponent={emptyState} />
+        <FlashList
+          ref={list}
+          data={renderedMessages}
+          keyExtractor={messageKey}
+          getItemType={messageCellType}
+          renderItem={renderMessage}
+          style={styles.messageList}
+          contentContainerStyle={styles.list}
+          drawDistance={360}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="handled"
+          maintainVisibleContentPosition={maintainVisibleMessagePosition}
+          onScrollBeginDrag={() => {
+            userDraggedHistory.current = true;
+          }}
+          onStartReached={() => void revealOlderMessages().catch(() => undefined)}
+          onStartReachedThreshold={0.2}
+          onLoad={recordFirstPaint}
+          ListEmptyComponent={emptyState}
+        />
       </View>
-      {selectedIds.size > 0 ? <View style={[styles.selectionToolbar, { paddingBottom: Math.max(insets.bottom + 8, 16), borderColor: palette.border, backgroundColor: palette.composer }]}>
-        {clipboardText ? <SelectionAction icon="copy-outline" label={t("copy")} onPress={() => void copySelected()} /> : null}
-        <SelectionAction icon="return-up-forward-outline" label={t("forward")} onPress={() => setForwardPicker(true)} />
-        <SelectionAction icon={selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "pin-outline" : "pin"} label={t(selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "unpinAction" : "pinAction")} onPress={() => void toggleSelectedPins()} />
-        <SelectionAction danger icon="trash-outline" label={t("deleteAction")} onPress={confirmDeleteSelected} />
-      </View> : <>
-        <TypingIndicator streamId={streamId} participants={typingParticipants} reducedMotion={reducedMotion} />
-        {suggestedMentions.length ? <MentionSuggestions participants={suggestedMentions} onSelect={chooseMention} /> : null}
-        {recording ? <RecordingStatus levels={recordingLevels} durationMillis={recordingDuration} locked={voiceCommand === "locked"} /> : null}
-        {editingMessage ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text style={[styles.replyName, { color: palette.accent }]}>{t("editMessage")}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{editingMessage.text}</Text></View><Pressable onPress={cancelEditing} style={styles.replyClose}><AppIcon name="close" size={21} color={palette.secondaryText} /></Pressable></View> : replyingTo ? <View style={[styles.replyComposer, { backgroundColor: palette.surface, borderColor: palette.border }]}><View style={[styles.replyAccent, { backgroundColor: palette.accent }]} /><View style={styles.replyCopy}><Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>{replyingTo.sender.displayName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>{replyingTo.text || t("attachment")}</Text></View><Pressable onPress={() => setReplyingTo(null)} style={styles.replyClose}><AppIcon name="close" size={21} color={palette.secondaryText} /></Pressable></View> : null}
-        <Animated.View style={[styles.composer, { minHeight: ui.dense(58, 52), borderColor: palette.outline, backgroundColor: palette.composer }, composerKeyboardStyle]}>
-          {voiceCommand === "locked" ? <Pressable onPress={() => updateVoiceCommand("cancel")} style={styles.composerButton} accessibilityLabel={t("cancel")}><AppIcon name="trash-outline" size={23} color={palette.danger} /></Pressable> : <Pressable disabled={uploading || voiceCommand !== "idle"} onPress={() => setAttachmentSheet(true)} style={styles.composerButton} accessibilityLabel={t("attachFile")}><AppIcon name="add-circle-outline" size={27} color={uploading || voiceCommand !== "idle" ? palette.faintText : palette.accent} /></Pressable>}
-          <View style={[styles.inputWrap, { minHeight: ui.dense(41, 37), borderRadius: Math.max(14, ui.bubbleRadius), backgroundColor: palette.elevated, borderColor: palette.outline }]}><TextInput value={text} selection={composerSelection} onSelectionChange={(event) => setComposerSelection(event.nativeEvent.selection)} onChangeText={handleTextChange} editable={!recording} multiline maxLength={16_000} placeholder={recording ? t("recording") : t("message")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text, fontSize: ui.font(16), lineHeight: ui.font(20), paddingVertical: ui.dense(9, 7) }]} /></View>
-          {uploading ? <View style={styles.composerButton}><ActivityIndicator color={palette.accent} /></View> : text.trim() ? <Pressable delayLongPress={320} onPress={() => void sendText()} onLongPress={showSendOptions} style={[styles.send, { backgroundColor: palette.accent, borderColor: palette.outline }]} accessibilityLabel={t("sendMessage")}><AppIcon name="arrow-up" size={21} color={palette.onAccent} strokeWidth={2} /></Pressable> : <VoiceGestureButton command={voiceCommand} disabled={uploading} onStart={startVoiceRecording} onLock={() => updateVoiceCommand("locked")} onCancel={() => updateVoiceCommand("cancel")} onFinish={() => updateVoiceCommand("finish")} />}
-        </Animated.View>
-        {recorderMounted ? <VoiceRecorderControl command={voiceCommand} quality={uploadQuality} microphoneMode={microphoneMode} onRecordingChange={setRecording} onMetering={(metering, durationMillis) => { setRecordingLevels((levels) => appendRecordingLevel(levels, metering)); setRecordingDuration(durationMillis); }} onTooShort={() => showDialog(t("voiceMessage"), t("voiceTooShort"))} onCancel={() => { updateVoiceCommand("idle"); setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); }} onComplete={async (input) => { updateVoiceCommand("idle"); setRecording(false); setRecordingLevels([]); setRecordingDuration(0); setRecorderMounted(false); await handleUpload(input, "voice"); }} /> : null}
-      </>}
+      {selectedIds.size > 0 ? (
+        <View
+          style={[
+            styles.selectionToolbar,
+            {
+              paddingBottom: Math.max(insets.bottom + 8, 16),
+              borderColor: palette.border,
+              backgroundColor: palette.composer,
+            },
+          ]}
+        >
+          {clipboardText ? <SelectionAction icon="copy-outline" label={t("copy")} onPress={() => void copySelected()} /> : null}
+          <SelectionAction icon="return-up-forward-outline" label={t("forward")} onPress={() => setForwardPicker(true)} />
+          <SelectionAction icon={selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "pin-outline" : "pin"} label={t(selectedMessages.every((message) => Boolean(message.pinnedAt)) ? "unpinAction" : "pinAction")} onPress={() => void toggleSelectedPins()} />
+          <SelectionAction danger icon="trash-outline" label={t("deleteAction")} onPress={confirmDeleteSelected} />
+        </View>
+      ) : (
+        <>
+          <TypingIndicator streamId={streamId} participants={typingParticipants} reducedMotion={reducedMotion} />
+          {suggestedMentions.length ? <MentionSuggestions participants={suggestedMentions} onSelect={chooseMention} /> : null}
+          {recording ? <RecordingStatus levels={recordingLevels} durationMillis={recordingDuration} locked={voiceCommand === "locked"} /> : null}
+          {editingMessage ? (
+            <View
+              style={[
+                styles.replyComposer,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <View style={[styles.replyAccent, { backgroundColor: palette.accent }]} />
+              <View style={styles.replyCopy}>
+                <Text style={[styles.replyName, { color: palette.accent }]}>{t("editMessage")}</Text>
+                <Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>
+                  {editingMessage.text}
+                </Text>
+              </View>
+              <Pressable onPress={cancelEditing} style={styles.replyClose}>
+                <AppIcon name="close" size={21} color={palette.secondaryText} />
+              </Pressable>
+            </View>
+          ) : replyingTo ? (
+            <View
+              style={[
+                styles.replyComposer,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <View style={[styles.replyAccent, { backgroundColor: palette.accent }]} />
+              <View style={styles.replyCopy}>
+                <Text numberOfLines={1} style={[styles.replyName, { color: palette.accent }]}>
+                  {replyingTo.sender.displayName}
+                </Text>
+                <Text numberOfLines={1} style={[styles.replyText, { color: palette.secondaryText }]}>
+                  {replyingTo.text || t("attachment")}
+                </Text>
+              </View>
+              <Pressable onPress={() => setReplyingTo(null)} style={styles.replyClose}>
+                <AppIcon name="close" size={21} color={palette.secondaryText} />
+              </Pressable>
+            </View>
+          ) : null}
+          <Animated.View
+            style={[
+              styles.composer,
+              {
+                minHeight: ui.dense(58, 52),
+                borderColor: palette.outline,
+                backgroundColor: palette.composer,
+              },
+              composerKeyboardStyle,
+            ]}
+          >
+            {voiceCommand === "locked" ? (
+              <Pressable onPress={() => updateVoiceCommand("cancel")} style={styles.composerButton} accessibilityLabel={t("cancel")}>
+                <AppIcon name="trash-outline" size={23} color={palette.danger} />
+              </Pressable>
+            ) : (
+              <Pressable disabled={uploading || voiceCommand !== "idle"} onPress={() => setAttachmentSheet(true)} style={styles.composerButton} accessibilityLabel={t("attachFile")}>
+                <AppIcon name="add-circle-outline" size={27} color={uploading || voiceCommand !== "idle" ? palette.faintText : palette.accent} />
+              </Pressable>
+            )}
+            <View
+              style={[
+                styles.inputWrap,
+                {
+                  minHeight: ui.dense(41, 37),
+                  borderRadius: Math.max(14, ui.bubbleRadius),
+                  backgroundColor: palette.elevated,
+                  borderColor: palette.outline,
+                },
+              ]}
+            >
+              <TextInput
+                value={text}
+                selection={composerSelection}
+                onSelectionChange={(event) => setComposerSelection(event.nativeEvent.selection)}
+                onChangeText={handleTextChange}
+                editable={!recording}
+                multiline
+                maxLength={16_000}
+                placeholder={recording ? t("recording") : t("message")}
+                placeholderTextColor={palette.faintText}
+                style={[
+                  styles.input,
+                  {
+                    color: palette.text,
+                    fontSize: ui.font(16),
+                    lineHeight: ui.font(20),
+                    paddingVertical: ui.dense(9, 7),
+                  },
+                ]}
+              />
+            </View>
+            {uploading ? (
+              <View style={styles.composerButton}>
+                <ActivityIndicator color={palette.accent} />
+              </View>
+            ) : text.trim() ? (
+              <Pressable
+                delayLongPress={320}
+                onPress={() => void sendText()}
+                onLongPress={showSendOptions}
+                style={[
+                  styles.send,
+                  {
+                    backgroundColor: palette.accent,
+                    borderColor: palette.outline,
+                  },
+                ]}
+                accessibilityLabel={t("sendMessage")}
+              >
+                <AppIcon name="arrow-up" size={21} color={palette.onAccent} strokeWidth={2} />
+              </Pressable>
+            ) : (
+              <VoiceGestureButton command={voiceCommand} disabled={uploading} onStart={startVoiceRecording} onLock={() => updateVoiceCommand("locked")} onCancel={() => updateVoiceCommand("cancel")} onFinish={() => updateVoiceCommand("finish")} />
+            )}
+          </Animated.View>
+          {recorderMounted ? (
+            <VoiceRecorderControl
+              command={voiceCommand}
+              quality={uploadQuality}
+              microphoneMode={microphoneMode}
+              onRecordingChange={setRecording}
+              onMetering={(metering, durationMillis) => {
+                setRecordingLevels((levels) => appendRecordingLevel(levels, metering));
+                setRecordingDuration(durationMillis);
+              }}
+              onTooShort={() => showDialog(t("voiceMessage"), t("voiceTooShort"))}
+              onCancel={() => {
+                updateVoiceCommand("idle");
+                setRecording(false);
+                setRecordingLevels([]);
+                setRecordingDuration(0);
+                setRecorderMounted(false);
+              }}
+              onComplete={async (input) => {
+                updateVoiceCommand("idle");
+                setRecording(false);
+                setRecordingLevels([]);
+                setRecordingDuration(0);
+                setRecorderMounted(false);
+                await handleUpload(input, "voice");
+              }}
+            />
+          ) : null}
+        </>
+      )}
       <AttachmentSheet visible={attachmentSheet} busy={uploading} progress={uploadProgress} onClose={closeAttachmentSheet} onCancel={() => void cancelUpload()} onSelect={handleUploads} />
       <ReactionPicker visible={Boolean(reactionTarget)} anchorY={reactionTarget?.anchorY ?? 0} activeEmojis={activeReactionEmojis} onClose={() => setReactionTarget(null)} onSelect={selectReaction} />
-      <ForwardPickerModal
-        visible={forwardPicker}
-        busy={forwarding}
-        onClose={closeForwardPicker}
-        onSelect={selectForwardTarget}
+      <ForwardPickerModal visible={forwardPicker} busy={forwarding} onClose={closeForwardPicker} onSelect={selectForwardTarget} />
+      <MessageSearchModal
+        visible={searchVisible}
+        streamId={streamId}
+        onClose={() => setSearchVisible(false)}
+        onOpenUser={(user) => {
+          setSearchVisible(false);
+          navigation.navigate("Profile", { userId: user.id });
+        }}
+        onOpenMessage={(message) => {
+          setSearchVisible(false);
+          void jumpToMessage(message.id);
+        }}
       />
-      <MessageSearchModal visible={searchVisible} streamId={streamId} onClose={() => setSearchVisible(false)} onOpenUser={(user) => { setSearchVisible(false); navigation.navigate("Profile", { userId: user.id }); }} onOpenMessage={(message) => { setSearchVisible(false); void jumpToMessage(message.id); }} />
-      <ScheduledMessagesModal visible={scheduledVisible} messages={scheduledMessages} cancellingId={cancellingScheduledId} onClose={() => setScheduledVisible(false)} onCancel={(message) => {
-        showDialog(t("cancelScheduledMessage"), message.text, [
-          { text: t("cancel"), style: "cancel" },
-          { text: t("deleteMessage"), style: "destructive", onPress: () => {
-            setCancellingScheduledId(message.id);
-            void cancelScheduledMessage(message.id).catch(() => showDialog(t("requestFailed"), t("tryAgain"))).finally(() => setCancellingScheduledId(null));
-          } },
-        ]);
-      }} />
-      <ActivityLauncherSheet visible={activityLauncher} busy={creatingActivity} onClose={() => { if (!creatingActivity) setActivityLauncher(false); }} onOpenHistory={() => { setActivityLauncher(false); requestAnimationFrame(() => setTogetherHistory(true)); }} onStart={(type, options) => void startActivity(type, options)} />
-      <TogetherHistoryModal visible={togetherHistory} conversationId={streamId} onClose={() => setTogetherHistory(false)} onOpen={(activityMessage) => { setTogetherHistory(false); requestAnimationFrame(() => setActiveActivityMessage(activityMessage)); }} />
+      <ScheduledMessagesModal
+        visible={scheduledVisible}
+        messages={scheduledMessages}
+        cancellingId={cancellingScheduledId}
+        onClose={() => setScheduledVisible(false)}
+        onCancel={(message) => {
+          showDialog(t("cancelScheduledMessage"), message.text, [
+            { text: t("cancel"), style: "cancel" },
+            {
+              text: t("deleteMessage"),
+              style: "destructive",
+              onPress: () => {
+                setCancellingScheduledId(message.id);
+                void cancelScheduledMessage(message.id)
+                  .catch(() => showDialog(t("requestFailed"), t("tryAgain")))
+                  .finally(() => setCancellingScheduledId(null));
+              },
+            },
+          ]);
+        }}
+      />
+      <ActivityLauncherSheet
+        visible={activityLauncher}
+        busy={creatingActivity}
+        onClose={() => {
+          if (!creatingActivity) setActivityLauncher(false);
+        }}
+        onOpenHistory={() => {
+          setActivityLauncher(false);
+          requestAnimationFrame(() => setTogetherHistory(true));
+        }}
+        onStart={(type, options) => void startActivity(type, options)}
+      />
+      <TogetherHistoryModal
+        visible={togetherHistory}
+        conversationId={streamId}
+        onClose={() => setTogetherHistory(false)}
+        onOpen={(activityMessage) => {
+          setTogetherHistory(false);
+          requestAnimationFrame(() => setActiveActivityMessage(activityMessage));
+        }}
+      />
       <CooperativeActivityModal message={activeActivityMessage ? (messages.find((message) => message.id === activeActivityMessage.id) ?? activeActivityMessage) : null} onClose={() => setActiveActivityMessage(null)} />
     </KeyboardAvoidingView>
+  );
+}
+
+function VoicePlaybackBanner({ streamId }: { streamId: string }) {
+  const palette = usePalette();
+  const { t, language } = useTranslation();
+  const playback = useSyncExternalStore(subscribeVoicePlayback, voicePlaybackSnapshot, voicePlaybackSnapshot);
+  const progress = useSyncExternalStore(subscribeVoicePlaybackProgress, voicePlaybackProgressSnapshot, voicePlaybackProgressSnapshot);
+  const visible = playback.requestedKey?.startsWith(`${streamId}:`) && progress.key === playback.requestedKey;
+  if (!visible) return null;
+  const duration = Math.max(0, progress.durationSeconds);
+  const ratio = duration > 0 ? Math.max(0, Math.min(1, progress.currentSeconds / duration)) : 0;
+  return (
+    <View style={[styles.voiceBanner, { backgroundColor: palette.elevated, borderColor: palette.outline }]}>
+      <Pressable accessibilityLabel={progress.playing ? (language === "ru" ? "Пауза" : "Pause") : language === "ru" ? "Воспроизвести" : "Play"} accessibilityRole="button" onPress={toggleCurrentVoicePlayback} style={[styles.voiceBannerPlay, { backgroundColor: palette.accent }]}>
+        <AppIcon name={progress.playing ? "pause" : "play"} size={17} color={palette.onAccent} />
+      </Pressable>
+      <View style={styles.voiceBannerCopy}>
+        <Text numberOfLines={1} style={[styles.voiceBannerTitle, { color: palette.text }]}>
+          {t("voiceMessage")}
+        </Text>
+        <VoiceBannerSeek current={progress.currentSeconds} duration={duration} ratio={ratio} onSeek={seekVoicePlayback} />
+      </View>
+      <Pressable accessibilityLabel={t("playbackSpeed")} accessibilityRole="button" onPress={cycleVoicePlaybackSpeed} style={styles.voiceBannerAction}>
+        <Text style={[styles.voiceBannerSpeed, { color: palette.accent }]}>{playback.speed}x</Text>
+      </Pressable>
+      <Pressable accessibilityLabel={t("close")} accessibilityRole="button" onPress={stopVoicePlayback} style={styles.voiceBannerAction}>
+        <AppIcon name="close" size={19} color={palette.secondaryText} />
+      </Pressable>
+    </View>
+  );
+}
+
+function VoiceBannerSeek({ current, duration, ratio, onSeek }: { current: number; duration: number; ratio: number; onSeek: (seconds: number) => void }) {
+  const palette = usePalette();
+  const [width, setWidth] = useState(1);
+  return (
+    <View style={styles.voiceBannerProgressRow}>
+      <Pressable accessibilityRole="adjustable" accessibilityLabel={`${formatRecordingDuration(current * 1_000)} / ${formatRecordingDuration(duration * 1_000)}`} onLayout={(event) => setWidth(Math.max(1, event.nativeEvent.layout.width))} onPress={(event) => onSeek(Math.max(0, Math.min(1, event.nativeEvent.locationX / width)) * duration)} style={[styles.voiceBannerTrack, { backgroundColor: palette.border }]}>
+        <View style={[styles.voiceBannerFill, { width: `${ratio * 100}%`, backgroundColor: palette.accent }]} />
+      </Pressable>
+      <Text style={[styles.voiceBannerTime, { color: palette.secondaryText }]}>{formatRecordingDuration(current * 1_000)}</Text>
+    </View>
   );
 }
 
 function VoiceRecorderControl({ command, quality, microphoneMode, onRecordingChange, onMetering, onTooShort, onCancel, onComplete }: { command: VoiceRecordCommand; quality: UploadQuality; microphoneMode: AppSettings["microphoneMode"]; onRecordingChange: (value: boolean) => void; onMetering: (metering: number | undefined, durationMillis: number) => void; onTooShort: () => void; onCancel: () => void; onComplete: (input: UploadInput) => Promise<void> }) {
   const { t } = useTranslation();
   const showDialog = useAppDialog();
-  const recordingOptions = useMemo(() => ({
-    ...RecordingPresets.HIGH_QUALITY,
-    isMeteringEnabled: true,
-    numberOfChannels: 1,
-    android: {
-      ...RecordingPresets.HIGH_QUALITY.android,
-      audioSource: recordingSourceForMicrophone(microphoneMode),
-    },
-  }), [microphoneMode]);
+  const recordingOptions = useMemo(
+    () => ({
+      ...RecordingPresets.HIGH_QUALITY,
+      isMeteringEnabled: true,
+      numberOfChannels: 1,
+      android: {
+        ...RecordingPresets.HIGH_QUALITY.android,
+        audioSource: recordingSourceForMicrophone(microphoneMode),
+      },
+    }),
+    [microphoneMode],
+  );
   const recorder = useAudioRecorder(recordingOptions);
   const recorderState = useAudioRecorderState(recorder, 80);
   const [started, setStarted] = useState(false);
   const mounted = useRef(true);
   const finishing = useRef(false);
+  const stopRequested = useRef(false);
   const duration = useRef(0);
   const onMeteringRef = useRef(onMetering);
-  const callbacks = useRef({ onCancel, onComplete, onRecordingChange, onTooShort });
+  const callbacks = useRef({
+    onCancel,
+    onComplete,
+    onRecordingChange,
+    onTooShort,
+  });
   onMeteringRef.current = onMetering;
   callbacks.current = { onCancel, onComplete, onRecordingChange, onTooShort };
   duration.current = recorderState.durationMillis;
@@ -704,56 +1206,90 @@ function VoiceRecorderControl({ command, quality, microphoneMode, onRecordingCha
           // route, but retry recording through the standard microphone source
           // rather than tearing down the chat.
           if (microphoneMode !== "speakerphone") throw error;
-          recordDiagnostic("warn", "media", "Voice recorder source fallback", { source: "voice_communication" });
+          recordDiagnostic("warn", "media", "Voice recorder source fallback", {
+            source: "voice_communication",
+          });
           await recorder.prepareToRecordAsync({
             ...recordingOptions,
             android: { ...recordingOptions.android, audioSource: "default" },
           });
         }
         if (!mounted.current) {
-          await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+          await setAudioModeAsync({
+            allowsRecording: false,
+            playsInSilentMode: true,
+          }).catch(() => undefined);
           return;
         }
         recorder.record();
-        if (mounted.current) { setStarted(true); callbacks.current.onRecordingChange(true); }
+        if (mounted.current) {
+          setStarted(true);
+          callbacks.current.onRecordingChange(true);
+        }
         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
       } catch (error) {
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        }).catch(() => undefined);
         showDialog(t("microphoneRequired"), userFacingError(error, t));
         callbacks.current.onCancel();
       }
     })();
     return () => {
       mounted.current = false;
-      if (recorder.isRecording) void recorder.stop().catch(() => undefined);
-      void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+      // recorder.isRecording can remain true for one native status tick after
+      // stop() resolves. Never issue a second native stop while the component
+      // is unmounted immediately to stage the completed voice note.
+      if (!stopRequested.current && recorder.isRecording) {
+        stopRequested.current = true;
+        void recorder.stop().catch(() => undefined);
+      }
+      void setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      }).catch(() => undefined);
     };
   }, [microphoneMode, recorder]);
 
-  const finish = useCallback(async (cancelled: boolean) => {
-    if (finishing.current) return;
-    finishing.current = true;
-    const recordedDuration = duration.current;
-    try {
-      await recorder.stop();
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      callbacks.current.onRecordingChange(false);
-      if (cancelled) {
+  const finish = useCallback(
+    async (cancelled: boolean) => {
+      if (finishing.current) return;
+      finishing.current = true;
+      stopRequested.current = true;
+      const recordedDuration = duration.current;
+      try {
+        await recorder.stop();
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        });
+        callbacks.current.onRecordingChange(false);
+        if (cancelled) {
+          callbacks.current.onCancel();
+          return;
+        }
+        if (recordedDuration < 450) {
+          callbacks.current.onTooShort();
+          callbacks.current.onCancel();
+          return;
+        }
+        if (!recorder.uri) throw new Error(t("tryAgain"));
+        await callbacks.current.onComplete({
+          uri: recorder.uri,
+          filename: `voice-${Date.now()}.m4a`,
+          mimeType: "audio/mp4",
+          kind: "audio",
+          quality,
+          purpose: "voice",
+        });
+      } catch (error) {
+        showDialog(t("uploadFailed"), userFacingError(error, t));
         callbacks.current.onCancel();
-        return;
       }
-      if (recordedDuration < 450) {
-        callbacks.current.onTooShort();
-        callbacks.current.onCancel();
-        return;
-      }
-      if (!recorder.uri) throw new Error(t("tryAgain"));
-      await callbacks.current.onComplete({ uri: recorder.uri, filename: `voice-${Date.now()}.m4a`, mimeType: "audio/mp4", kind: "audio", quality, purpose: "voice" });
-    } catch (error) {
-      showDialog(t("uploadFailed"), userFacingError(error, t));
-      callbacks.current.onCancel();
-    }
-  }, [quality, recorder, showDialog, t]);
+    },
+    [quality, recorder, showDialog, t],
+  );
 
   useEffect(() => {
     if (!started) return;
@@ -777,45 +1313,55 @@ function VoiceGestureButton({ command, disabled, onStart, onLock, onCancel, onFi
   callbacks.current = { onStart, onLock, onCancel, onFinish };
   state.current = { command, disabled };
 
-  const responder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => !state.current.disabled && state.current.command === "idle",
-    onMoveShouldSetPanResponder: () => !state.current.disabled && state.current.command === "idle",
-    onPanResponderGrant: () => {
-      resolved.current = null;
-      translateX.value = 0;
-      translateY.value = 0;
-      scale.value = withTiming(1.12, { duration: reducedMotion ? 0 : 90 });
-      callbacks.current.onStart();
-    },
-    onPanResponderMove: (_event, gesture) => {
-      if (resolved.current) return;
-      translateX.value = Math.max(-54, Math.min(0, gesture.dx * 0.38));
-      translateY.value = Math.max(-42, Math.min(0, gesture.dy * 0.32));
-      const decision = voiceGestureDecision(gesture.dx, gesture.dy);
-      if (decision === "cancel") {
-        resolved.current = "cancel";
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => undefined);
-        callbacks.current.onCancel();
-      } else if (decision === "lock") {
-        resolved.current = "lock";
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
-        callbacks.current.onLock();
-      }
-    },
-    onPanResponderRelease: () => {
-      translateX.value = withTiming(0, { duration: reducedMotion ? 0 : 140 });
-      translateY.value = withTiming(0, { duration: reducedMotion ? 0 : 140 });
-      scale.value = withTiming(1, { duration: reducedMotion ? 0 : 120 });
-      if (!resolved.current) callbacks.current.onFinish();
-    },
-    onPanResponderTerminate: () => {
-      translateX.value = 0;
-      translateY.value = 0;
-      scale.value = 1;
-      if (!resolved.current) callbacks.current.onCancel();
-    },
-  }), [reducedMotion, scale, translateX, translateY]);
-  const animated = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }] }));
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !state.current.disabled && state.current.command === "idle",
+        onMoveShouldSetPanResponder: () => !state.current.disabled && state.current.command === "idle",
+        onPanResponderGrant: () => {
+          resolved.current = null;
+          translateX.value = 0;
+          translateY.value = 0;
+          scale.value = withTiming(1.12, { duration: reducedMotion ? 0 : 90 });
+          callbacks.current.onStart();
+        },
+        onPanResponderMove: (_event, gesture) => {
+          if (resolved.current) return;
+          translateX.value = Math.max(-54, Math.min(0, gesture.dx * 0.38));
+          translateY.value = Math.max(-42, Math.min(0, gesture.dy * 0.32));
+          const decision = voiceGestureDecision(gesture.dx, gesture.dy);
+          if (decision === "cancel") {
+            resolved.current = "cancel";
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => undefined);
+            callbacks.current.onCancel();
+          } else if (decision === "lock") {
+            resolved.current = "lock";
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+            callbacks.current.onLock();
+          }
+        },
+        onPanResponderRelease: () => {
+          translateX.value = withTiming(0, {
+            duration: reducedMotion ? 0 : 140,
+          });
+          translateY.value = withTiming(0, {
+            duration: reducedMotion ? 0 : 140,
+          });
+          scale.value = withTiming(1, { duration: reducedMotion ? 0 : 120 });
+          if (!resolved.current) callbacks.current.onFinish();
+        },
+        onPanResponderTerminate: () => {
+          translateX.value = 0;
+          translateY.value = 0;
+          scale.value = 1;
+          if (!resolved.current) callbacks.current.onCancel();
+        },
+      }),
+    [reducedMotion, scale, translateX, translateY],
+  );
+  const animated = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }],
+  }));
   const locked = command === "locked";
   const active = command !== "idle";
   const activate = () => {
@@ -833,8 +1379,16 @@ function VoiceGestureButton({ command, disabled, onStart, onLock, onCancel, onFi
       accessibilityHint={locked ? t("recordingLocked") : t("releaseToSend")}
       accessibilityLabel={active ? t("stopRecording") : t("recordVoice")}
       accessibilityRole="button"
-      onAccessibilityAction={(event) => event.nativeEvent.actionName === "escape" ? callbacks.current.onCancel() : activate()}
-      style={[styles.send, { backgroundColor: active ? palette.danger : palette.accent, borderColor: palette.outline, opacity: disabled ? 0.45 : 1 }, animated]}
+      onAccessibilityAction={(event) => (event.nativeEvent.actionName === "escape" ? callbacks.current.onCancel() : activate())}
+      style={[
+        styles.send,
+        {
+          backgroundColor: active ? palette.danger : palette.accent,
+          borderColor: palette.outline,
+          opacity: disabled ? 0.45 : 1,
+        },
+        animated,
+      ]}
     >
       <Pressable disabled={disabled || !locked} onPress={onFinish} style={styles.voiceButtonFill}>
         <AppIcon name={locked ? "arrow-up" : "mic"} size={locked ? 21 : 20} color={active ? palette.onDanger : palette.onAccent} />
@@ -852,7 +1406,16 @@ function RecordingStatus({ levels, durationMillis, locked }: { levels: number[];
 
   useEffect(() => {
     cancelAnimation(pulse);
-    pulse.value = reducedMotion ? 1 : withRepeat(withTiming(0.28, { duration: 520, easing: Easing.inOut(Easing.ease) }), -1, true);
+    pulse.value = reducedMotion
+      ? 1
+      : withRepeat(
+          withTiming(0.28, {
+            duration: 520,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          -1,
+          true,
+        );
     return () => cancelAnimation(pulse);
   }, [pulse, reducedMotion]);
   const pulseStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
@@ -862,9 +1425,22 @@ function RecordingStatus({ levels, durationMillis, locked }: { levels: number[];
       <Animated.View style={[styles.recordDot, { backgroundColor: palette.danger }, pulseStyle]} />
       <Text style={[styles.recordingTime, { color: palette.text, fontSize: ui.font(13) }]}>{formatRecordingDuration(durationMillis)}</Text>
       <View style={styles.liveWaveform} accessible accessibilityLabel={t("liveMicrophoneLevel")}>
-        {levels.map((level, index) => <View key={index} style={[styles.liveWaveformBar, { backgroundColor: palette.accent, height: 3 + level * 21 }]} />)}
+        {levels.map((level, index) => (
+          <View key={index} style={[styles.liveWaveformBar, { backgroundColor: palette.accent, height: 3 + level * 21 }]} />
+        ))}
       </View>
-      <Text numberOfLines={2} style={[styles.recordingHint, { color: locked ? palette.accent : palette.secondaryText, fontSize: ui.font(10.5) }]}>{locked ? t("recordingLocked") : `${t("slideToCancel")} \u00b7 ${t("slideToLock")}`}</Text>
+      <Text
+        numberOfLines={2}
+        style={[
+          styles.recordingHint,
+          {
+            color: locked ? palette.accent : palette.secondaryText,
+            fontSize: ui.font(10.5),
+          },
+        ]}
+      >
+        {locked ? t("recordingLocked") : `${t("slideToCancel")} \u00b7 ${t("slideToLock")}`}
+      </Text>
     </View>
   );
 }
@@ -875,10 +1451,31 @@ function MentionSuggestions({ participants, onSelect }: { participants: readonly
   const { t } = useTranslation();
   return (
     <View accessibilityLabel={t("people")} style={[styles.mentionList, { backgroundColor: palette.elevated, borderColor: palette.border }]}>
-      {participants.slice(0, 5).map((participant) => <Pressable key={participant.id} accessibilityRole="button" accessibilityLabel={`${participant.displayName}, @${participant.username}`} onPress={() => onSelect(participant.username)} style={({ pressed }) => [styles.mentionRow, { minHeight: ui.dense(46, 40), backgroundColor: pressed ? palette.surface : "transparent" }]}>
-        <Avatar uri={participant.avatarUrl} label={participant.displayName} color={participant.avatarColor} online={participant.presence === "online"} size={32} />
-        <View style={styles.mentionCopy}><Text numberOfLines={1} style={[styles.mentionName, { color: palette.text, fontSize: ui.font(14) }]}>{participant.displayName}</Text><Text numberOfLines={1} style={[styles.mentionUsername, { color: palette.secondaryText, fontSize: ui.font(12) }]}>@{participant.username}</Text></View>
-      </Pressable>)}
+      {participants.slice(0, 5).map((participant) => (
+        <Pressable
+          key={participant.id}
+          accessibilityRole="button"
+          accessibilityLabel={`${participant.displayName}, @${participant.username}`}
+          onPress={() => onSelect(participant.username)}
+          style={({ pressed }) => [
+            styles.mentionRow,
+            {
+              minHeight: ui.dense(46, 40),
+              backgroundColor: pressed ? palette.surface : "transparent",
+            },
+          ]}
+        >
+          <Avatar uri={participant.avatarUrl} label={participant.displayName} color={participant.avatarColor} online={participant.presence === "online"} size={32} />
+          <View style={styles.mentionCopy}>
+            <Text numberOfLines={1} style={[styles.mentionName, { color: palette.text, fontSize: ui.font(14) }]}>
+              {participant.displayName}
+            </Text>
+            <Text numberOfLines={1} style={[styles.mentionUsername, { color: palette.secondaryText, fontSize: ui.font(12) }]}>
+              @{participant.username}
+            </Text>
+          </View>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -886,7 +1483,13 @@ function MentionSuggestions({ participants, onSelect }: { participants: readonly
 function UnreadDivider() {
   const palette = usePalette();
   const { t } = useTranslation();
-  return <View accessibilityRole="text" style={styles.unreadDivider}><View style={[styles.unreadLine, { backgroundColor: palette.accent }]} /><Text style={[styles.unreadText, { color: palette.accent }]}>{t("unreadMessages")}</Text><View style={[styles.unreadLine, { backgroundColor: palette.accent }]} /></View>;
+  return (
+    <View accessibilityRole="text" style={styles.unreadDivider}>
+      <View style={[styles.unreadLine, { backgroundColor: palette.accent }]} />
+      <Text style={[styles.unreadText, { color: palette.accent }]}>{t("unreadMessages")}</Text>
+      <View style={[styles.unreadLine, { backgroundColor: palette.accent }]} />
+    </View>
+  );
 }
 
 function formatRecordingDuration(durationMillis: number): string {
@@ -899,29 +1502,235 @@ function SelectionAction({ icon, label, danger = false, onPress }: { icon: AppIc
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [styles.selectionAction, { opacity: pressed ? 0.55 : 1 }]}>
       <AppIcon name={icon} size={23} color={danger ? palette.danger : palette.accent} />
-      <Text numberOfLines={1} style={[styles.selectionLabel, { color: danger ? palette.danger : palette.secondaryText }]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.selectionLabel, { color: danger ? palette.danger : palette.secondaryText }]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 }, messageViewport: { flex: 1, overflow: "hidden" }, messageList: { flex: 1 }, list: { paddingVertical: 8 },
-  headerIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 18 },
-  headerCopy: { minWidth: 0, maxWidth: 150 }, headerTitle: { fontSize: 15, lineHeight: 18, fontWeight: "800" }, headerSubtitle: { fontSize: 11, lineHeight: 14, marginTop: 1 },
-  pinBanner: { minHeight: 46, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
-  pinAccent: { width: 3, height: 29, borderRadius: 2 }, pinCopy: { flex: 1, minWidth: 0 }, pinLabel: { fontSize: 12, fontWeight: "800" }, pinText: { fontSize: 12, marginTop: 1 },
-  day: { width: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, marginVertical: 10 }, dayLine: { flex: 1, height: StyleSheet.hairlineWidth }, dayText: { fontSize: 11, fontWeight: "700" },
-  unreadDivider: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 12, marginVertical: 5 }, unreadLine: { flex: 1, height: StyleSheet.hairlineWidth }, unreadText: { fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
-  empty: { alignItems: "center", paddingTop: 90, paddingHorizontal: 24 }, emptyTitle: { fontSize: 20, fontWeight: "800" }, emptyText: { fontSize: 14, marginTop: 6 },
-  recording: { minHeight: 42, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, gap: 8 }, recordDot: { width: 9, height: 9, borderRadius: 5 }, recordingTime: { width: 38, fontSize: 13, fontVariant: ["tabular-nums"], fontWeight: "700" }, recordingHint: { maxWidth: 145, lineHeight: 13, fontWeight: "700" }, liveWaveform: { flex: 1, minWidth: 48, height: 28, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 2, overflow: "hidden" }, liveWaveformBar: { width: 2, minHeight: 3, borderRadius: 2 },
-  mentionList: { maxHeight: 230, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 3 }, mentionRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12 }, mentionCopy: { flex: 1, minWidth: 0 }, mentionName: { fontWeight: "700" }, mentionUsername: { marginTop: 1 },
-  replyComposer: { minHeight: 50, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, gap: 9 },
-  replyAccent: { width: 3, alignSelf: "stretch", marginVertical: 8, borderRadius: 2 },
-  replyCopy: { flex: 1 }, replyName: { fontSize: 12, fontWeight: "800" }, replyText: { fontSize: 12, marginTop: 2 }, replyClose: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19 },
-  selectionToolbar: { minHeight: 58, flexDirection: "row", alignItems: "flex-start", borderTopWidth: 1.5, paddingTop: 7, paddingHorizontal: 4 },
-  selectionAction: { flex: 1, minWidth: 0, minHeight: 47, alignItems: "center", justifyContent: "center", gap: 2 },
-  selectionLabel: { maxWidth: "100%", paddingHorizontal: 2, fontSize: 10, fontWeight: "600" },
-  composer: { minHeight: 58, flexDirection: "row", alignItems: "flex-end", paddingTop: 7, paddingHorizontal: 8, gap: 6 }, composerButton: { width: 38, height: 42, alignItems: "center", justifyContent: "center" }, inputWrap: { flex: 1, minHeight: 41, maxHeight: 120, borderRadius: 18, justifyContent: "center" }, input: { fontSize: 16, lineHeight: 20, paddingHorizontal: 13, paddingVertical: 9, maxHeight: 120 }, send: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginBottom: 1 }, voiceButtonFill: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", borderRadius: 12 },
+  screen: { flex: 1 },
+  messageViewport: { flex: 1, overflow: "hidden" },
+  messageList: { flex: 1 },
+  list: { paddingVertical: 8 },
+  headerIdentity: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 18,
+  },
+  headerCopy: { minWidth: 0, maxWidth: 150 },
+  headerTitle: { fontSize: 15, lineHeight: 18, fontWeight: "800" },
+  headerSubtitle: { fontSize: 11, lineHeight: 14, marginTop: 1 },
+  pinBanner: {
+    minHeight: 46,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pinAccent: { width: 3, height: 29, borderRadius: 2 },
+  pinCopy: { flex: 1, minWidth: 0 },
+  pinLabel: { fontSize: 12, fontWeight: "800" },
+  pinText: { fontSize: 12, marginTop: 1 },
+  voiceBanner: {
+    minHeight: 50,
+    marginHorizontal: 10,
+    marginTop: 4,
+    paddingHorizontal: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  voiceBannerPlay: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  voiceBannerCopy: { flex: 1, minWidth: 0, paddingVertical: 5 },
+  voiceBannerTitle: { fontSize: 12, lineHeight: 15, fontWeight: "800" },
+  voiceBannerProgressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 3,
+  },
+  voiceBannerTrack: { flex: 1, height: 4, borderRadius: 2, overflow: "hidden" },
+  voiceBannerFill: { height: 4, borderRadius: 2 },
+  voiceBannerTime: { width: 31, fontSize: 9.5, fontVariant: ["tabular-nums"] },
+  voiceBannerAction: {
+    minWidth: 34,
+    height: 38,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  voiceBannerSpeed: {
+    fontSize: 12,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+  },
+  day: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    marginVertical: 10,
+  },
+  dayLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dayText: { fontSize: 11, fontWeight: "700" },
+  unreadDivider: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingHorizontal: 12,
+    marginVertical: 5,
+  },
+  unreadLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  unreadText: { fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  empty: { alignItems: "center", paddingTop: 90, paddingHorizontal: 24 },
+  emptyTitle: { fontSize: 20, fontWeight: "800" },
+  emptyText: { fontSize: 14, marginTop: 6 },
+  recording: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  recordDot: { width: 9, height: 9, borderRadius: 5 },
+  recordingTime: {
+    width: 38,
+    fontSize: 13,
+    fontVariant: ["tabular-nums"],
+    fontWeight: "700",
+  },
+  recordingHint: { maxWidth: 145, lineHeight: 13, fontWeight: "700" },
+  liveWaveform: {
+    flex: 1,
+    minWidth: 48,
+    height: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 2,
+    overflow: "hidden",
+  },
+  liveWaveformBar: { width: 2, minHeight: 3, borderRadius: 2 },
+  mentionList: {
+    maxHeight: 230,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 3,
+  },
+  mentionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+  },
+  mentionCopy: { flex: 1, minWidth: 0 },
+  mentionName: { fontWeight: "700" },
+  mentionUsername: { marginTop: 1 },
+  replyComposer: {
+    minHeight: 50,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    gap: 9,
+  },
+  replyAccent: {
+    width: 3,
+    alignSelf: "stretch",
+    marginVertical: 8,
+    borderRadius: 2,
+  },
+  replyCopy: { flex: 1 },
+  replyName: { fontSize: 12, fontWeight: "800" },
+  replyText: { fontSize: 12, marginTop: 2 },
+  replyClose: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 19,
+  },
+  selectionToolbar: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderTopWidth: 1.5,
+    paddingTop: 7,
+    paddingHorizontal: 4,
+  },
+  selectionAction: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 47,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  selectionLabel: {
+    maxWidth: "100%",
+    paddingHorizontal: 2,
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  composer: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingTop: 7,
+    paddingHorizontal: 8,
+    gap: 6,
+  },
+  composerButton: {
+    width: 38,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inputWrap: {
+    flex: 1,
+    minHeight: 41,
+    maxHeight: 120,
+    borderRadius: 18,
+    justifyContent: "center",
+  },
+  input: {
+    fontSize: 16,
+    lineHeight: 20,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    maxHeight: 120,
+  },
+  send: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 1,
+  },
+  voiceButtonFill: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+  },
 });
 
 function formatLastSeen(timestamp: number): string {
@@ -929,5 +1738,10 @@ function formatLastSeen(timestamp: number): string {
   const value = new Date(timestamp);
   const now = new Date();
   if (value.toDateString() === now.toDateString()) return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  return value.toLocaleDateString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return value.toLocaleDateString([], {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

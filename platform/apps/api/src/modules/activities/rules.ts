@@ -1,5 +1,11 @@
 export function normalizeGuess(value: string) {
-  return value.normalize("NFKC").trim().toLocaleLowerCase("ru-RU").replaceAll("ё", "е").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return value
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("ru-RU")
+    .replaceAll("ё", "е")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 export function combinedRating(ratings: Record<string, unknown>) {
@@ -54,4 +60,8 @@ export function parseDrawingStrokes(value: unknown, width: number, height: numbe
     strokes.push(next);
   }
   return strokes;
+}
+
+export function colorHuntBatchLimit(target: number, count: number) {
+  return Math.max(0, Math.min(9, Math.trunc(target) - Math.trunc(count)));
 }
