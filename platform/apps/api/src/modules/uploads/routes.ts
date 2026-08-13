@@ -218,6 +218,12 @@ export const fileLookupSql = `SELECT a.owner_id,a.filename,coalesce(v.mime_type,
        LEFT JOIN blobs vb ON vb.id=v.blob_id WHERE a.id=$1`;
 
 export async function uploadRoutes(app: FastifyInstance) {
+  // HttpURLConnection assigns this form content type to a zero-byte POST when
+  // Android WorkManager finalizes an upload. The endpoint has no payload, but
+  // Fastify still resolves a parser before entering the handler. Keep the
+  // compatibility parser scoped to upload routes and reject any non-empty
+  // payload in the finalize handler below.
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "buffer" }, (_request, body, done) => done(null, body));
   await ensureStorage();
 
   app.post("/uploads/init", { preHandler: requireAuth }, async (request, reply) => {
@@ -488,6 +494,7 @@ export async function uploadRoutes(app: FastifyInstance) {
   });
 
   app.post("/uploads/:id/complete", async (request) => {
+    assertEmptyFinalizeBody(request.body);
     const id = idParams.parse(request.params).id;
     return completeUpload(await resolveUploadPrincipal(request), id);
   });
@@ -564,6 +571,14 @@ export async function uploadRoutes(app: FastifyInstance) {
     });
     return { success: true, jobs: retried };
   });
+}
+
+export function assertEmptyFinalizeBody(body: unknown): void {
+  if (body === undefined || body === null) return;
+  if (Buffer.isBuffer(body) && body.length === 0) return;
+  if (typeof body === "string" && body.length === 0) return;
+  if (typeof body === "object" && !Array.isArray(body) && Object.keys(body as object).length === 0) return;
+  throw conflict("Upload completion body must be empty");
 }
 
 async function completeUpload(principalOrUserId: UploadPrincipal | string, uploadId: string) {
