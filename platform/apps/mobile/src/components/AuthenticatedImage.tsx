@@ -13,9 +13,10 @@ interface AuthenticatedImageProps {
   resizeMode?: ImageContentFit;
   style: StyleProp<ImageStyle>;
   showLoader?: boolean;
+  onIntrinsicSize?: (width: number, height: number) => void;
 }
 
-export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallbackUri, cacheKey, resizeMode = "cover", style, showLoader = false }: AuthenticatedImageProps) {
+export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallbackUri, cacheKey, resizeMode = "cover", style, showLoader = false, onIntrinsicSize }: AuthenticatedImageProps) {
   const primarySource = useAuthorizedMedia(uri);
   // Hooks cannot be conditional. Resolving the primary twice is harmless and
   // keeps the fallback authorization header synchronized after token refresh.
@@ -41,7 +42,12 @@ export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallba
         recyclingKey={`${cacheKey}:${usingFallback ? "original" : "preferred"}`}
         transition={0}
         onLoadStart={() => { if (showLoader) setLoading(true); }}
-        onLoad={() => { setLoading(false); setFailed(false); }}
+        onLoad={(event) => {
+          setLoading(false);
+          setFailed(false);
+          const { width, height } = event.source;
+          if (width > 0 && height > 0) onIntrinsicSize?.(width, height);
+        }}
         onError={() => {
           if (canFallback) {
             setUsingFallback(true);

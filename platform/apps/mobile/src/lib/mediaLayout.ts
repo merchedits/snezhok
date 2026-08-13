@@ -3,10 +3,10 @@ export interface MessageMediaSize {
   height: number;
 }
 
-const DEFAULT_WIDTH = 250;
-const DEFAULT_HEIGHT = 190;
-const MAX_WIDTH = 250;
-const MAX_HEIGHT = 320;
+const DEFAULT_WIDTH = 276;
+const DEFAULT_HEIGHT = 207;
+const MAX_WIDTH = 286;
+const MAX_HEIGHT = 420;
 
 /**
  * Reserves a stable message-cell frame before the thumbnail is decoded. Both

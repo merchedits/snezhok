@@ -178,7 +178,7 @@ Deletion asks for confirmation when it affects other users. Pinning can optional
 
 The emoji picker contains Search, Recent, People, Nature, Food, Activity, Travel, Objects, Symbols, and Flags. Category assets load lazily. The selected skin tone is retained across sessions.
 
-Reactions render below the message as compact emoji chips without numeric counts. The current user's selection remains visually explicit. Repeated reactions update optimistically and reconcile with the server.
+Reactions render as compact emoji chips without numeric counts. On text messages they share the metadata baseline with the timestamp; on photo/video-only messages they occupy a translucent bottom-left overlay opposite the timestamp and delivery state. They must not create a third stacked row or inflate the bubble. The current user's selection remains visually explicit. Repeated reactions update optimistically and reconcile with the server.
 
 ### Search
 
@@ -211,7 +211,7 @@ Recent photos and videos use adaptive compression by default. A single **HQ** to
 
 Documents are never automatically compressed. Compressed media preserves orientation and strips embedded location metadata by default. The client presents progress, cancellation, retry, and resumable transfer. Android stages user-selected sources into private no-backup storage and uses WorkManager so an upload can survive process death; an in-process resumable path remains available only when the optional native module is absent after an interrupted upgrade or OEM restore.
 
-One to ten media items are sent as one album with a single caption and a predictable tile layout. Larger selections are split deterministically into groups of ten, so 23 items become 10 + 10 + 3. A single image or video preserves its source aspect ratio within safe viewport bounds. Media viewers expose pinch and double-tap zoom, pan, download/save, open externally, and message navigation.
+One to ten media items are sent as one album with a single caption and a predictable tile layout. Larger selections are split deterministically into groups of ten, so 23 items become 10 + 10 + 3. A single image or video preserves and shows its complete source aspect ratio within safe viewport bounds. Photo/video-only posts have no thick colored bubble frame; a hairline edge encloses the media and the timestamp/delivery state sits on a translucent island over its bottom-right corner. Media viewers expose pinch and double-tap zoom, pan, download/save, open externally, and message navigation.
 
 ## Presence and notifications
 

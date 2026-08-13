@@ -1,5 +1,5 @@
 import { AppIcon } from "./AppIcon";
-import { Component, memo, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { Component, memo, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
 import { type GestureResponderEvent, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { type SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
@@ -40,6 +40,10 @@ interface MessageBubbleProps {
 export const MessageBubble = memo(function MessageBubble({ streamId, message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions, onReplyPress, onOpenActivity }: MessageBubbleProps) {
   const palette = usePalette();
   const ui = useUiPreferences();
+  const displayAttachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
+  const mediaOnly = !message.activity && !message.text && !message.replyTo && !message.forwardedFrom
+    && displayAttachments.length > 0 && displayAttachments.every((attachment) => attachment.kind === "image" || attachment.kind === "video")
+    && variant === "bubble";
   const lastTapAt = useRef(0);
   const tapAnchorY = useRef(0);
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,7 +118,7 @@ export const MessageBubble = memo(function MessageBubble({ streamId, message, mi
             <View style={styles.channelAvatar}>{showSender ? <Avatar uri={message.sender.avatarUrl} label={message.sender.displayName} color={message.sender.avatarColor} size={40} /> : null}</View>
             <View style={[styles.channelContent, selected && { backgroundColor: palette.accentSoft }]}>
               {showSender ? <View style={styles.authorLine}><Text style={[styles.channelAuthor, { color: message.sender.avatarColor || palette.text, fontSize: ui.font(15) }]}>{message.sender.displayName}</Text><Text style={[styles.channelTime, { color: palette.faintText, fontSize: ui.font(11) }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text></View> : null}
-              <MessageContent streamId={streamId} message={message} mine={mine} foreground={palette.text} mutedForeground={palette.secondaryText} showSender={false} showTime={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+              <MessageContent streamId={streamId} message={message} mine={mine} foreground={palette.text} mutedForeground={palette.secondaryText} showSender={false} showTime={false} mediaOnly={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
             </View>
           </Pressable>
         </Animated.View>
@@ -126,8 +130,8 @@ export const MessageBubble = memo(function MessageBubble({ streamId, message, mi
       <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
       <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
         <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, { marginVertical: ui.dense(2, 1) }]}>
-          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, mine ? styles.mineBubble : styles.theirBubble, { borderRadius: message.activity ? 24 : ui.bubbleRadius, paddingHorizontal: message.activity ? 0 : ui.dense(12, 10), paddingVertical: message.activity ? 0 : ui.dense(8, 5), backgroundColor: message.activity ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderWidth: selected && !message.activity ? 1.5 : 0, borderColor: selected ? palette.accent : "transparent", opacity: pressed ? 0.82 : 1 }]}>
-            <MessageContent streamId={streamId} message={message} mine={mine} foreground={selected || !mine ? palette.text : palette.onAccent} mutedForeground={selected || !mine ? palette.secondaryText : "rgba(255,255,255,0.76)"} showSender={showSender && !mine} showTime interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+          <Pressable delayLongPress={240} onPress={message.activity ? undefined : handlePress} onLongPress={handleLongPress} style={({ pressed }) => [styles.bubble, message.activity && styles.activityBubble, mediaOnly && styles.mediaBubble, mine ? styles.mineBubble : styles.theirBubble, { borderRadius: message.activity ? 24 : mediaOnly ? 16 : ui.bubbleRadius, paddingHorizontal: message.activity || mediaOnly ? 0 : ui.dense(12, 10), paddingVertical: message.activity || mediaOnly ? 0 : ui.dense(8, 5), backgroundColor: message.activity || mediaOnly ? "transparent" : selected ? palette.accentSoft : mine ? palette.outgoing : palette.incoming, borderWidth: selected && !message.activity ? (mediaOnly ? 2 : 1.5) : 0, borderColor: selected ? palette.accent : "transparent", opacity: pressed ? 0.82 : 1 }]}>
+            <MessageContent streamId={streamId} message={message} mine={mine} foreground={selected || !mine ? palette.text : palette.onAccent} mutedForeground={selected || !mine ? palette.secondaryText : "rgba(255,255,255,0.76)"} showSender={showSender && !mine} showTime mediaOnly={mediaOnly} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
           </Pressable>
         </View>
       </Animated.View>
@@ -153,18 +157,20 @@ function SelectionMarker({ selected, animatedStyle }: { selected: boolean; anima
   );
 }
 
-function MessageContent({ streamId, message, mine, foreground, mutedForeground, showSender, showTime, interactionDisabled, onReact, onReplyPress, onOpenActivity }: { streamId: string; message: Message; mine: boolean; foreground: string; mutedForeground: string; showSender: boolean; showTime: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined; onOpenActivity?: (() => void) | undefined }) {
+function MessageContent({ streamId, message, mine, foreground, mutedForeground, showSender, showTime, mediaOnly, interactionDisabled, onReact, onReplyPress, onOpenActivity }: { streamId: string; message: Message; mine: boolean; foreground: string; mutedForeground: string; showSender: boolean; showTime: boolean; mediaOnly: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined; onOpenActivity?: (() => void) | undefined }) {
   const palette = usePalette();
   const ui = useUiPreferences();
-  const { t } = useTranslation();
   const attachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
   const mediaAttachments = attachments.filter((attachment) => attachment.kind === "image" || attachment.kind === "video");
   const otherAttachments = mediaAttachments.length > 1 ? attachments.filter((attachment) => attachment.kind !== "image" && attachment.kind !== "video") : attachments;
   const reactions = useMemo(() => renderableReactions(message.reactions), [message.reactions]);
+  const showMeta = showTime || Boolean(message.editedAt) || Boolean(message.pinnedAt) || (mine && Boolean(message.pending || message.failed));
+  const metadata = showMeta ? <MessageMetadata message={message} mine={mine} showTime={showTime} foreground={mediaOnly ? "white" : foreground} mutedForeground={mediaOnly ? "rgba(255,255,255,0.94)" : mutedForeground} overlay={mediaOnly} /> : null;
+  const reactionBar = reactions.length > 0 ? <ReactionBar reactions={reactions} overlay={mediaOnly} onReact={onReact} /> : null;
   if (message.activity) return <CooperativeActivityCard activity={message.activity} onOpen={() => onOpenActivity?.()} />;
   return (
     <View pointerEvents={interactionDisabled ? "none" : "auto"}>
-      {showSender ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent, fontSize: ui.font(13) }]}>{message.sender.displayName}</Text> : null}
+      {showSender && !mediaOnly ? <Text style={[styles.sender, { color: message.sender.avatarColor || palette.accent, fontSize: ui.font(13) }]}>{message.sender.displayName}</Text> : null}
       {message.replyTo ? (
         <Pressable accessibilityRole="button" onPress={() => onReplyPress?.(message.replyTo!.id)} style={[styles.reply, { borderColor: palette.accent }]}>
           <Text numberOfLines={1} style={[styles.replyName, { color: palette.accent, fontSize: ui.font(12) }]}>{message.replyTo.senderName}</Text>
@@ -172,20 +178,36 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
         </Pressable>
       ) : null}
       {message.forwardedFrom ? <View style={styles.forwarded}><AppIcon name="return-up-forward" size={13} color={palette.accent} /><Text numberOfLines={1} style={[styles.forwardedText, { color: palette.accent }]}>{message.forwardedFrom.senderName}</Text></View> : null}
-      {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
-      {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />)}
+      {mediaOnly ? <View style={styles.mediaStage}>
+        {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
+        {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />)}
+        {showSender ? <View style={[styles.mediaSenderOverlay, styles.overlayIsland]}><Text numberOfLines={1} style={styles.mediaSender}>{message.sender.displayName}</Text></View> : null}
+        {reactionBar ? <View style={styles.mediaReactionOverlay}>{reactionBar}</View> : null}
+        {metadata ? <View style={styles.mediaMetaOverlay}>{metadata}</View> : null}
+      </View> : <>
+        {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
+        {otherAttachments.map((attachment) => <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />)}
+      </>}
       {message.text ? <Text selectable={false} style={[styles.text, { color: foreground, fontSize: ui.font(16), lineHeight: ui.font(21) }]}>{message.text}</Text> : null}
-      {showTime || message.editedAt || message.pinnedAt || (mine && (message.pending || message.failed)) ? (
-        <View style={[styles.meta, !showTime && styles.channelMeta]}>
-          {message.pinnedAt ? <View style={styles.pinned}><AppIcon name="pin" size={10} color={palette.accent} /><Text style={[styles.edited, { color: palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}
-          {message.editedAt ? <Text style={[styles.edited, { color: mutedForeground }]}>edited</Text> : null}
-          {showTime ? <Text style={[styles.time, { color: mutedForeground }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
-          {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : foreground} /> : null}
-        </View>
-      ) : null}
-      {reactions.length > 0 ? <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, { backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink, borderColor: reaction.reacted ? palette.accent : palette.outline }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View> : null}
+      {!mediaOnly && (reactionBar || metadata) ? <View style={[styles.footer, !showTime && styles.channelFooter]}>{reactionBar}<View style={styles.footerSpacer} />{metadata}</View> : null}
     </View>
   );
+}
+
+function MessageMetadata({ message, mine, showTime, foreground, mutedForeground, overlay }: { message: Message; mine: boolean; showTime: boolean; foreground: string; mutedForeground: string; overlay: boolean }) {
+  const palette = usePalette();
+  const { t } = useTranslation();
+  return <View style={[styles.meta, overlay && styles.overlayIsland]}>
+    {message.pinnedAt ? <View style={styles.pinned}><AppIcon name="pin" size={10} color={overlay ? "white" : palette.accent} /><Text style={[styles.edited, { color: overlay ? "white" : palette.accent }]}>{t("pinnedMessage")}</Text></View> : null}
+    {message.editedAt ? <Text style={[styles.edited, { color: mutedForeground }]}>edited</Text> : null}
+    {showTime ? <Text style={[styles.time, { color: mutedForeground }]}>{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text> : null}
+    {mine ? <AppIcon name={message.failed ? "alert-circle" : message.pending ? "time-outline" : message.readByOthers ? "checkmark-done" : "checkmark"} size={14} color={message.failed ? palette.danger : foreground} /> : null}
+  </View>;
+}
+
+function ReactionBar({ reactions, overlay, onReact }: { reactions: ReturnType<typeof renderableReactions>; overlay: boolean; onReact?: ((emoji: string) => void) | undefined }) {
+  const palette = usePalette();
+  return <View style={styles.reactions}>{reactions.map((reaction) => <Pressable accessibilityLabel={reaction.emoji} key={reaction.emoji} onPress={() => onReact?.(reaction.emoji)} style={[styles.reaction, overlay ? styles.overlayReaction : { backgroundColor: reaction.reacted ? palette.accentSoft : palette.moment.pink, borderColor: reaction.reacted ? palette.accent : palette.outline }]}><Text style={styles.emoji}>{reaction.emoji}</Text></Pressable>)}</View>;
 }
 
 function MediaAlbum({ attachments }: { attachments: Attachment[] }) {
@@ -269,22 +291,31 @@ function AttachmentView({ attachment, streamId, mine, foreground, mutedForegroun
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
-  const size = messageMediaSize(attachment.width, attachment.height);
-  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} showLoader style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
+  const [size, onIntrinsicSize] = useMediaFrame(attachment);
+  return <><Pressable onPress={() => setOpenAttachmentId(attachment.id)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} resizeMode="contain" showLoader onIntrinsicSize={onIntrinsicSize} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}</>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
   const [openAttachmentId, setOpenAttachmentId] = useState<string | null>(null);
   const open = openAttachmentId === attachment.id;
-  const size = messageMediaSize(attachment.width, attachment.height);
+  const [size, onIntrinsicSize] = useMediaFrame(attachment);
   return <>
     <Pressable accessibilityRole="button" onPress={() => setOpenAttachmentId(attachment.id)} style={[styles.videoPreview, size]}>
-      {attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
+      {attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" onIntrinsicSize={onIntrinsicSize} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}
       <View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>
       {attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}
     </Pressable>
     {open ? <AttachmentViewer attachment={attachment} onClose={() => setOpenAttachmentId(null)} /> : null}
   </>;
+}
+
+function useMediaFrame(attachment: Attachment): [ReturnType<typeof messageMediaSize>, (width: number, height: number) => void] {
+  const [decodedSize, setDecodedSize] = useState<{ width: number; height: number } | null>(null);
+  useEffect(() => setDecodedSize(null), [attachment.id]);
+  const onIntrinsicSize = useCallback((width: number, height: number) => {
+    setDecodedSize((current) => current?.width === width && current.height === height ? current : { width, height });
+  }, []);
+  return [messageMediaSize(decodedSize?.width ?? attachment.width, decodedSize?.height ?? attachment.height), onIntrinsicSize];
 }
 
 function AttachmentViewer({ attachment, onClose }: { attachment: Attachment; onClose: () => void }) {
@@ -315,6 +346,7 @@ const styles = StyleSheet.create({
   mineRow: { alignItems: "flex-end" },
   theirRow: { alignItems: "flex-start" },
   bubble: { maxWidth: "82%", minWidth: 78, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  mediaBubble: { maxWidth: "86%", minWidth: 0, overflow: "hidden" },
   mineBubble: { borderTopRightRadius: 8 },
   theirBubble: { borderTopLeftRadius: 8 },
   activityBubble: { maxWidth: "94%", width: 302, borderWidth: 0 },
@@ -324,7 +356,7 @@ const styles = StyleSheet.create({
   authorLine: { flexDirection: "row", alignItems: "baseline", gap: 7, marginBottom: 2 },
   channelAuthor: { fontSize: 15, fontWeight: "700" },
   channelTime: { fontSize: 11 },
-  channelMeta: { alignSelf: "flex-start", marginLeft: 0 },
+  channelFooter: { justifyContent: "flex-start" },
   sender: { fontSize: 13, fontWeight: "700", marginBottom: 3 },
   text: { fontSize: 16, lineHeight: 21 },
   reply: { borderLeftWidth: 3, paddingLeft: 7, marginBottom: 6 },
@@ -332,29 +364,38 @@ const styles = StyleSheet.create({
   replyText: { fontSize: 12, marginTop: 1 },
   forwarded: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 5 },
   forwardedText: { fontSize: 12, fontWeight: "700" },
-  meta: { alignSelf: "flex-end", flexDirection: "row", alignItems: "center", gap: 3, marginTop: 3, marginLeft: 12 },
+  footer: { minHeight: 20, flexDirection: "row", alignItems: "flex-end", marginTop: 3, gap: 5 },
+  footerSpacer: { flex: 1, minWidth: 5 },
+  meta: { flexDirection: "row", alignItems: "center", gap: 3 },
+  overlayIsland: { minHeight: 22, paddingHorizontal: 6, borderRadius: 11, backgroundColor: "rgba(17,18,24,0.58)" },
   pinned: { flexDirection: "row", alignItems: "center", gap: 2 },
   time: { fontSize: 10 },
   edited: { fontSize: 10 },
-  photo: { borderRadius: 11, marginBottom: 5, backgroundColor: "#202329" },
-  album: { width: 250, gap: 2, marginBottom: 5, borderRadius: 11, overflow: "hidden" },
+  mediaStage: { position: "relative" },
+  mediaSenderOverlay: { position: "absolute", left: 6, top: 6, maxWidth: "72%" },
+  mediaSender: { color: "white", fontSize: 12, fontWeight: "800" },
+  mediaReactionOverlay: { position: "absolute", left: 6, bottom: 6, maxWidth: "62%" },
+  mediaMetaOverlay: { position: "absolute", right: 6, bottom: 6 },
+  photo: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "#202329" },
+  album: { width: 286, gap: 2, borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)" },
   albumRow: { flexDirection: "row", gap: 2 },
   albumTile: { flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: "#202329" },
   albumPlay: { position: "absolute", left: "50%", top: "50%", width: 36, height: 36, marginLeft: -18, marginTop: -18, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
-  albumDuration: { position: "absolute", right: 5, bottom: 5, minWidth: 30, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
+  albumDuration: { position: "absolute", right: 5, top: 5, minWidth: 30, height: 18, paddingHorizontal: 5, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
   video: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
-  videoPreview: { marginBottom: 5, borderRadius: 11, overflow: "hidden", backgroundColor: "#202329" },
+  videoPreview: { borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.18)", backgroundColor: "#202329" },
   videoPlaceholder: { backgroundColor: "#202329" },
   videoPlay: { position: "absolute", left: "50%", top: "50%", width: 44, height: 44, marginLeft: -22, marginTop: -22, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
-  videoDurationBadge: { position: "absolute", right: 7, bottom: 7, minWidth: 34, height: 20, paddingHorizontal: 6, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
+  videoDurationBadge: { position: "absolute", right: 7, top: 7, minWidth: 34, height: 20, paddingHorizontal: 6, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.62)" },
   videoDurationText: { color: "white", fontSize: 11, fontWeight: "600", fontVariant: ["tabular-nums"] },
   file: { width: 250, minHeight: 58, borderRadius: 11, padding: 8, flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 4 },
   fileIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   fileText: { flex: 1 },
   filename: { fontSize: 13, fontWeight: "600" },
   filesize: { fontSize: 11, marginTop: 3 },
-  reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 5 },
-  reaction: { borderWidth: 1, borderRadius: 11, minWidth: 27, minHeight: 23, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
+  reactions: { flexDirection: "row", flexWrap: "wrap", gap: 4, flexShrink: 1 },
+  reaction: { borderWidth: 1, borderRadius: 12, minWidth: 27, height: 24, paddingHorizontal: 6, alignItems: "center", justifyContent: "center" },
+  overlayReaction: { backgroundColor: "rgba(17,18,24,0.58)", borderColor: "rgba(255,255,255,0.22)" },
   emoji: { fontSize: 13 },
   failedAttachment: { width: 238, minHeight: 48, borderRadius: 11, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   failedAttachmentCompact: { flex: 1, minWidth: 0, height: "100%", alignItems: "center", justifyContent: "center" },

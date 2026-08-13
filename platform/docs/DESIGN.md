@@ -121,7 +121,7 @@ Neutral canvas and rows with a Lime creation action. The small private deploymen
 
 ### Chat
 
-Messages dominate. Incoming bubbles are Warm with Ink; outgoing bubbles are Violet with white. Bubbles have no normal border or shadow and use a tighter sender-side top corner. Media retains real aspect ratio and authenticated sources. Selection adds Violet boundary/checks without permanently changing normal geometry.
+Messages dominate. Incoming bubbles are Warm with Ink; outgoing bubbles are Violet with white. Bubbles have no normal border or shadow and use a tighter sender-side top corner. Single photo/video messages are content-first cards: no colored bubble padding, only a hairline neutral edge, the complete source aspect ratio within safe viewport bounds, and one translucent bottom-right island for time and delivery state. Media reactions occupy a matching bottom-left island. Text-message reactions and time share one compact footer row instead of stacking into separate vertical levels. Albums retain their intentional cropped mosaic, while full-screen viewers always expose the complete authenticated source. Selection adds Violet boundary/checks without permanently changing normal geometry.
 
 The composer is a calm Milk/Warm strip with a warm field, quiet attachment control, Violet send control, and existing voice gesture behavior. The sparkle cooperative launcher stays prominent in the header. Pinned/reply/edit states use compact soft group surfaces.
 

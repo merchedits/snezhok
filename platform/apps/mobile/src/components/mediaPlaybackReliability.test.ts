@@ -27,3 +27,17 @@ test("voice and video playback failures remain retryable", async () => {
   assert.match(video, /onRetry=\{\(\) => setAttempt/);
   assert.match(video, /Video playback failed/);
 });
+
+test("single media messages keep their aspect ratio and overlay compact metadata", async () => {
+  const [image, bubble] = await Promise.all([
+    source("./AuthenticatedImage.tsx"),
+    source("./MessageBubble.tsx"),
+  ]);
+  assert.match(image, /onIntrinsicSize\?: \(width: number, height: number\)/);
+  assert.match(bubble, /resizeMode="contain"/);
+  assert.match(bubble, /mediaOnly && styles\.mediaBubble/);
+  assert.match(bubble, /styles\.mediaMetaOverlay/);
+  assert.match(bubble, /styles\.mediaReactionOverlay/);
+  assert.match(bubble, /StyleSheet\.hairlineWidth/);
+  assert.match(bubble, /<View style=\{\[styles\.footer,/);
+});
