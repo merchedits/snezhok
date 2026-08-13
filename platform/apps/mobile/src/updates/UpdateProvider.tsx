@@ -13,7 +13,7 @@ import { userFacingError } from "../lib/userFacingError";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
 import { blocksApplicationForUpdate, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
-import { sha256UpdateFile } from "./nativeUpdateIntegrity";
+import { downloadAndroidUpdate } from "./nativeUpdateDownload";
 
 const AUTO_UPDATE_KEY = "snezhok.android.auto-update.v1";
 const CHECK_INTERVAL_MS = 15 * 60 * 1_000;
@@ -22,7 +22,7 @@ const FLAG_GRANT_READ_URI_PERMISSION = 1;
 
 class LocalizedUpdateError extends Error {}
 
-export type UpdatePhase = "idle" | "checking" | "up-to-date" | "available" | "downloading" | "ready" | "error";
+export type UpdatePhase = "idle" | "checking" | "up-to-date" | "available" | "downloading" | "verifying" | "ready" | "error";
 
 interface UpdateState {
   phase: UpdatePhase;
@@ -91,37 +91,42 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
     activeDownloadId.current = downloadId;
     const operation = (async () => {
       let lastProgress = 0;
-      // Every attempt gets its own destination. A stale native task can therefore
-      // never truncate or append to the APK owned by a newer attempt.
-      const destination = new File(Paths.cache, `snezhok-${manifest.versionCode}-${Date.now()}-${downloadId}.apk`);
-      if (destination.exists) destination.delete();
+      // The stable content-addressed destination is intentional: the native
+      // downloader preserves `<name>.apk.part` after a process/network failure
+      // and resumes it with a validated Range request on the next attempt.
+      const destination = new File(Paths.cache, `snezhok-${manifest.versionCode}-${manifest.sha256.slice(0, 12)}.apk`);
       setState({ phase: "downloading", manifest, progress: 0, message: t("downloading"), required: isRequired(manifest, currentVersionCode) });
-      const task = File.createDownloadTask(resolveApiResource(manifest.downloadUrl), destination, {
-        onProgress: ({ bytesWritten }) => {
-          if (activeDownloadId.current !== downloadId) return;
-          const progress = monotonicDownloadProgress(bytesWritten, manifest.bytes, lastProgress);
-          if (progress === lastProgress) return;
-          lastProgress = progress;
-          setState((current) => current.phase === "downloading" ? { ...current, progress } : current);
-        },
-      });
       try {
-        const file = await task.downloadAsync();
-        if (!file || file.size !== manifest.bytes) throw new LocalizedUpdateError(t("updateBadSize"));
-        setState((current) => ({ ...current, message: t("updateVerifying"), progress: 1 }));
-        const digest = await sha256UpdateFile(file.uri);
-        if (digest !== manifest.sha256.toLowerCase()) throw new LocalizedUpdateError(t("updateVerificationFailed"));
+        const downloadUrls = [
+          resolveApiResource(manifest.downloadUrl),
+          ...(manifest.downloadMirrors ?? []).map(resolveApiResource),
+        ];
+        await downloadAndroidUpdate(downloadUrls, destination.uri, manifest.bytes, manifest.sha256, (event) => {
+          if (activeDownloadId.current !== downloadId) return;
+          const progress = monotonicDownloadProgress(event.bytesWritten, manifest.bytes, lastProgress);
+          lastProgress = progress;
+          if (event.phase === "verifying") {
+            setState((current) => ({ ...current, phase: "verifying", message: t("updateVerifying"), progress: 1 }));
+          } else {
+            setState((current) => ({
+              ...current,
+              phase: "downloading",
+              message: event.phase === "retrying" ? t("updateReconnecting", { attempt: event.attempt }) : t("downloading"),
+              progress,
+            }));
+          }
+        });
+        if (!destination.exists || destination.size !== manifest.bytes) throw new LocalizedUpdateError(t("updateBadSize"));
 
         const previousFile = downloadedFile.current;
-        if (previousFile?.exists && previousFile.uri !== file.uri) previousFile.delete();
-        downloadedFile.current = file;
+        if (previousFile?.exists && previousFile.uri !== destination.uri) previousFile.delete();
+        downloadedFile.current = destination;
         setState((current) => ({ ...current, phase: "ready", message: t("updateReady"), progress: 1 }));
         await openInstaller();
       } catch (error) {
-        if (destination.exists) destination.delete();
+        // Keep the native `.part` file. Retry and a future process can continue
+        // from its durable byte offset instead of restarting at zero.
         throw error;
-      } finally {
-        task.release();
       }
     })();
 

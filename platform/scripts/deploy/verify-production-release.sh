@@ -27,7 +27,7 @@ download_path=${android_release[0]}
 android_source_revision=${android_release[1]}
 node "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)/scripts/compliance/verify-public-source.mjs" \
   --revision "$android_source_revision" --repository https://github.com/merchedits/snezhok
-range_result=$(curl --fail --silent --show-error --max-time 15 --range 0-1023 -o /dev/null \
+range_result=$(curl --fail --location --silent --show-error --max-time 30 --range 0-1023 -o /dev/null \
   --write-out '%{http_code}|%{size_download}' --resolve "$PUBLIC_HOST:443:$LOCAL_HTTPS_ADDRESS" \
   "https://$PUBLIC_HOST/chat$download_path")
 [[ "$range_result" == "206|1024" ]] || { echo "Android channel did not return the required 1024-byte range" >&2; exit 1; }

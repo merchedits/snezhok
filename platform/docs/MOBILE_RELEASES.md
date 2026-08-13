@@ -7,13 +7,39 @@ Android is the primary Snezhok client and the authority for interaction design. 
 - Manifest: `https://merchedits.xyz/chat/api/v1/client/android/manifest`
 - Current APK: `https://merchedits.xyz/chat/api/v1/client/android`
 
-The server reads `runtime/releases/android-current.json` and streams `runtime/releases/snezhok-current.apk`. The ignored `runtime/` tree is mutable deployment state, while `releases/*.json` remains immutable historical evidence in Git. These stable runtime paths mean a mobile release does not require changing or rebuilding the API after the update channel has been deployed.
+The server reads `runtime/releases/android-current.json`. Nginx sends
+`runtime/releases/snezhok-current.apk` directly from an exact public location;
+the API retains an equivalent range implementation for local/API-only
+verification and recovery. The ignored `runtime/` tree is mutable deployment
+state, while `releases/*.json` remains immutable historical evidence in Git.
+These stable runtime paths mean a mobile release does not require changing or
+rebuilding the API after the update channel has been deployed.
 
 ## Client behavior
 
 Release builds check the manifest shortly after launch and whenever the app returns to the foreground after fifteen minutes. Updates download automatically on Wi-Fi by default. The user can change that preference, check manually, or retry from Settings.
 
-Before opening Android's installer, Snezhok verifies the byte count and SHA-256 from the release manifest. Android then verifies that the APK is signed by the same release certificate as the installed application. Android does not permit an ordinary sideloaded app to install an APK silently: the user must allow Snezhok as an installation source once and confirm each package update.
+The Android updater downloads to a stable content-addressed cache file. A
+native bounded downloader keeps the `.part` file after transient transport or
+process failures, validates every `Content-Range`, reconnects with exponential
+backoff, and resumes from the durable file length. It verifies the byte count
+and SHA-256 from the release manifest before atomically exposing the `.apk` to
+the installer. Hashing is a separate visible verification phase; network 100%
+must never look like a frozen completed installation. Android then verifies
+that the APK is signed by the same release certificate as the installed
+application. Android does not permit an ordinary sideloaded app to install an
+APK silently: the user must allow Snezhok as an installation source once and
+confirm each package update.
+
+The manifest publishes the stable domain route first. Nginx redirects it to
+the current GitHub Release CDN asset, while the manifest also lists the direct
+origin and immutable versioned GitHub asset as fallbacks. A retry rotates
+sources while preserving the same validated byte offset, so a poor route does
+not restart the transfer. Upload both `snezhok-X.Y.Z.apk` and the stable-name
+`snezhok-android.apk` to the public `android-vX.Y.Z` GitHub release before
+publishing the matching manifest; all assets must have the exact manifest
+SHA-256. The origin remains independently usable and an unverified mirror can
+never reach Android's installer.
 
 Release 4.0 introduces durable cooperative activity payloads on system-message anchors. The payload is backward compatible: older installed clients display the Russian fallback system text and continue normal messaging, while 4.0 renders the interactive card. Deploy migration 0018 and the matching API revision before publishing the 4.0 APK.
 

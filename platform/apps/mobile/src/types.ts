@@ -61,6 +61,7 @@ export interface AndroidReleaseManifest {
   publishedAt: string;
   releaseNotes: string[];
   downloadUrl: string;
+  downloadMirrors?: string[];
 }
 
 export interface UploadResponse {

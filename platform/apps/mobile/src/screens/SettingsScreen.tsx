@@ -112,7 +112,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
     { text: t("clearMediaCache"), onPress: () => void clearMediaCache().then(() => { setCacheBytes(0); showDialog(t("cacheCleared")); }).catch((error: unknown) => showDialog(t("requestFailed"), userFacingError(error, t))) },
   ]);
 
-  const updateBusy = appUpdate.phase === "checking" || appUpdate.phase === "downloading";
+  const updateBusy = appUpdate.phase === "checking" || appUpdate.phase === "downloading" || appUpdate.phase === "verifying";
   const updateActionLabel = appUpdate.phase === "available" || appUpdate.phase === "error"
     ? t("downloadUpdate")
     : appUpdate.phase === "ready"
@@ -121,6 +121,8 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
         ? t("checking")
         : appUpdate.phase === "downloading"
           ? t("downloading")
+          : appUpdate.phase === "verifying"
+            ? t("updateVerifying")
           : t("checkUpdates");
   const runUpdateAction = () => void (
     appUpdate.phase === "available" || appUpdate.phase === "error"

@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -63,10 +63,17 @@ export function parseAndroidReleaseManifest(value: unknown): AndroidReleaseManif
 export async function clientRoutes(app: FastifyInstance) {
   app.get("/client/android/manifest", async (_request, reply) => {
     const { manifest } = await androidRelease();
-    return reply.header("Cache-Control", "public, max-age=60, must-revalidate").send({ ...manifest, downloadUrl: `${config.PUBLIC_API_PREFIX}/client/android` });
+    return reply.header("Cache-Control", "public, max-age=60, must-revalidate").send({
+      ...manifest,
+      downloadUrl: `${config.PUBLIC_API_PREFIX}/client/android`,
+      downloadMirrors: [
+        `${config.PUBLIC_API_PREFIX}/client/android/origin`,
+        githubReleaseDownloadUrl(manifest.version),
+      ],
+    });
   });
 
-  app.get("/client/android", async (request, reply) => {
+  const sendAndroidRelease = async (request: FastifyRequest, reply: FastifyReply) => {
     const { absolutePath, info, manifest } = await androidRelease();
     const etag = `"sha256-${manifest.sha256}"`;
     if (request.headers["if-none-match"] === etag) return reply.status(304).send();
@@ -83,7 +90,14 @@ export async function clientRoutes(app: FastifyInstance) {
       return reply.send(createReadStream(absolutePath, range));
     }
     return reply.header("Content-Length", info.size).send(createReadStream(absolutePath));
-  });
+  };
+  app.get("/client/android", sendAndroidRelease);
+  app.get("/client/android/origin", sendAndroidRelease);
+}
+
+export function githubReleaseDownloadUrl(version: string): string {
+  const encodedVersion = encodeURIComponent(version);
+  return `https://github.com/merchedits/snezhok/releases/download/android-v${encodedVersion}/snezhok-${encodedVersion}.apk`;
 }
 
 export function parseSingleRange(header: string | undefined, totalBytes: number): { start: number; end: number } | "invalid" | null {

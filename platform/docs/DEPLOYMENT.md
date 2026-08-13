@@ -80,6 +80,18 @@ log; do not diagnose that state as an Android decoder or upload failure.
 
 The internal APK is signed with one stable release key and copied to an authenticated download endpoint. The signing key and passwords are backed up outside the server. Losing the key prevents installed clients from accepting upgrades with the same application ID.
 
+The public APK URL is intentionally served by an exact Nginx location rather
+than the generic Node.js proxy. Run `sudo -n bash
+scripts/deploy/activate-android-downloads.sh` after provisioning or replacing
+the `merchedits.xyz` Nginx site. The installer creates a timestamped Nginx
+backup, validates configuration before reload, and proves a one-megabyte `206`
+response against the published byte count. The stable
+`/chat/api/v1/client/android` URL redirects to the public GitHub Release CDN;
+friends therefore use a globally distributed endpoint without learning a new
+link. `/chat/api/v1/client/android/origin` remains a range-capable recovery
+path on the host. Do not add `limit_rate`, compression, or response transforms
+to the origin route. Both sources support byte ranges.
+
 APK releases include version code, semantic version, source revision, API compatibility version and SHA-256 in a release manifest.
 
 Android-only releases use a bounded fast path. Run

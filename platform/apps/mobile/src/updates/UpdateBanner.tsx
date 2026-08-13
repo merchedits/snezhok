@@ -1,5 +1,5 @@
 import { AppIcon } from "../components/AppIcon";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { usePalette } from "../hooks/usePalette";
@@ -11,7 +11,7 @@ export function UpdateBanner() {
   const palette = usePalette();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  if (!["available", "downloading", "ready", "error"].includes(update.phase)) return null;
+  if (!["available", "downloading", "verifying", "ready", "error"].includes(update.phase)) return null;
 
   const action = update.phase === "ready" ? update.openInstaller : update.downloadAndInstall;
   const actionLabel = update.phase === "ready" ? t("install") : update.phase === "error" ? t("retry") : t("update");
@@ -24,7 +24,7 @@ export function UpdateBanner() {
         <Text numberOfLines={2} style={[styles.message, { color: palette.secondaryText }]}>{update.message}</Text>
         {update.phase === "downloading" ? <View style={[styles.track, { backgroundColor: palette.border }]}><View style={[styles.progress, { width: `${Math.round(update.progress * 100)}%`, backgroundColor: palette.accent }]} /></View> : null}
       </View>
-      {update.phase !== "downloading" ? <Pressable onPress={() => void action()} style={[styles.action, { backgroundColor: palette.accent }]}><Text style={styles.actionText}>{actionLabel}</Text></Pressable> : <Text style={[styles.percent, { color: palette.secondaryText }]}>{Math.round(update.progress * 100)}%</Text>}
+      {update.phase === "verifying" ? <ActivityIndicator color={palette.accent} /> : update.phase !== "downloading" ? <Pressable onPress={() => void action()} style={[styles.action, { backgroundColor: palette.accent }]}><Text style={styles.actionText}>{actionLabel}</Text></Pressable> : <Text style={[styles.percent, { color: palette.secondaryText }]}>{Math.round(update.progress * 100)}%</Text>}
     </View>
   );
 }

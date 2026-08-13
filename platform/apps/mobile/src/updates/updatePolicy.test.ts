@@ -15,7 +15,7 @@ test("mandatory and minimum version policies are enforced", () => {
 });
 
 test("a required release blocks application interaction until installation", () => {
-  for (const phase of ["available", "downloading", "ready", "error"]) {
+  for (const phase of ["available", "downloading", "verifying", "ready", "error"]) {
     assert.equal(blocksApplicationForUpdate(true, phase), true);
   }
   assert.equal(blocksApplicationForUpdate(false, "available"), false);

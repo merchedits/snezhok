@@ -9,7 +9,7 @@ export function isRequired(manifest: Pick<AndroidReleaseManifest, "mandatory" | 
 }
 
 export function blocksApplicationForUpdate(required: boolean, phase: string): boolean {
-  return required && ["available", "downloading", "ready", "error"].includes(phase);
+  return required && ["available", "downloading", "verifying", "ready", "error"].includes(phase);
 }
 
 export function arrayBufferToHex(value: ArrayBuffer) {

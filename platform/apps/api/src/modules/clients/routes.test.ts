@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseAndroidReleaseManifest, parseSingleRange } from "./routes.js";
+import { githubReleaseDownloadUrl, parseAndroidReleaseManifest, parseSingleRange } from "./routes.js";
 
 test("Android APK downloads accept resumable byte ranges", () => {
   assert.deepEqual(parseSingleRange("bytes=10-19", 100), { start: 10, end: 19 });
@@ -31,4 +31,11 @@ test("Android release manifests preserve complete provenance and consistent poli
   assert.throws(() => parseAndroidReleaseManifest({ ...release, sourceRevision: "c0ffee" }));
   assert.throws(() => parseAndroidReleaseManifest({ ...release, minimumVersionCode: 27 }));
   assert.throws(() => parseAndroidReleaseManifest({ ...release, targetSdk: 23 }));
+});
+
+test("Android release mirrors are immutable versioned GitHub assets", () => {
+  assert.equal(
+    githubReleaseDownloadUrl("4.3.2"),
+    "https://github.com/merchedits/snezhok/releases/download/android-v4.3.2/snezhok-4.3.2.apk",
+  );
 });
