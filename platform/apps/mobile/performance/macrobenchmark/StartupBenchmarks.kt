@@ -9,6 +9,7 @@ import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import android.os.SystemClock
 import org.junit.Rule
@@ -150,10 +151,7 @@ class StartupBenchmarks {
     }
 
     private fun MacrobenchmarkScope.openSavedMessages(maximumDurationMs: Long = UI_TIMEOUT_MS) {
-        val saved = device.findObject(By.res(PACKAGE_NAME, SAVED_MESSAGES_ID))
-            ?: device.findObject(By.text(SAVED_MESSAGES_RU))
-            ?: device.findObject(By.text(SAVED_MESSAGES_EN))
-            ?: error("Sign the benchmark device into Snezhok before running chat benchmarks")
+        val saved = awaitSavedMessages()
         val startedAt = SystemClock.elapsedRealtime()
         saved.click()
         check(device.wait(Until.hasObject(By.res(PACKAGE_NAME, CHAT_TIMELINE_ID)), UI_TIMEOUT_MS)
@@ -165,6 +163,20 @@ class StartupBenchmarks {
             "Chat interaction exceeded the $maximumDurationMs ms budget"
         }
     }
+
+    private fun MacrobenchmarkScope.awaitSavedMessages(): UiObject2 {
+        val deadline = SystemClock.elapsedRealtime() + INBOX_READY_TIMEOUT_MS
+        do {
+            findSavedMessages()?.let { return it }
+            SystemClock.sleep(INBOX_READY_POLL_MS)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        error("Snezhok inbox did not expose Saved Messages within the benchmark readiness timeout")
+    }
+
+    private fun MacrobenchmarkScope.findSavedMessages(): UiObject2? =
+        device.findObject(By.res(PACKAGE_NAME, SAVED_MESSAGES_ID))
+            ?: device.findObject(By.text(SAVED_MESSAGES_RU))
+            ?: device.findObject(By.text(SAVED_MESSAGES_EN))
 
     private fun measure(compilationMode: CompilationMode) = benchmarkRule.measureRepeated(
         packageName = PACKAGE_NAME,
@@ -191,6 +203,8 @@ class StartupBenchmarks {
         const val MESSAGE_RU = "\u0421\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435"
         const val MESSAGE_EN = "Message"
         const val UI_TIMEOUT_MS = 5_000L
+        const val INBOX_READY_TIMEOUT_MS = 10_000L
+        const val INBOX_READY_POLL_MS = 50L
         const val WARM_CACHED_CHAT_BUDGET_MS = 150L
         const val COLD_CACHED_CHAT_BUDGET_MS = 350L
         const val ATTACHMENT_DRAWER_BUDGET_MS = 400L
