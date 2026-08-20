@@ -65,6 +65,10 @@ not an acceptable substitute.
   and remove the bundled `npm`/`npx` package-manager toolchain from runtime
   layers. Build stages retain npm, but unused build tooling must not enlarge the
   production attack surface or create unactionable runtime vulnerability gates.
+- The PostgreSQL runtime replaces the upstream image's statically linked `gosu`
+  helper with Alpine's maintained `su-exec` package behind the entrypoint's
+  compatible command path. This preserves the upstream privilege drop without
+  retaining an otherwise unused vulnerable Go standard library.
 - Full-history secret scanning extends Gitleaks' maintained default rules. Its
   only path-based exception is scoped to the synthetic high-entropy credentials
   in the production-configuration unit test; adding another exception requires

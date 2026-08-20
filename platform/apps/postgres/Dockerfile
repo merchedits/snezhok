@@ -4,7 +4,9 @@ LABEL org.opencontainers.image.source="https://github.com/merchedits/snezhok" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
-RUN apk add --no-cache age coreutils
+RUN apk add --no-cache age coreutils su-exec \
+  && rm -f /usr/local/bin/gosu \
+  && ln -s /sbin/su-exec /usr/local/bin/gosu
 COPY apps/postgres/archive-wal.sh /usr/local/bin/snezhok-archive-wal
 COPY apps/postgres/provision-runtime-roles.sh /usr/local/bin/snezhok-provision-roles
 RUN chmod 0755 /usr/local/bin/snezhok-archive-wal /usr/local/bin/snezhok-provision-roles
