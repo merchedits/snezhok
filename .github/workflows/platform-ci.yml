@@ -95,7 +95,7 @@ jobs:
           systemd-analyze verify infra/systemd/*.service infra/systemd/*.timer
           cp .env.example .env
           docker compose --file docker-compose.production.yml config --quiet
-          docker compose --file docker-compose.production.yml build app media-worker postgres
+          docker compose --file docker-compose.production.yml build app media-worker postgres livekit
           bash scripts/deploy/verify-production-images.sh "${{ github.sha }}"
           bash scripts/ci/verify-database-roles.sh
           rm .env
@@ -305,17 +305,23 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
-      - name: Generate pinned LiveKit image CycloneDX SBOM
+      - name: Build LiveKit from reviewed upstream source
+        run: >-
+          docker build
+          --build-arg SOURCE_REVISION=${{ github.sha }}
+          --tag snezhok-livekit:${{ github.sha }}
+          --file apps/livekit/Dockerfile .
+      - name: Generate LiveKit container CycloneDX SBOM
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
         with:
-          image-ref: livekit/livekit-server:v1.13.5@sha256:3497163e15c48fef6e7830c78716f9e9d5edc28abf7aa90b61c86e93bbc306b1
+          image-ref: snezhok-livekit:${{ github.sha }}
           format: cyclonedx
           output: platform/build/compliance/containers/livekit.cdx.json
           scanners: vuln
       - name: Reject fixable high and critical LiveKit image vulnerabilities
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0, immutable release
         with:
-          image-ref: livekit/livekit-server:v1.13.5@sha256:3497163e15c48fef6e7830c78716f9e9d5edc28abf7aa90b61c86e93bbc306b1
+          image-ref: snezhok-livekit:${{ github.sha }}
           format: table
           scanners: vuln
           severity: HIGH,CRITICAL

@@ -7,6 +7,12 @@ small eight-port pool is sufficient for the current two-person private test
 deployment and can be forwarded as individual ports on consumer routers that
 do not support ranges.
 
+The production SFU is built from the exact official LiveKit source revision
+and patched Go toolchain recorded in `apps/livekit/UPSTREAM.md`. It is labelled
+with both Snezhok release provenance and upstream provenance, carries the
+upstream Apache-2.0 notices, and is subject to the same strict container
+vulnerability gate as the API and workers.
+
 The TURN certificate renewal is pinned to an RSA key and the `ISRG Root X1` preferred chain for compatibility with older Android/WebRTC trust stores. After renewal, run the public connectivity smoke test; HTTPS signaling, ICE/TCP, TURN/UDP, and TURN/TLS must all pass before a call release. A healthy LiveKit container alone does not prove certificate compatibility.
 
 ## Authoritative room lifecycle

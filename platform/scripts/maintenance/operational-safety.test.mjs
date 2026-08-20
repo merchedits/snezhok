@@ -112,6 +112,25 @@ test("production deployment binds backup and image provenance to real commits", 
   assert.doesNotMatch(verifier, /body\.sourceRevision!==process\.argv\[2\]/);
 });
 
+test("production builds and verifies the reviewed LiveKit source runtime", async () => {
+  const [dockerfile, compose, deploy, verifier, roleCheck] = await Promise.all([
+    read("../../apps/livekit/Dockerfile"),
+    read("../../docker-compose.production.yml"),
+    read("../deploy/deploy-production.sh"),
+    read("../deploy/verify-production-images.sh"),
+    read("../ci/verify-database-roles.sh"),
+  ]);
+  assert.match(dockerfile, /LIVEKIT_REVISION=3b9f118327b257301083a7c4aa46076c8012918a/);
+  assert.match(dockerfile, /golang\.org\/x\/mod@v0\.40\.0/);
+  assert.match(dockerfile, /go1\.26\.6/);
+  assert.match(compose, /image: snezhok-v3-livekit:\$\{IMAGE_TAG:/);
+  assert.match(deploy, /snezhok-v3-livekit:\$REVISION/);
+  assert.match(verifier, /snezhok-v3-livekit/);
+  assert.match(roleCheck, /up -d db-provision/);
+  assert.match(roleCheck, /wait db-provision/);
+  assert.doesNotMatch(roleCheck, /up --wait[^\n]+db-provision/);
+});
+
 test("every maintenance unit requires the protected environment", async () => {
   for (const name of [
     "snezhok-backup.service",

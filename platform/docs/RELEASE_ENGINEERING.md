@@ -100,7 +100,7 @@ CI also runs a redacted high-confidence scan of every tracked platform file
 and a checksum-verified Gitleaks scan across the complete Git history,
 generates all-dependency, production-only and complete container-image SBOMs,
 and rejects fixable high or critical vulnerabilities in the API, media worker,
-PostgreSQL archive, and pinned LiveKit production images. The secret scan
+PostgreSQL archive, and source-built LiveKit production images. The secret scan
 prints only rule, path and line number—never a matched credential. It is
 deliberately conservative to minimize accidental disclosure and must be paired
 with GitHub secret scanning and push protection when those repository features
@@ -117,9 +117,16 @@ same change. Never update a digest without retaining its human-readable tag.
 
 Production Compose has no `development` image-tag fallback. Before deployment,
 run `scripts/deploy/verify-production-images.sh "$IMAGE_TAG"`; it rejects a
-non-40-character revision and proves the API, worker, and PostgreSQL OCI labels
+non-40-character revision and proves the API, worker, PostgreSQL, and LiveKit OCI labels
 match that public source revision. The API readiness response exposes the same
 revision for comparison with the APK and backup manifests.
+
+LiveKit is built from the exact official source commit recorded in
+`apps/livekit/UPSTREAM.md`. Its pinned Go builder supplies security fixes that
+are not yet available in the corresponding upstream prebuilt image, while the
+upstream license, notice, source revision, and Go build metadata remain in the
+artifact. Changing the upstream revision or dependency override requires a new
+SBOM, strict container scan, and independent-network physical call test.
 
 The npm inventory covers packages represented in `package-lock.json`; the
 Android inventory covers resolved Maven runtime components; and the separate

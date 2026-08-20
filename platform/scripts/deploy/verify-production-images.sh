@@ -4,7 +4,7 @@ IFS=$'\n\t'
 
 revision=${1:-${IMAGE_TAG:-}}
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo "IMAGE_TAG must be the exact 40-character public source revision" >&2; exit 1; }
-for image in snezhok-v3-app snezhok-v3-media-worker snezhok-v3-postgres; do
+for image in snezhok-v3-app snezhok-v3-media-worker snezhok-v3-postgres snezhok-v3-livekit; do
   reference="$image:$revision"
   actual=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$reference")
   source=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.source"}}' "$reference")

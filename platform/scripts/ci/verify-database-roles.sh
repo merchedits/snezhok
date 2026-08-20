@@ -18,7 +18,8 @@ trap cleanup EXIT
 docker volume create snezhok_v3_postgres >/dev/null
 mkdir -p data-v3/storage/objects data-v3/storage/tmp runtime/releases
 chmod 0777 data-v3/storage data-v3/storage/objects data-v3/storage/tmp
-"${compose[@]}" up --wait --wait-timeout 120 db-provision
+"${compose[@]}" up -d db-provision
+"${compose[@]}" wait db-provision
 
 owner_query() {
   "${compose[@]}" exec -T postgres psql -v ON_ERROR_STOP=1 -At -U snezhok -d snezhok -c "$1"

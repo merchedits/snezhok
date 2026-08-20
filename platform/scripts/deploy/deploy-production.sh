@@ -57,6 +57,15 @@ echo "creating a synchronized encrypted pre-deployment recovery point"
 systemctl start snezhok-backup.service
 systemctl is-failed --quiet snezhok-backup.service && { echo "pre-deployment backup failed" >&2; exit 1; }
 
+# The first source-built LiveKit deployment replaces an upstream image name.
+# Preserve the exact running image under the current release tag so the normal
+# rollback path can restore it even across that one-time naming transition.
+current_livekit_container=$(docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" ps --quiet livekit)
+[[ -n "$current_livekit_container" ]] || { echo "running LiveKit container is missing" >&2; exit 1; }
+current_livekit_image_id=$(docker inspect --format '{{.Image}}' "$current_livekit_container")
+[[ "$current_livekit_image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "running LiveKit image identity is invalid" >&2; exit 1; }
+docker image tag "$current_livekit_image_id" "snezhok-v3-livekit:$current_revision"
+
 set_image_tag() {
   local revision=$1
   sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$revision/" "$PLATFORM_ROOT/.env"
@@ -68,7 +77,7 @@ rollback_tag() {
   if ! $deployment_succeeded; then
     set +e
     set_image_tag "$current_revision"
-    docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" up -d --no-build app job-worker media-worker >/dev/null 2>&1
+    docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" up -d --no-build app job-worker media-worker livekit >/dev/null 2>&1
   fi
 }
 trap rollback_tag EXIT
@@ -82,6 +91,8 @@ docker build --network "$BUILD_NETWORK" --build-arg SOURCE_REVISION="$REVISION" 
   -t "snezhok-v3-media-worker:$REVISION" -f apps/media-worker/Dockerfile .
 docker build --network "$BUILD_NETWORK" --build-arg SOURCE_REVISION="$REVISION" \
   -t "snezhok-v3-postgres:$REVISION" -f apps/postgres/Dockerfile .
+docker build --network "$BUILD_NETWORK" --build-arg SOURCE_REVISION="$REVISION" \
+  -t "snezhok-v3-livekit:$REVISION" -f apps/livekit/Dockerfile .
 "$SCRIPT_DIR/verify-production-images.sh" "$REVISION"
 
 echo "applying migrations, provisioning least-privilege roles, and waiting for health"
