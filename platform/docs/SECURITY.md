@@ -66,9 +66,10 @@ not an acceptable substitute.
   layers. Build stages retain npm, but unused build tooling must not enlarge the
   production attack surface or create unactionable runtime vulnerability gates.
 - The PostgreSQL runtime replaces the upstream image's statically linked `gosu`
-  helper with Alpine's maintained `su-exec` package behind the entrypoint's
-  compatible command path. This preserves the upstream privilege drop without
-  retaining an otherwise unused vulnerable Go standard library.
+  helper with Alpine's maintained `su-exec` package and rewrites the two
+  upstream entrypoint invocations accordingly. This preserves the upstream
+  privilege drop without retaining an otherwise unused vulnerable Go standard
+  library or a scanner-visible compatibility alias.
 - Full-history secret scanning extends Gitleaks' maintained default rules. Its
   only path-based exception is scoped to the synthetic high-entropy credentials
   in the production-configuration unit test; adding another exception requires

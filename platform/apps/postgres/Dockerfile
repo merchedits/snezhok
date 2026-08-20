@@ -5,8 +5,11 @@ LABEL org.opencontainers.image.source="https://github.com/merchedits/snezhok" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 RUN apk add --no-cache age coreutils su-exec \
+  && sed -i 's/exec gosu postgres/exec su-exec postgres/g' \
+    /usr/local/bin/docker-entrypoint.sh \
+    /usr/local/bin/docker-ensure-initdb.sh \
   && rm -f /usr/local/bin/gosu \
-  && ln -s /sbin/su-exec /usr/local/bin/gosu
+  && if grep -F 'gosu postgres' /usr/local/bin/docker-entrypoint.sh /usr/local/bin/docker-ensure-initdb.sh; then exit 1; fi
 COPY apps/postgres/archive-wal.sh /usr/local/bin/snezhok-archive-wal
 COPY apps/postgres/provision-runtime-roles.sh /usr/local/bin/snezhok-provision-roles
 RUN chmod 0755 /usr/local/bin/snezhok-archive-wal /usr/local/bin/snezhok-provision-roles

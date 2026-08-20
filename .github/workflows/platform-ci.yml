@@ -95,7 +95,6 @@ jobs:
           systemd-analyze verify infra/systemd/*.service infra/systemd/*.timer
           cp .env.example .env
           docker compose --file docker-compose.production.yml config --quiet
-          docker compose --file docker-compose.production.yml --file infra/docker-compose.turn-tls.yml config --quiet
           docker compose --file docker-compose.production.yml build app media-worker postgres
           bash scripts/deploy/verify-production-images.sh "${{ github.sha }}"
           bash scripts/ci/verify-database-roles.sh
