@@ -127,6 +127,12 @@ image SBOMs inventory packages observed in every production container. These
 mechanical inventories do not replace a compatibility review and do not make
 the build bit-for-bit reproducible.
 
+API and media-worker runtime images invoke `node` directly and deliberately
+remove the bundled `npm` and `npx` executables after the build stages. Dependency
+installation remains confined to builder layers; a runtime image must not ship
+an unused package-manager dependency tree merely because it is present in the
+upstream Node image.
+
 `npm run lint` currently combines the TypeScript compiler with tests for operational scripts. ShellCheck runs in CI. This correctness-first strategy avoids a repository-wide formatting rewrite while a team formatter is selected. Once adopted, add it in check-only mode first, format one bounded area per pull request, and never combine mechanical formatting with behavior changes.
 
 `npm audit --omit=dev` currently reports the moderate `uuid` buffer advisory

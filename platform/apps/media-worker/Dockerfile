@@ -27,7 +27,8 @@ LABEL org.opencontainers.image.source="https://github.com/merchedits/snezhok" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 RUN apt-get update && apt-get install -y --no-install-recommends dumb-init ffmpeg ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production
 WORKDIR /workspace
 COPY --from=production-dependencies /workspace/node_modules ./node_modules

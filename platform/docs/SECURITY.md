@@ -61,6 +61,14 @@ not an acceptable substitute.
   reachability on pushed release builds, and blocks fixable high/critical
   container vulnerabilities. A reported secret must be revoked before it is
   removed from history; deleting the line alone is not incident response.
+- Production containers execute application entrypoints with `node` directly
+  and remove the bundled `npm`/`npx` package-manager toolchain from runtime
+  layers. Build stages retain npm, but unused build tooling must not enlarge the
+  production attack surface or create unactionable runtime vulnerability gates.
+- Full-history secret scanning extends Gitleaks' maintained default rules. Its
+  only path-based exception is scoped to the synthetic high-entropy credentials
+  in the production-configuration unit test; adding another exception requires
+  a documented false-positive review.
 
 ## Deletion and retention
 

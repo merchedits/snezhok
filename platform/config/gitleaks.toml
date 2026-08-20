@@ -1,0 +1,9 @@
+title = "Snezhok secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Production configuration validation intentionally uses high-entropy synthetic secrets."
+targetRules = ["generic-api-key"]
+paths = ['''^platform/apps/api/src/config\.test\.ts$''']
