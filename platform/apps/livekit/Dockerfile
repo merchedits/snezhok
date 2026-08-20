@@ -11,7 +11,7 @@ RUN git clone --filter=blob:none --no-checkout https://github.com/livekit/liveki
   && git checkout --detach "$LIVEKIT_REVISION" \
   && test "$(git rev-parse HEAD)" = "$LIVEKIT_REVISION" \
   && go mod edit -require=golang.org/x/mod@v0.40.0 \
-  && go mod download \
+  && go mod tidy \
   && mkdir -p /out \
   && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH:-amd64}" \
     go build -trimpath -buildvcs=true -o /out/livekit-server ./cmd/server \
