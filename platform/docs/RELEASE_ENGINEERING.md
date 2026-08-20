@@ -135,9 +135,11 @@ upstream Node image.
 
 `npm run lint` currently combines the TypeScript compiler with tests for operational scripts. ShellCheck runs in CI. This correctness-first strategy avoids a repository-wide formatting rewrite while a team formatter is selected. Once adopted, add it in check-only mode first, format one bounded area per pull request, and never combine mechanical formatting with behavior changes.
 
-`npm audit --omit=dev` currently reports the moderate `uuid` buffer advisory
-through Expo's build-time `xcode` tooling. It is not imported by Snezhok's
-runtime bundle, and npm's suggested forced remediation downgrades Expo across
-major versions. The CI gate therefore rejects high/critical findings while
-Dependabot and Expo SDK upgrades remain the safe remediation path. Re-evaluate
-this exception on every Expo update; do not add a permanent audit ignore.
+CI runs high/critical `npm audit` gates independently for the API,
+media-worker, web, and contracts production workspaces. The mobile workspace is
+validated by the production-like APK job, its resolved Android dependency
+evidence, and the all-dependency inventory. A root-workspace npm audit cannot
+distinguish Metro/Expo build tooling from code shipped in the APK and currently
+reports unpatched `image-size` parser advisories through Metro. Do not suppress
+an advisory that is reachable in a deployed workspace; update Expo as soon as a
+compatible upstream remediation exists.

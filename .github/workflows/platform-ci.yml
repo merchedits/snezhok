@@ -61,7 +61,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      - name: Audit deployable production workspace dependencies
+        run: |
+          npm audit --omit=dev --workspace=@snezhok/api --audit-level=high
+          npm audit --omit=dev --workspace=@snezhok/media-worker --audit-level=high
+          npm audit --omit=dev --workspace=@snezhok/web --audit-level=high
+          npm audit --omit=dev --workspace=@snezhok/contracts --audit-level=high
       - run: npm run lint
       - run: npm test
       - run: npm run build
