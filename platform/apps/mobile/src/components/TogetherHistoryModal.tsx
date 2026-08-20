@@ -2,9 +2,9 @@ import type { Message } from "@snezhok/contracts";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { activityQueries } from "../application/activities/activityQueries";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { api } from "../lib/api";
 import { userFacingError } from "../lib/userFacingError";
 import { AppIcon } from "./AppIcon";
 import { CooperativeActivityCard } from "./CooperativeActivityCard";
@@ -28,7 +28,7 @@ export function TogetherHistoryModal({ visible, conversationId, onClose, onOpen 
     let current = true;
     setLoading(true);
     setError(null);
-    void api.activityHistory(conversationId)
+    void activityQueries.history(conversationId)
       .then((next) => { if (current) setMessages(next.filter((message) => Boolean(message.activity))); })
       .catch((reason) => { if (current) setError(userFacingError(reason, t)); })
       .finally(() => { if (current) setLoading(false); });

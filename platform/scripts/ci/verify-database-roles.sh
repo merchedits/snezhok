@@ -39,7 +39,8 @@ if "${worker_psql[@]}" -c 'SELECT count(*) FROM users;' >/dev/null 2>&1; then
   exit 1
 fi
 
-"${compose[@]}" up -d --wait app media-worker
+"${compose[@]}" up -d --wait app job-worker media-worker
 "${compose[@]}" exec -T app sh -eu -c 'test -z "${POSTGRES_PASSWORD+x}"; test -z "${WORKER_DATABASE_PASSWORD+x}"; test -z "${API_DATABASE_PASSWORD+x}"'
 "${compose[@]}" exec -T media-worker sh -eu -c 'test -z "${POSTGRES_PASSWORD+x}"; test -z "${API_DATABASE_PASSWORD+x}"; test -z "${WORKER_DATABASE_PASSWORD+x}"'
+"${compose[@]}" exec -T job-worker sh -eu -c 'test -z "${POSTGRES_PASSWORD+x}"; test -z "${WORKER_DATABASE_PASSWORD+x}"'
 echo "production migrations, runtime roles, and credential isolation verified"

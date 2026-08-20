@@ -6,10 +6,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import type { ConversationSummary, UserSummary } from "@snezhok/contracts";
 
+import { peopleUseCases } from "../application/people/peopleUseCases";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { api } from "../lib/api";
-import { productApi } from "../lib/productApi";
 import { productCopy } from "../lib/productCopy";
 import { userFacingError } from "../lib/userFacingError";
 import { Avatar } from "./Avatar";
@@ -31,19 +30,19 @@ export function NewConversationModal({ visible, onClose, onCreated }: { visible:
     if (!query.trim() || busyRef.current) return;
     busyRef.current = true;
     setBusy(true); setError(null);
-    try { setResults(await api.searchUsers(query.trim())); } catch (reason) { setError(userFacingError(reason, t, "searchFailed")); } finally { busyRef.current = false; setBusy(false); }
+    try { setResults(await peopleUseCases.search(query)); } catch (reason) { setError(userFacingError(reason, t, "searchFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   const create = async (user: UserSummary) => {
     if (groupMode) { setSelected((items) => items.some((item) => item.id === user.id) ? items.filter((item) => item.id !== user.id) : items.length < 99 ? [...items, user] : items); return; }
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true); setError(null);
-    try { onCreated(await api.createConversation([user.id])); } catch (reason) { setError(userFacingError(reason, t, "openChatFailed")); } finally { busyRef.current = false; setBusy(false); }
+    try { onCreated(await peopleUseCases.createDirect(user.id)); } catch (reason) { setError(userFacingError(reason, t, "openChatFailed")); } finally { busyRef.current = false; setBusy(false); }
   };
   const createGroup = async () => {
     if (busyRef.current || selected.length < 2 || !groupTitle.trim()) return;
     busyRef.current = true; setBusy(true); setError(null);
-    try { onCreated(await productApi.createGroup(selected.map((item) => item.id), groupTitle.trim())); }
+    try { onCreated(await peopleUseCases.createGroup(selected, groupTitle)); }
     catch (reason) { setError(userFacingError(reason, t, "openChatFailed")); }
     finally { busyRef.current = false; setBusy(false); }
   };

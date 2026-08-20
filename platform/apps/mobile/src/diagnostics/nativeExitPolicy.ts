@@ -23,6 +23,7 @@ export interface NativeCrashSummary {
   recordedAt: number;
   thread: string;
   type: string;
+  frame: string | null;
 }
 
 /**
@@ -39,6 +40,7 @@ export function parseNativeCrashSummary(raw: string | null): NativeCrashSummary 
       recordedAt: Number(value.recordedAt),
       thread: value.thread.slice(0, 80),
       type: value.type.slice(0, 160),
+      frame: typeof value.frame === "string" ? value.frame.slice(0, 240) : null,
     };
   } catch {
     return null;

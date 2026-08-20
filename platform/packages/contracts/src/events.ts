@@ -1,4 +1,4 @@
-import type { ChannelCategory, ChannelSummary, ConversationSummary, FriendEntry, Id, Message, Presence, ServerRoleDefinition, ServerSummary, Timestamp } from "./models.js";
+import type { AttachmentLifecycleUpdate, ChannelCategory, ChannelSummary, ConversationSummary, FriendEntry, Id, Message, Presence, ServerRoleDefinition, ServerSummary, Timestamp } from "./models.js";
 
 export type CallEndReason =
   | "ended-by-user"
@@ -31,11 +31,11 @@ export interface CallUpdatePayload {
   reason?: CallEndReason;
 }
 
-export interface ServerToClientEvents {
-  "sync:ready": (payload: { cursor: number; serverTime: Timestamp }) => void;
+export interface DurableServerEvents {
   "message:created": (message: Message) => void;
   "message:updated": (message: Message) => void;
   "message:deleted": (payload: { id: Id; streamId: Id; deletedAt: Timestamp }) => void;
+  "attachment:updated": (payload: AttachmentLifecycleUpdate) => void;
   "conversation:updated": (conversation: ConversationSummary) => void;
   "conversation:removed": (payload: { id: Id }) => void;
   "server:updated": (server: ServerSummary) => void;
@@ -49,12 +49,30 @@ export interface ServerToClientEvents {
   "server-role:removed": (payload: { id: Id; serverId: Id }) => void;
   "friend:updated": (entry: FriendEntry) => void;
   "friend:removed": (payload: { userId: Id }) => void;
+  /** Usually ephemeral, but persisted when an authorization change hides a peer. */
   "presence:updated": (payload: { userId: Id; presence: Presence; lastSeenAt: Timestamp }) => void;
   "user:deleted": (payload: { id: Id }) => void;
-  "typing:updated": (payload: { streamId: Id; userId: Id; typing: boolean }) => void;
-  "activity:drawing:updated": (payload: { streamId: Id; activityId: Id; userId: Id; sequence: number; strokes: number[][][] }) => void;
   "read:updated": (payload: { streamId: Id; userId: Id; sequence: number; markedUnread?: boolean }) => void;
   "call:updated": (payload: CallUpdatePayload) => void;
+}
+
+export type DurableEventName = keyof DurableServerEvents;
+export type DurableEventEnvelope = {
+  [Name in DurableEventName]: {
+    cursor: number;
+    name: Name;
+    payload: Parameters<DurableServerEvents[Name]>[0];
+  }
+}[DurableEventName];
+
+export interface ServerToClientEvents extends DurableServerEvents {
+  /** Atomic cursor + payload delivery used by architecture-v2 clients. */
+  "sync:event": (event: DurableEventEnvelope) => void;
+  /** Legacy replay checkpoint retained for already-installed 4.x clients. */
+  "sync:ready": (payload: { cursor: number; serverTime: Timestamp }) => void;
+  "presence:updated": (payload: { userId: Id; presence: Presence; lastSeenAt: Timestamp }) => void;
+  "typing:updated": (payload: { streamId: Id; userId: Id; typing: boolean }) => void;
+  "activity:drawing:updated": (payload: { streamId: Id; activityId: Id; userId: Id; sequence: number; strokes: number[][][] }) => void;
 }
 
 export interface ClientToServerEvents {

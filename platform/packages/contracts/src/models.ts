@@ -209,6 +209,18 @@ export interface Attachment {
   primaryChecksum?: string;
   /** Audio envelope; null while the media worker is still processing. */
   waveform?: number[] | null;
+  /** Explicit server-side processing state. Optional only for 3.x cached payload compatibility. */
+  status?: "processing" | "ready" | "failed";
+  /** Monotonic conflict-resolution timestamp for lifecycle projections. */
+  updatedAt?: Timestamp;
+}
+
+export interface AttachmentLifecycleUpdate {
+  id: Id;
+  status: "processing" | "ready" | "failed";
+  updatedAt: Timestamp;
+  /** Null only when a generated attachment failed before it acquired a source blob. */
+  attachment: Attachment | null;
 }
 
 export interface ReactionSummary {
@@ -260,6 +272,8 @@ export interface CooperativeActivity {
 
 export interface Message {
   id: Id;
+  /** Monotonic durable version. Optional only for cached/pre-4.5 payloads. */
+  revision?: number;
   /** Stable sender-generated identifier used to reconcile optimistic messages. */
   clientId?: Id | null;
   streamId: Id;
@@ -336,6 +350,19 @@ export interface BootstrapPayload {
   friends: FriendEntry[];
   settings: AppSettings;
   eventCursor: number;
+  /** Authenticated, revisioned server capability projection. */
+  capabilities?: RuntimeCapabilities;
+}
+
+export interface RuntimeCapabilities {
+  schemaVersion: 1;
+  revision: number;
+  sourceRevision: string;
+  uploads: boolean;
+  calls: boolean;
+  activities: boolean;
+  servers: boolean;
+  maxUploadBytes: number;
 }
 
 export interface CursorPage<T> {

@@ -1,25 +1,27 @@
 import { AudioSession } from "@livekit/react-native";
-import type { CallUpdatePayload } from "@snezhok/contracts";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, PermissionsAndroid, Platform } from "react-native";
+import { PermissionsAndroid, Platform } from "react-native";
 import { ConnectionState, Room, RoomEvent, Track } from "livekit-client";
 
 import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { useTranslation } from "../i18n";
-import { api } from "../lib/api";
+import { api } from "../infrastructure/http/apiClient";
 import { availableAudioRoutes, preferredAudioOutputs, type CallAudioRoute } from "../lib/callAudioRoute";
 import { classifyCallFailure } from "../lib/callDiagnostics";
 import { callMediaProfile } from "../lib/callQuality";
 import { navigationRef } from "../navigation/navigationRef";
-import { dismissCallNotification } from "../notifications/androidNotifications";
 import { useAppStore } from "../store/useAppStore";
 import type { CallJoinResponse } from "../types";
+import { stopVoicePlayback } from "../lib/voicePlaybackCoordinator";
+import { claimAudioSession, ownsAudioSession, releaseAudioSession, runAudioSessionOperation, type AudioSessionLease } from "../lib/audioSessionOwnership";
 import { CompactCallBar } from "./CompactCallBar";
-import { IncomingCallOverlay, type IncomingCallViewModel } from "./IncomingCallOverlay";
-import { bindCallUpdateHandler } from "./callSessionBridge";
+import { IncomingCallOverlay } from "./IncomingCallOverlay";
 import { callCopy } from "./callStrings";
-import { parseCallStats, type CallNetworkStats, type CallStatsBaseline } from "./callStats";
+import type { CallNetworkStats } from "./callStats";
+import { mayPublishSource } from "./callPublishPermissions";
 import { startCallForegroundService, stopCallForegroundService, updateCallForegroundService } from "./callForegroundService";
+import { useIncomingCallController } from "./useIncomingCallController";
+import { useCallStatsSampler } from "./useCallStatsSampler";
 
 export type CallKind = "direct" | "group" | "voice";
 export type CallSessionStatus = "connecting" | "connected" | "reconnecting";
@@ -71,6 +73,7 @@ export class ActiveCallConflictError extends Error {
 export function CallSessionProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const settings = useAppStore((state) => state.settings);
+  const callsEnabled = useAppStore((state) => state.capabilities.calls);
   const phase = useAppStore((state) => state.phase);
   const me = useAppStore((state) => state.me);
   const conversations = useAppStore((state) => state.conversations);
@@ -79,7 +82,6 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const copy = callCopy(language);
   const [room, setRoom] = useState<Room | null>(null);
   const [session, setSession] = useState<ActiveCallSession | null>(null);
-  const [incoming, setIncoming] = useState<(IncomingCallViewModel & { streamId: string; startedAt: number }) | null>(null);
   const [callScreenVisible, setCallScreenVisible] = useState(false);
   const roomRef = useRef<Room | null>(null);
   const sessionRef = useRef<ActiveCallSession | null>(null);
@@ -87,8 +89,8 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   const cleanupOperation = useRef<Promise<void> | null>(null);
   const generation = useRef(0);
   const audioStarted = useRef(false);
+  const audioLease = useRef<AudioSessionLease | null>(null);
   const listenerCleanup = useRef<(() => void) | null>(null);
-  const statsBaseline = useRef<CallStatsBaseline | undefined>(undefined);
 
   const updateSession = useCallback((transform: (current: ActiveCallSession) => ActiveCallSession) => {
     setSession((current) => {
@@ -112,21 +114,36 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setRoom(null);
     setCallScreenVisible(false);
-    statsBaseline.current = undefined;
     stopCallForegroundService();
 
     const operation = (async () => {
       await currentRoom?.disconnect().catch(() => undefined);
-      if (audioStarted.current) {
+      const lease = audioLease.current;
+      audioLease.current = null;
+      await releaseAudioSession(lease, async () => {
+        if (!audioStarted.current) return;
         audioStarted.current = false;
         await AudioSession.stopAudioSession().catch(() => undefined);
-      }
+      }).catch(() => false);
       if (!notifyServer || !current?.callId) return;
       await retryCallLifecycle(endForEveryone ? () => api.endCall(current.callId!) : () => api.leaveCall(current.callId!));
     })().finally(() => { cleanupOperation.current = null; });
     cleanupOperation.current = operation;
     return operation;
   }, []);
+
+  const hasActiveSession = useCallback(() => Boolean(sessionRef.current), []);
+  const onRemoteCallEnded = useCallback((callId: string) => {
+    if (sessionRef.current?.callId === callId) void clearLocalCall({ notifyServer: false });
+  }, [clearLocalCall]);
+  const { incoming, answerIncoming, declineIncoming, dismissIncoming } = useIncomingCallController({
+    phase,
+    meId: me?.id,
+    notificationsEnabled: settings.callNotifications !== false,
+    conversations,
+    hasActiveSession,
+    onCallEnded: onRemoteCallEnded,
+  });
 
   const attachRoomListeners = useCallback((nextRoom: Room, currentGeneration: number) => {
     const active = () => generation.current === currentGeneration && roomRef.current === nextRoom;
@@ -169,6 +186,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
   }, [clearLocalCall, updateSession]);
 
   const startCall = useCallback(async (input: StartCallInput) => {
+    if (!callsEnabled) throw new Error("CALLS_DISABLED");
     const activeSession = sessionRef.current;
     if (activeSession?.streamId === input.streamId && roomRef.current) {
       if (input.startWithVideo && !roomRef.current.localParticipant.isCameraEnabled) {
@@ -187,7 +205,13 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
 
     const operation = (async () => {
       if (!(await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO))) throw new Error(t("microphonePermissionDenied"));
+      // expo-audio and LiveKit both own Android audio focus. Hand it to the
+      // call explicitly before configuring the communication session.
+      stopVoicePlayback();
       const currentGeneration = ++generation.current;
+      const lease = claimAudioSession("call", `call:${input.streamId}:${currentGeneration}`);
+      if (!lease) throw new Error("CALL_AUDIO_SESSION_BUSY");
+      audioLease.current = lease;
       const kind = callKind(input.streamId, conversations, channels);
       const provisional: ActiveCallSession = {
         streamId: input.streamId, title: input.title, callId: null, roomName: null, kind, canEnd: false,
@@ -195,14 +219,17 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       };
       sessionRef.current = provisional;
       setSession(provisional);
-      setIncoming(null);
+      dismissIncoming();
 
       let credentials: CallJoinResponse | null = null;
       try {
         const preferred = preferredAudioOutputs(settings.callAudioRoute, settings.microphoneMode);
-        await AudioSession.configureAudio({ android: { preferredOutputList: [...preferred], audioTypeOptions: { manageAudioFocus: true, audioMode: "inCommunication", audioFocusMode: "gain", audioStreamType: "voiceCall", audioAttributesUsageType: "voiceCommunication", audioAttributesContentType: "speech", forceHandleAudioRouting: true } } });
-        await AudioSession.startAudioSession();
-        audioStarted.current = true;
+        await runAudioSessionOperation(lease, async () => {
+          await AudioSession.configureAudio({ android: { preferredOutputList: [...preferred], audioTypeOptions: { manageAudioFocus: true, audioMode: "inCommunication", audioFocusMode: "gain", audioStreamType: "voiceCall", audioAttributesUsageType: "voiceCommunication", audioAttributesContentType: "speech", forceHandleAudioRouting: true } } });
+          await AudioSession.startAudioSession();
+          audioStarted.current = true;
+        });
+        if (!ownsAudioSession(lease) || !audioStarted.current) throw new Error("CALL_AUDIO_SESSION_PREEMPTED");
         const routes = availableAudioRoutes(await AudioSession.getAudioOutputs());
         const selectedRoute = preferred.find((candidate) => routes.includes(candidate)) ?? routes[0] ?? null;
         if (selectedRoute) await AudioSession.selectAudioOutput(selectedRoute);
@@ -243,12 +270,16 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
           28_000,
         );
         if (generation.current !== currentGeneration) return;
-        if (canPublishSource(nextRoom, Track.Source.Microphone)) {
+        const microphoneAllowed = canPublishSource(nextRoom, Track.Source.Microphone);
+        if (microphoneAllowed) {
           await nextRoom.localParticipant.setMicrophoneEnabled(true, {
             echoCancellation: settings.echoCancellation,
             noiseSuppression: settings.noiseSuppression !== "off",
             autoGainControl: settings.autoGainControl,
           });
+          if (!nextRoom.localParticipant.isMicrophoneEnabled) throw new Error("CALL_MICROPHONE_PUBLICATION_FAILED");
+        } else if (kind !== "voice") {
+          throw new Error("CALL_MICROPHONE_PERMISSION_RESTRICTED");
         }
         if (input.startWithVideo && canPublishSource(nextRoom, Track.Source.Camera) && await requestAndroidPermission(PermissionsAndroid.PERMISSIONS.CAMERA)) {
           await nextRoom.localParticipant.setCameraEnabled(true, { resolution: { width: profile.camera.width, height: profile.camera.height, frameRate: profile.camera.frameRate }, frameRate: profile.camera.frameRate }, { videoEncoding: { maxBitrate: profile.camera.maxBitrate, maxFramerate: profile.camera.frameRate }, simulcast: profile.simulcast }).then(async () => {
@@ -261,7 +292,12 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
           });
         }
         updateSession((value) => ({ ...value, status: "connected" }));
-        recordDiagnostic("info", "call", "LiveKit call connected", { kind, connection: nextRoom.state });
+        recordDiagnostic("info", "call", "LiveKit call connected", {
+          kind,
+          connection: nextRoom.state,
+          microphoneEnabled: nextRoom.localParticipant.isMicrophoneEnabled,
+          audioRoute: selectedRoute ?? "unknown",
+        });
       } catch (error) {
         recordDiagnostic("error", "call", "Call setup failed", { failure: classifyCallFailure(error) });
         if (credentials && generation.current === currentGeneration) {
@@ -277,7 +313,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     });
     startOperation.current = { streamId: input.streamId, promise: operation };
     return operation;
-  }, [attachRoomListeners, channels, clearLocalCall, conversations, copy.active, settings, t, updateSession]);
+  }, [attachRoomListeners, callsEnabled, channels, clearLocalCall, conversations, copy.active, dismissIncoming, settings, t, updateSession]);
 
   const leaveCall = useCallback((options?: { endForEveryone?: boolean }) => clearLocalCall({ notifyServer: true, ...(options?.endForEveryone === undefined ? {} : { endForEveryone: options.endForEveryone }) }), [clearLocalCall]);
 
@@ -303,76 +339,12 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     updateSession((value) => ({ ...value, audioRoute: route }));
   }, [updateSession]);
 
-  const handleCallUpdate = useCallback((payload: CallUpdatePayload) => {
-    if (payload.state === "ended") {
-      setIncoming((current) => current?.roomId === payload.roomId ? null : current);
-      if (sessionRef.current?.callId === payload.roomId) void clearLocalCall({ notifyServer: false });
-      return;
-    }
-    if (phase !== "ready" || !payload.streamId || !payload.callerId || payload.callerId === me?.id || payload.streamKind === "channel") return;
-    if (settings.callNotifications === false || conversations.find((item) => item.id === payload.streamId)?.muted) return;
-    const startedAt = payload.startedAt ?? Date.now();
-    if (Date.now() - startedAt > 90_000 || AppState.currentState !== "active") return;
-    if (sessionRef.current) return;
-    setIncoming((current) => current?.roomId === payload.roomId ? current : {
-      roomId: payload.roomId,
-      streamId: payload.streamId!,
-      startedAt,
-      callerName: payload.callerName ?? "Snezhok",
-      title: payload.title ?? payload.callerName ?? "Snezhok",
-    });
-  }, [clearLocalCall, conversations, me?.id, phase, settings.callNotifications]);
-
-  useEffect(() => {
-    bindCallUpdateHandler(handleCallUpdate);
-    return () => bindCallUpdateHandler(null);
-  }, [handleCallUpdate]);
-
-  useEffect(() => {
-    if (!incoming) return;
-    const remaining = Math.max(0, incoming.startedAt + 90_000 - Date.now());
-    const timer = setTimeout(() => setIncoming((current) => current?.roomId === incoming.roomId ? null : current), remaining);
-    return () => clearTimeout(timer);
-  }, [incoming]);
-
   useEffect(() => {
     if (phase === "ready" || (!sessionRef.current && !roomRef.current)) return;
     void clearLocalCall({ notifyServer: true });
   }, [clearLocalCall, phase]);
 
-  useEffect(() => {
-    if (phase !== "ready") setIncoming(null);
-  }, [phase]);
-
-  useEffect(() => {
-    if (!room) return;
-    let disposed = false;
-    const sample = async () => {
-      const reports = await collectRoomStats(room);
-      if (disposed || roomRef.current !== room) return;
-      const parsed = parseCallStats(reports, statsBaseline.current);
-      statsBaseline.current = parsed.baseline;
-      updateSession((current) => ({ ...current, stats: parsed.stats }));
-    };
-    const interval = setInterval(() => { void sample(); }, 3_000);
-    void sample();
-    return () => { disposed = true; clearInterval(interval); };
-  }, [room, updateSession]);
-
-  const answerIncoming = useCallback((video: boolean) => {
-    const target = incoming;
-    if (!target) return;
-    setIncoming(null);
-    void dismissCallNotification(target.roomId).catch(() => undefined);
-    if (navigationRef.isReady()) navigationRef.navigate("Call", { streamId: target.streamId, title: target.title, startWithVideo: video, expectedCallId: target.roomId });
-  }, [incoming]);
-
-  const declineIncoming = useCallback(() => {
-    const target = incoming;
-    if (!target) return;
-    setIncoming(null);
-    void Promise.all([api.declineCall(target.roomId).catch(() => undefined), dismissCallNotification(target.roomId).catch(() => undefined)]);
-  }, [incoming]);
+  useCallStatsSampler(room, (stats) => updateSession((current) => ({ ...current, stats })));
 
   const openCurrentCall = useCallback(() => {
     const active = sessionRef.current;
@@ -415,18 +387,6 @@ function callKind(streamId: string, conversations: readonly { id: string; kind: 
   return channels.some((item) => item.id === streamId) ? "voice" : "direct";
 }
 
-async function collectRoomStats(room: Room): Promise<unknown[]> {
-  const tracks = [
-    ...room.localParticipant.trackPublications.values(),
-    ...[...room.remoteParticipants.values()].flatMap((participant) => [...participant.trackPublications.values()]),
-  ];
-  return (await Promise.all(tracks.map(async (publication) => {
-    const track = publication.track;
-    if (!track || !("getRTCStatsReport" in track) || typeof track.getRTCStatsReport !== "function") return null;
-    return track.getRTCStatsReport().catch(() => undefined);
-  }))).filter(Boolean) as unknown[];
-}
-
 async function retryCallLifecycle(operation: () => Promise<void>): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -456,12 +416,6 @@ function withCallSetupTimeout<T>(operation: Promise<T>, timeoutMs: number): Prom
 }
 
 export function canPublishSource(room: Room, source: Track.Source): boolean {
-  const permissions = room.localParticipant.permissions;
-  if (!permissions?.canPublish) return false;
-  const expected = source === Track.Source.Camera ? 1
-    : source === Track.Source.Microphone ? 2
-      : source === Track.Source.ScreenShare ? 3
-        : source === Track.Source.ScreenShareAudio ? 4
-          : 0;
-  return permissions.canPublishSources.length === 0 || permissions.canPublishSources.some((allowed) => Number(allowed) === expected);
+  if (source === Track.Source.Unknown) return false;
+  return mayPublishSource(room.localParticipant.permissions, source);
 }

@@ -3,14 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import type { DiagnosticHealth } from "@snezhok/contracts";
 
+import { diagnosticReviewUseCases } from "../application/diagnostics/diagnosticReviewUseCases";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useAppDialog } from "../components/AppDialogProvider";
 import { clearDiagnostics, diagnosticReport, recordDiagnostic, type DiagnosticReport } from "../diagnostics/diagnostics";
 import { measureFramePacing } from "../diagnostics/framePacing";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { api, type DiagnosticHealth } from "../lib/api";
 import { userFacingError } from "../lib/userFacingError";
 import type { RootStackParamList } from "../types";
 
@@ -28,9 +29,9 @@ export function DiagnosticsScreen({ navigation }: NativeStackScreenProps<RootSta
   const refresh = async () => {
     setLoading(true);
     try {
-      const [nextReport, nextHealth] = await Promise.all([diagnosticReport(language), api.diagnosticHealth()]);
-      setReport(nextReport);
-      setHealth(nextHealth);
+      const next = await diagnosticReviewUseCases.load(language);
+      setReport(next.report);
+      setHealth(next.health);
     } catch (error) {
       setReport(await diagnosticReport(language));
       showDialog(t("diagnosticsUnavailable"), userFacingError(error, t));
@@ -60,8 +61,7 @@ export function DiagnosticsScreen({ navigation }: NativeStackScreenProps<RootSta
     if (sending) return;
     setSending(true);
     try {
-      const next = await diagnosticReport(language);
-      const result = await api.sendDiagnosticReport(next);
+      const result = await diagnosticReviewUseCases.submit(language);
       showDialog(t("diagnosticsSent"), t("diagnosticsReference", { id: result.requestId }));
     } catch (error) {
       showDialog(t("requestFailed"), userFacingError(error, t));

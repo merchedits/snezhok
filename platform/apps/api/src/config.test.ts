@@ -4,6 +4,8 @@ import { productionConfigurationProblems } from "./config.js";
 
 const validProduction = {
   NODE_ENV: "production" as const,
+  RUNTIME_ROLE: "api" as const,
+  JOB_WORKER_ID: "production-jobs-1",
   HOST: "0.0.0.0",
   PORT: 3000,
   DATABASE_URL: "postgresql://snezhok:opaque-password@postgres:5432/snezhok",

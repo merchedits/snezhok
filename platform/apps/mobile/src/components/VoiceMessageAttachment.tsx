@@ -9,6 +9,7 @@ import { usePalette } from "../hooks/usePalette";
 import { useAuthorizedMedia, type AuthenticatedMediaSource } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import { VOICE_WAVEFORM_HEIGHT, voiceWaveformBars } from "../lib/voiceWaveform";
+import { claimAudioSession, ownsAudioSession, releaseAudioSession, runAudioSessionOperation, type AudioSessionLease } from "../lib/audioSessionOwnership";
 import { completeVoicePlayback, pauseVoicePlayback, registerVoiceController, requestVoicePlayback, subscribeVoicePlayback, updateVoicePlaybackProgress, voicePlaybackSnapshot, type VoicePlaybackSpeed } from "../lib/voicePlaybackCoordinator";
 import { AppIcon } from "./AppIcon";
 
@@ -69,18 +70,37 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   const completed = useRef(false);
   const autoStarted = useRef(false);
   const recordedNativeFailure = useRef(false);
+  const audioLease = useRef<AudioSessionLease | null>(null);
   const [playbackFailed, setPlaybackFailed] = useState(false);
   const play = useCallback(() => {
     setPlaybackFailed(false);
-    void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true })
-      .then(() => player.play())
+    const key = `${streamId}:${attachment.id}`;
+    const lease = ownsAudioSession(audioLease.current)
+      ? audioLease.current
+      : claimAudioSession("voice-playback", key, () => player.pause());
+    if (!lease) {
+      setPlaybackFailed(true);
+      recordDiagnostic("warn", "media", "Voice playback blocked by active audio session", { activeAudioSession: true });
+      return;
+    }
+    audioLease.current = lease;
+    void runAudioSessionOperation(lease, async () => {
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      player.play();
+    })
       .catch((error) => {
         setPlaybackFailed(true);
         recordDiagnostic("warn", "media", "Voice playback failed", {
           failure: error instanceof Error ? error.name : "audio-mode",
         });
       });
-  }, [player]);
+  }, [attachment.id, player, streamId]);
+
+  useEffect(() => () => {
+    const lease = audioLease.current;
+    audioLease.current = null;
+    void releaseAudioSession(lease).catch(() => false);
+  }, []);
 
   useEffect(() => {
     return registerVoiceController(streamId, attachment.id, {

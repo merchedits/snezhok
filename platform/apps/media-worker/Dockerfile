@@ -34,6 +34,7 @@ COPY --from=production-dependencies /workspace/node_modules ./node_modules
 COPY --from=build /workspace/apps/media-worker/package.json ./apps/media-worker/package.json
 COPY --from=build /workspace/apps/media-worker/dist ./apps/media-worker/dist
 RUN mkdir -p /app/data && chown -R node:node /workspace /app/data
+RUN NODE_ENV=test STORAGE_ROOT=/tmp/snezhok-media-toolchain node apps/media-worker/dist/toolchainVerification.js
 USER node
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "apps/media-worker/dist/index.js"]

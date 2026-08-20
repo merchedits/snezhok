@@ -108,7 +108,7 @@ Never improvise a partial restore. A database and media archive from different b
 2. Select a directory containing `.complete`, encrypted `*.age` payloads, and `.verified`.
 3. Re-run `verify-backup-restore.sh /absolute/path/to/backup` with the identity from offline custody.
 4. Confirm that `.verified` contains the current SHA-256 of `SHA256SUMS`. Any mismatch requires another full verification.
-5. Stop `app` and `media-worker`. Restore into a new PostgreSQL database and a new media directory, never over the live targets.
+5. Stop `app`, `job-worker`, and `media-worker`. Restore into a new PostgreSQL database and a new media directory, never over the live targets. The job worker is a database writer and must never run during a restore.
 6. Check counts, log in through an isolated application instance, open several old attachments, and run migrations against the restored copy.
 7. Atomically switch both recovery units during one maintenance window. Retain the former database volume and object directory until the restored system has passed acceptance tests.
 
@@ -166,6 +166,16 @@ enters the failed state in the previous hour. This observes application-side
 delivery attempts and Expo receipts without exposing device tokens. A healthy
 queue still does not prove FCM credentials or killed-app delivery; verify those
 with the signed APK on a physical device.
+
+Client crash/ANR reports are not raw telemetry storage. `/api/v1/diagnostics/
+client-reports` validates the shared contract, strips non-allowlisted messages
+and context keys, deduplicates stable event IDs, and increments daily
+aggregates. An administrator can inspect the bounded last 1–30 days through
+`GET /api/v1/diagnostics/aggregates?days=7`; diagnostic health exposes the
+warning/error occurrence count for the last 24 hours. Reliability maintenance
+deletes event hashes and aggregates older than 90 days. A count identifies a
+regression signal, not proof that a journey is healthy; reproduce on the signed
+APK and retain physical-device evidence.
 
 ## Optional off-host encrypted replication
 

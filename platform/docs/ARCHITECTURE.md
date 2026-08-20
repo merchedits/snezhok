@@ -1,5 +1,11 @@
 # Snezhok v3 Architecture
 
+The mandatory dependency, ownership, synchronization, validation, failure
+isolation, testing, and migration rules are defined in
+[`ENGINEERING_GUIDELINES.md`](./ENGINEERING_GUIDELINES.md). This document
+describes the deployed product topology; it does not relax that engineering
+contract.
+
 ## Clean-slate boundary
 
 `platform/` is the new product. It does not import from the legacy `apps/web` or `apps/server` trees. The old application remains available only as a migration source and rollback target until the new release is accepted.
@@ -8,7 +14,10 @@ The clients share wire contracts and behavior, not UI implementations:
 
 - `apps/web`: React and Vite browser client.
 - `apps/mobile`: Expo CNG React Native Android client with native WebRTC modules.
-- `apps/api`: Fastify API, authenticated Socket.IO gateway and background media coordinator.
+- `apps/api`: Fastify request API and authenticated Socket.IO gateway. The same
+  immutable image has a separate `job-worker` entry point for durable scheduled
+  messages, push delivery, activity finalization, call-room cleanup, and
+  reliability maintenance; those loops never run in the request process.
 - `packages/contracts`: versioned request, response, model and realtime event contracts.
 - `infra`: PostgreSQL, LiveKit and Nginx production configuration.
 
@@ -24,6 +33,35 @@ The durable model treats Chats and Servers as distinct concepts.
 - Settings have account-level defaults with per-server, channel and chat overrides.
 
 Servers are currently a dormant product capability. Their API, contracts, PostgreSQL data, permissions, and client implementation remain preserved, while Android and web hide server navigation, search results, notifications, deep links, settings, and administrative controls through checked-in release capabilities in each client. This is a presentation/product gate, not a destructive schema migration. Re-enabling it requires reviewed client releases and renewed physical validation.
+
+Optional product availability is also projected by the authenticated,
+revisioned `RuntimeCapabilities` object in bootstrap. PostgreSQL owns these
+switches. The API enforces them and the client uses them only to avoid presenting
+an unavailable action; a forged or stale client cannot bypass the server gate.
+
+## Client data and synchronization
+
+The Android process has one authenticated transport, one session refresh
+coordinator, normalized message and attachment repositories, a durable mutation
+queue, and a bounded transfer manager. Socket delivery uses validated atomic
+`sync:event` envelopes. A serial `SyncEngine` applies the domain projection
+before committing its cursor, ignores duplicate/reordered envelopes, and falls
+back to one authoritative snapshot if projection fails. A cursor is therefore
+never an acknowledgement for data the client did not accept.
+
+Mobile dependencies point inward: presentation invokes `src/application`
+use cases; deterministic reducers live under `src/domains`; HTTP, realtime,
+persistence, device-media and background-work adapters live under
+`src/infrastructure`; `src/core` is the composition boundary. The executable
+`npm run architecture:check` gate rejects inverted dependencies, direct UI
+transport primitives, oversized source files, and global upload progress. The
+only size exception is the dormant server route listed in
+`ARCHITECTURE_EXCEPTIONS.md`.
+
+PostgreSQL remains authoritative. SQLite is the account-scoped durable Android
+projection; in-memory Zustand state is disposable. HTTP, optimistic writes,
+cache hydration, and realtime all converge through the same revision-aware
+repositories rather than maintaining independent attachment or message copies.
 
 There is no global-conversation special case. Legacy global messages migrate into `#general` in a default private server.
 
@@ -89,10 +127,17 @@ The production stack is deliberately small:
 - One application container.
 - One PostgreSQL container with conservative memory settings.
 - One host-networked LiveKit container.
-- One bounded media job at a time inside the application deployment initially.
+- One separately supervised bounded domain job worker and one media worker.
 - Host Nginx for TLS, WebSocket proxying and authorized file delivery.
 
 Redis is not mandatory on this single-node, low-memory server. Durable events, jobs and rate-limit state use PostgreSQL. Redis becomes appropriate only when the API or LiveKit is scaled to multiple nodes.
+
+Android abnormal-exit evidence is consumed on the next launch and automatically
+delivered after authentication. The server stores only deduplicated event hashes
+and daily aggregates by application version, Android version, device model,
+severity, and sanitized structural signature. It never stores a raw report,
+message text, user ID, email, URL, or token; event hashes and aggregates expire
+after 90 days.
 
 The existing LLM and media services share the host, so every new container has CPU and memory limits. Expensive transcoding must yield while a call is active.
 

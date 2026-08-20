@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { Image } from "expo-image";
 
-import { API_URL } from "../lib/api";
+import { API_URL } from "../infrastructure/http/apiConfig";
 import { getRuntimeSession, subscribeToSession } from "../lib/secureSession";
 
 export interface AuthenticatedMediaSource {

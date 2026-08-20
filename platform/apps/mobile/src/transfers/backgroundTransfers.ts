@@ -12,7 +12,7 @@ import {
   resumeNativeTransfer,
   type NativeTransferSnapshot,
 } from "../../modules/snezhok-background-transfer";
-import { API_URL, api } from "../lib/api";
+import { API_URL, api } from "../infrastructure/http/apiClient";
 import type { MessageCreateInput, UploadInput } from "../types";
 import {
   applyNativeSnapshot,

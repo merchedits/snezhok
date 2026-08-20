@@ -2,6 +2,7 @@ import { cooperativeActivityCommandSchema, cooperativeActivityCreateSchema } fro
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "../auth/middleware.js";
+import { requireRuntimeCapability } from "../admin/policy.js";
 import { commandActivity, createActivity, readActivity, readActivityHistory } from "./service.js";
 
 const conversationParams = z.object({ conversationId: z.string().uuid() });
@@ -13,6 +14,7 @@ export async function activityRoutes(app: FastifyInstance) {
     config: { rateLimit: { max: 20, timeWindow: "1 minute" } },
   }, async (request, reply) => {
     const { conversationId } = conversationParams.parse(request.params);
+    await requireRuntimeCapability(request.auth.id, "activities");
     const message = await createActivity(request.auth.id, conversationId, cooperativeActivityCreateSchema.parse(request.body));
     return reply.status(201).send({ message });
   });

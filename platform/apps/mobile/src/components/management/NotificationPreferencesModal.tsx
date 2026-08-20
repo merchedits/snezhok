@@ -4,10 +4,10 @@ import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-nativ
 
 import type { AppSettings, NotificationPolicy } from "@snezhok/contracts";
 
+import { notificationUseCases } from "../../application/management/notificationUseCases";
 import { notificationPreferenceTabs, productCapabilities } from "../../config/productCapabilities";
 import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
-import { productApi } from "../../lib/productApi";
 import { productCopy } from "../../lib/productCopy";
 import { userFacingError } from "../../lib/userFacingError";
 import { useAppStore } from "../../store/useAppStore";
@@ -31,7 +31,7 @@ export function NotificationPreferencesModal({ visible, onClose }: { visible: bo
   const [timeTarget, setTimeTarget] = useState<"start" | "end" | null>(null);
   const pc = useCallback((key: Parameters<typeof productCopy>[1]) => productCopy(language, key), [language]);
 
-  useEffect(() => { if (!visible) return; setBusy(true); void Promise.all([productCapabilities.servers ? productApi.serverNotificationPolicies() : Promise.resolve([]), productApi.streamNotificationPolicies()]).then(([serverItems, streamItems]) => {
+  useEffect(() => { if (!visible) return; setBusy(true); void Promise.all([productCapabilities.servers ? notificationUseCases.serverPolicies() : Promise.resolve([]), notificationUseCases.streamPolicies()]).then(([serverItems, streamItems]) => {
     setServerPolicies(Object.fromEntries(serverItems.map(({ serverId, ...policy }) => [serverId, policy])));
     setStreamPolicies(Object.fromEntries(streamItems.map(({ streamId, streamKind: _kind, ...policy }) => [streamId, policy])));
   }).catch((error) => showDialog(pc("operationFailed"), userFacingError(error, t))).finally(() => setBusy(false)); }, [pc, showDialog, t, visible]);
@@ -53,8 +53,8 @@ export function NotificationPreferencesModal({ visible, onClose }: { visible: bo
   const savePolicy = async () => {
     if (!target || lock.current) return; lock.current = true; setBusy(true);
     try {
-      if (target.kind === "server") { await productApi.setServerNotificationPolicy(target.id, draft); setServerPolicies((items) => ({ ...items, [target.id]: draft })); }
-      else { await productApi.setStreamNotificationPolicy(target.id, target.streamKind, draft); setStreamPolicies((items) => ({ ...items, [target.id]: draft })); }
+      if (target.kind === "server") { await notificationUseCases.setServerPolicy(target.id, draft); setServerPolicies((items) => ({ ...items, [target.id]: draft })); }
+      else { await notificationUseCases.setStreamPolicy(target.id, target.streamKind, draft); setStreamPolicies((items) => ({ ...items, [target.id]: draft })); }
       setTarget(null); void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
     } catch (error) { showDialog(pc("operationFailed"), userFacingError(error, t)); }
     finally { lock.current = false; setBusy(false); }
@@ -62,8 +62,8 @@ export function NotificationPreferencesModal({ visible, onClose }: { visible: bo
   const resetPolicy = async () => {
     if (!target || lock.current) return; lock.current = true; setBusy(true);
     try {
-      if (target.kind === "server") { await productApi.clearServerNotificationPolicy(target.id); setServerPolicies(({ [target.id]: _removed, ...items }) => items); }
-      else { await productApi.clearStreamNotificationPolicy(target.id); setStreamPolicies(({ [target.id]: _removed, ...items }) => items); }
+      if (target.kind === "server") { await notificationUseCases.clearServerPolicy(target.id); setServerPolicies(({ [target.id]: _removed, ...items }) => items); }
+      else { await notificationUseCases.clearStreamPolicy(target.id); setStreamPolicies(({ [target.id]: _removed, ...items }) => items); }
       setTarget(null);
     } catch (error) { showDialog(pc("operationFailed"), userFacingError(error, t)); }
     finally { lock.current = false; setBusy(false); }

@@ -89,17 +89,18 @@ Expo prebuild, marks the release app profileable, and installs AndroidX
 ProfileInstaller for sideloaded APKs. The benchmark dependency is not linked
 into the application.
 
-1. Connect an Android 9+ physical device, keep animations enabled, and sign the
-   benchmark build into a private test account. Seed Saved Messages with enough
-   rows to scroll.
-2. Run `npm run prebuild` from `platform/apps/mobile`.
-3. From the generated `android` directory run
-   `./gradlew :macrobenchmark:connectedBenchmarkAndroidTest` (or
-   `gradlew.bat` on Windows).
-4. Copy the generated `*-baseline-prof.txt` from
-   `macrobenchmark/build/outputs/connected_android_test_additional_output` to
-   `performance/baseline-prof.txt`, prebuild again, and compare the profiled and
-   unprofiled cold-start results before publishing.
+1. Connect the physical SM-A125F, keep animations enabled, and sign the release
+   app into a private test account. Seed Saved Messages with enough rows to
+   scroll.
+2. Prebuild Android, commit the exact candidate, and from `platform/` run
+   `npm run release:verify-android-physical`.
+3. The runner executes the Macrobenchmark journeys using stable resource IDs,
+   validates the numerical budgets, rejects emulator evidence, and copies JSON
+   plus Perfetto traces into the revision-bound `runtime/evidence/android`
+   directory.
+4. Copy the generated `*-baseline-prof.txt` from that evidence into
+   `apps/mobile/performance/baseline-prof.txt`, prebuild again, and compare the
+   profiled and unprofiled cold-start results before publishing.
 
 `performance/baseline-prof.txt` is intentionally absent until a physical-device
 run produces it. ProfileInstaller improves first-run compilation for direct APK

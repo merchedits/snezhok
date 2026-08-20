@@ -4,8 +4,8 @@ import test from "node:test";
 import type { Message } from "@snezhok/contracts";
 
 import type { OutboxEntry } from "../types";
-import { mergeMessages } from "./messageReconciliation";
-import { enqueueOutbox, replayOutbox, resolveOutboxMessageId } from "./outboxReliability";
+import { mergeMessages } from "../domains/messaging/messageReconciliation";
+import { drainOutbox, enqueueOutbox, replayOutbox, resolveOutboxMessageId, retryAvailableAt } from "./outboxReliability";
 
 test("read retries remain monotonic while offline", () => {
   const high = read("high", "chat", 40);
@@ -53,6 +53,40 @@ test("queued mutations resolve an acknowledged optimistic message id", () => {
   const ids = new Map([["client-message", "server-message"]]);
   assert.equal(resolveOutboxMessageId("client-message", ids), "server-message");
   assert.equal(resolveOutboxMessageId("unrelated", ids), "unrelated");
+});
+
+test("independent streams drain concurrently while each stream stays ordered", async () => {
+  const entries = [messageEntry("a1", "alice"), messageEntry("a2", "alice"), messageEntry("b1", "bob")];
+  const started: string[] = [];
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const draining = drainOutbox(entries, async (entry) => {
+    started.push(entry.id);
+    if (entry.id === "a1") await firstGate;
+  }, () => undefined, () => undefined, { concurrency: 2, now: 1 });
+  await Promise.resolve();
+  assert.deepEqual(started, ["a1", "b1"]);
+  releaseFirst();
+  await draining;
+  assert.deepEqual(started, ["a1", "b1", "a2"]);
+});
+
+test("cross-stream forward declares and waits for its optimistic source", async () => {
+  const source = messageEntry("10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000001");
+  const forward: OutboxEntry = {
+    kind: "forward", id: "10000000-0000-4000-8000-000000000002", streamId: "20000000-0000-4000-8000-000000000002",
+    sourceMessageId: source.id, clientId: "10000000-0000-4000-8000-000000000003", queuedAt: 2, attempts: 0,
+  };
+  const queued = enqueueOutbox(enqueueOutbox([], source), forward);
+  assert.deepEqual(queued[1]?.dependsOn, [source.id]);
+  const order: string[] = [];
+  await drainOutbox(queued, async (entry) => { order.push(entry.id); }, () => undefined, () => undefined, { concurrency: 3, now: 2 });
+  assert.deepEqual(order, [source.id, forward.id]);
+});
+
+test("retry backoff is bounded and jittered away from a hot loop", () => {
+  assert.equal(retryAvailableAt(0, 10_000, () => 0), 10_500);
+  assert.equal(retryAvailableAt(99, 10_000, () => 1), 70_000);
 });
 
 function read(id: string, streamId: string, sequence: number): OutboxEntry {

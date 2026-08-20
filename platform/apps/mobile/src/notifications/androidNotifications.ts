@@ -10,7 +10,7 @@ import type { CallUpdatePayload, Message } from "@snezhok/contracts";
 import { receiveCallEnded, receiveCallUpdate } from "../calls/callSessionBridge";
 import { isUserVisibleStreamKind, productCapabilities } from "../config/productCapabilities";
 import { recordDiagnostic } from "../diagnostics/diagnostics";
-import { api } from "../lib/api";
+import { api } from "../infrastructure/http/apiClient";
 import { navigationRef } from "../navigation/navigationRef";
 import { useAppStore } from "../store/useAppStore";
 import { shouldNotifyCall, shouldNotifyMessage } from "./notificationPolicy";

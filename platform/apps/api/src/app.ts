@@ -88,6 +88,13 @@ export async function buildApp() {
       try {
         await pool.query("SELECT 1");
         if (!realtimeListenerHealthy()) return reply.status(503).send({ status: "degraded", component: "realtime-listener", time: Date.now(), revision: config.SOURCE_REVISION });
+        if (config.NODE_ENV === "production") {
+          const worker = await pool.query<{ ready: boolean }>(
+            "SELECT coalesce(max(last_seen_at)>now()-interval '30 seconds',false) ready FROM worker_heartbeats WHERE worker_name='domain-jobs' AND source_revision=$1",
+            [config.SOURCE_REVISION],
+          );
+          if (!worker.rows[0]?.ready) return reply.status(503).send({ status: "degraded", component: "domain-job-worker", time: Date.now(), revision: config.SOURCE_REVISION });
+        }
         return { status: "ready", time: Date.now(), revision: config.SOURCE_REVISION };
       } catch {
         return reply.status(503).send({ status: "unavailable", time: Date.now() });

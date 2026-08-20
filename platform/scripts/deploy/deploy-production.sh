@@ -68,7 +68,7 @@ rollback_tag() {
   if ! $deployment_succeeded; then
     set +e
     set_image_tag "$current_revision"
-    docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" up -d --no-build app media-worker >/dev/null 2>&1
+    docker compose --project-directory "$PLATFORM_ROOT" --file "$COMPOSE_FILE" up -d --no-build app job-worker media-worker >/dev/null 2>&1
   fi
 }
 trap rollback_tag EXIT

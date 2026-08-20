@@ -1,4 +1,6 @@
+import type { RuntimeCapabilities } from "@snezhok/contracts";
 import type { DbClient } from "../../db/pool.js";
+import { config } from "../../config.js";
 import { pool } from "../../db/pool.js";
 import { forbidden } from "../../lib/errors.js";
 
@@ -17,6 +19,7 @@ export interface EffectiveMemberPolicy {
   permissions: GlobalPermissions;
   storageQuotaBytes: number;
   maxUploadBytes: number;
+  capabilities: RuntimeCapabilities;
 }
 
 interface PolicyRow {
@@ -27,13 +30,15 @@ interface PolicyRow {
   default_storage_quota_bytes: string | number;
   storage_quota_bytes: string | number | null;
   max_upload_bytes: string | number;
+  revision: string | number;
+  feature_capabilities: unknown;
 }
 
 export async function effectiveMemberPolicy(userId: string, client: Pick<DbClient, "query"> = pool): Promise<EffectiveMemberPolicy> {
   const result = await client.query<PolicyRow>(
     `SELECT u.is_admin,u.suspended_at IS NOT NULL suspended,s.default_permissions,
             coalesce(p.permission_overrides,'{}'::jsonb) permission_overrides,
-            s.default_storage_quota_bytes,p.storage_quota_bytes,s.max_upload_bytes
+            s.default_storage_quota_bytes,p.storage_quota_bytes,s.max_upload_bytes,s.revision,s.feature_capabilities
        FROM users u CROSS JOIN global_admin_settings s
        LEFT JOIN user_admin_policies p ON p.user_id=u.id
       WHERE u.id=$1 AND u.deleted_at IS NULL AND s.singleton=true`,
@@ -41,14 +46,34 @@ export async function effectiveMemberPolicy(userId: string, client: Pick<DbClien
   );
   const row = result.rows[0];
   if (!row || row.suspended) throw forbidden("This account is suspended");
-  const permissions = row.is_admin
+  const switches = capabilitySwitches(row.feature_capabilities);
+  const rawPermissions = row.is_admin
     ? { createServers: true, createGroups: true, uploadFiles: true, startCalls: true }
     : mergePermissions(row.default_permissions, row.permission_overrides);
+  const permissions = {
+    ...rawPermissions,
+    createServers: rawPermissions.createServers && switches.servers,
+    uploadFiles: rawPermissions.uploadFiles && switches.uploads,
+    startCalls: rawPermissions.startCalls && switches.calls,
+  };
   return {
     permissions,
     storageQuotaBytes: Number(row.storage_quota_bytes ?? row.default_storage_quota_bytes),
     maxUploadBytes: Number(row.max_upload_bytes),
+    capabilities: {
+      schemaVersion: 1,
+      revision: Number(row.revision),
+      sourceRevision: config.SOURCE_REVISION,
+      ...switches,
+      maxUploadBytes: Number(row.max_upload_bytes),
+    },
   };
+}
+
+export async function requireRuntimeCapability(userId: string, capability: "uploads" | "calls" | "activities" | "servers", client: Pick<DbClient, "query"> = pool) {
+  const policy = await effectiveMemberPolicy(userId, client);
+  if (!policy.capabilities[capability]) throw forbidden("This feature is temporarily unavailable");
+  return policy;
 }
 
 export async function requireGlobalPermission(userId: string, permission: GlobalPermission, client: Pick<DbClient, "query"> = pool) {
@@ -72,4 +97,14 @@ export function mergePermissions(defaults: unknown, overrides: unknown): GlobalP
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function capabilitySwitches(value: unknown): Pick<RuntimeCapabilities, "uploads" | "calls" | "activities" | "servers"> {
+  const record = isRecord(value) ? value : {};
+  return {
+    uploads: record.uploads === true,
+    calls: record.calls === true,
+    activities: record.activities === true,
+    servers: record.servers === true,
+  };
 }

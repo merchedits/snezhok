@@ -3,14 +3,12 @@ import { InteractionManager, type LayoutChangeEvent, StyleSheet, View } from "re
 import Animated, { cancelAnimation, Easing, runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { BottomNavigation } from "../components/BottomNavigation";
-import { productCapabilities } from "../config/productCapabilities";
 import { recordPerformance } from "../diagnostics/diagnostics";
 import { usePalette } from "../hooks/usePalette";
 import { MAIN_TABS, mainTabTransition, type MainTab, visitMainTab } from "../navigation/mainTabs";
 import { useAppStore } from "../store/useAppStore";
 import { ChatsScreen } from "./ChatsScreen";
 import { ProfileScreen } from "./ProfileScreen";
-import { ServersScreen } from "./ServersScreen";
 import { SettingsScreen } from "./SettingsScreen";
 
 export function MainScreen() {
@@ -106,7 +104,6 @@ export function MainScreen() {
     <View style={[styles.screen, { backgroundColor: palette.background }]}> 
       <View style={styles.viewport} onLayout={measurePages}>
         {visitedTabs.has("chats") ? <TabPage id="chats" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ChatsScreen embedded active={tab === "chats"} /></TabPage> : null}
-        {productCapabilities.servers && visitedTabs.has("servers") ? <TabPage id="servers" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ServersScreen /></TabPage> : null}
         {visitedTabs.has("profile") ? <TabPage id="profile" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><ProfileScreen embedded active={tab === "profile"} /></TabPage> : null}
         {visitedTabs.has("settings") ? <TabPage id="settings" activeTab={tab} transition={transition} progress={progress} width={pageWidth}><SettingsScreen embedded /></TabPage> : null}
       </View>

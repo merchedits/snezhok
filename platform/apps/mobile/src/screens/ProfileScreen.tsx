@@ -10,13 +10,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { ProfilePhoto, UserProfile } from "@snezhok/contracts";
 
+import { peopleUseCases } from "../application/people/peopleUseCases";
+import { profileUseCases } from "../application/profile/profileUseCases";
 import { Avatar } from "../components/Avatar";
 import { useAppDialog } from "../components/AppDialogProvider";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { PlayfulBackdrop } from "../components/PlayfulBackdrop";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { api } from "../lib/api";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
@@ -52,7 +53,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
     if (!active || !targetId) return;
     let mounted = true;
     const timer = setTimeout(() => {
-      void api.profile(targetId).then((next) => {
+      void profileUseCases.load(targetId).then((next) => {
         if (!mounted) return;
         setProfile(next);
         setDisplayName(next.user.displayName);
@@ -73,7 +74,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
     if (!displayName.trim() || busy) return;
     setBusy(true);
     try {
-      const user = await api.updateProfile({ displayName: displayName.trim(), bio: bio.trim(), statusText: statusText.trim() });
+      const user = await profileUseCases.update({ displayName, bio, statusText });
       setProfile((current) => current ? { ...current, user } : { user, photos: [] });
       await refreshBootstrap();
       setEditing(false);
@@ -91,8 +92,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
     if (!asset) return;
     setBusy(true);
     try {
-      const attachment = await api.upload({ uri: asset.uri, filename: asset.fileName ?? `profile-${Date.now()}.jpg`, mimeType: asset.mimeType ?? "image/jpeg", kind: "image", quality: "high" });
-      const next = await api.addProfilePhoto(attachment.id);
+      const next = await profileUseCases.addPhoto({ uri: asset.uri, filename: asset.fileName ?? `profile-${Date.now()}.jpg`, mimeType: asset.mimeType ?? "image/jpeg", kind: "image", quality: "high" });
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
     } catch (error) {
@@ -104,7 +104,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
     if (!own || !profile || profile.photos[0]?.id === photo.id || busy) return;
     setBusy(true);
     try {
-      const next = await api.reorderProfilePhotos([photo.id, ...profile.photos.filter((item) => item.id !== photo.id).map((item) => item.id)]);
+      const next = await profileUseCases.makePrimary(profile, photo);
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
     } catch (error) { showDialog(t("profileSaveFailed"), userFacingError(error, t)); }
@@ -119,7 +119,7 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
   const removePhoto = async (photoId: string) => {
     setBusy(true);
     try {
-      const next = await api.removeProfilePhoto(photoId);
+      const next = await profileUseCases.removePhoto(photoId);
       setProfile(next); setSelectedPhotoId(null);
       await refreshBootstrap();
     } catch (error) { showDialog(t("profileSaveFailed"), userFacingError(error, t)); }
@@ -128,10 +128,9 @@ export function ProfileScreen({ embedded = false, active = true, userId, onBack 
 
   const openChat = async () => {
     if (!profile) return;
-    const direct = conversations.find((conversation) => conversation.kind === "direct" && conversation.participants.some((user) => user.id === profile.user.id));
     try {
-      const conversation = direct ?? await api.createConversation([profile.user.id]);
-      if (!direct) applyConversation(conversation);
+      const { conversation, created } = await peopleUseCases.openDirect(conversations, profile.user.id);
+      if (created) applyConversation(conversation);
       navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title });
     } catch (error) { showDialog(t("openChatFailed"), userFacingError(error, t)); }
   };

@@ -5,10 +5,10 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "
 
 import type { Message } from "@snezhok/contracts";
 
+import { mentionQueries } from "../../application/management/mentionQueries";
 import { isUserVisibleStreamKind } from "../../config/productCapabilities";
 import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
-import { productApi } from "../../lib/productApi";
 import { productCopy } from "../../lib/productCopy";
 import { useAppStore } from "../../store/useAppStore";
 import type { RootStackParamList } from "../../types";
@@ -20,7 +20,7 @@ export function MentionsModal({ visible, onClose }: { visible: boolean; onClose:
   const conversations = useAppStore((state) => state.conversations);
   const [items, setItems] = useState<Message[]>([]); const [cursor, setCursor] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [failed, setFailed] = useState(false);
   const pc = useCallback((key: Parameters<typeof productCopy>[1]) => productCopy(language, key), [language]);
-  const load = useCallback(async (before?: string) => { setBusy(true); setFailed(false); try { const page = await productApi.mentions(before); const visibleItems = page.items.filter((item) => isUserVisibleStreamKind(item.streamKind)); setItems((current) => before ? [...current, ...visibleItems] : visibleItems); setCursor(page.nextCursor); } catch { setFailed(true); } finally { setBusy(false); } }, []);
+  const load = useCallback(async (before?: string) => { setBusy(true); setFailed(false); try { const page = await mentionQueries.page(before); const visibleItems = page.items.filter((item) => isUserVisibleStreamKind(item.streamKind)); setItems((current) => before ? [...current, ...visibleItems] : visibleItems); setCursor(page.nextCursor); } catch { setFailed(true); } finally { setBusy(false); } }, []);
   useEffect(() => { if (visible) void load(); else { setItems([]); setCursor(null); } }, [load, visible]);
   const open = (message: Message) => {
     const conversation = conversations.find((item) => item.id === message.streamId);

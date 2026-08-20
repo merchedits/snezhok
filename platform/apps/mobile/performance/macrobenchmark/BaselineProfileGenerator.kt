@@ -24,7 +24,8 @@ class BaselineProfileGenerator {
         // A benchmark device can retain a private test login. When it is signed
         // in, exercise the hottest inbox -> chat path; signed-out runs still
         // produce a valid startup profile.
-        device.findObject(By.text(SAVED_MESSAGES))?.let { saved ->
+        (device.findObject(By.res(PACKAGE_NAME, SAVED_MESSAGES_ID))
+            ?: device.findObject(By.text(SAVED_MESSAGES)))?.let { saved ->
             saved.click()
             device.waitForIdle()
             val x = device.displayWidth / 2
@@ -39,6 +40,7 @@ class BaselineProfileGenerator {
 
     private companion object {
         const val PACKAGE_NAME = "xyz.merchedits.snezhok"
+        const val SAVED_MESSAGES_ID = "conversation_saved"
         const val SAVED_MESSAGES = "\u0421\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f"
     }
 }

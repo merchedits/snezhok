@@ -194,6 +194,7 @@ const ConversationRow = memo(function ConversationRow({ conversation, currentUse
   const rowBackground = conversation.saved ? palette.group.violet : "transparent";
   return (
     <Pressable
+      testID={conversation.saved ? "conversation_saved" : `conversation_${conversation.id}`}
       delayLongPress={320}
       onPressIn={() => onWarm(conversation)}
       onPress={() => onPress(conversation)}

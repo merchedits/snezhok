@@ -79,7 +79,7 @@ trap 'exit 130' INT TERM HUP
 
 mapfile -t running_services < <(
   compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" ps --status running --services \
-    | awk '$0 == "app" || $0 == "media-worker"' \
+    | awk '$0 == "app" || $0 == "job-worker" || $0 == "media-worker"' \
     | sort
 )
 
@@ -98,11 +98,11 @@ minimum_bytes=$((media_bytes + database_bytes + 536870912))
 (( available_bytes >= minimum_bytes )) || die "backup target has insufficient free space (need at least $minimum_bytes bytes)"
 
 if ((${#running_services[@]})); then
-  log "quiescing API and media worker for a synchronized database/media snapshot"
+  log "quiescing API and workers for a synchronized database/media snapshot"
   # Set this before Compose is invoked: a partial `stop` failure must still
   # make the EXIT trap restore every service that was running on entry.
   services_stopped=true
-  compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" stop --timeout 30 app media-worker
+  compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" stop --timeout 30 app job-worker media-worker
 fi
 
 log "streaming an encrypted PostgreSQL custom-format dump"

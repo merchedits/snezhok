@@ -5,7 +5,6 @@ import android.content.Context
 import android.os.Build
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import org.json.JSONArray
 import org.json.JSONObject
 
 class SnezhokDiagnosticsModule : Module() {
@@ -50,14 +49,13 @@ class SnezhokDiagnosticsModule : Module() {
       val previous = Thread.getDefaultUncaughtExceptionHandler()
       Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
         try {
-          val frames = JSONArray()
-          throwable.stackTrace.take(24).forEach { frame -> frames.put(sanitize(frame.toString(), 300)) }
+          val frame = throwable.stackTrace.firstOrNull { it.className.startsWith("xyz.merchedits.snezhok") }
+            ?: throwable.stackTrace.firstOrNull()
           val payload = JSONObject()
             .put("recordedAt", System.currentTimeMillis())
             .put("thread", sanitize(thread.name, 80))
             .put("type", sanitize(throwable.javaClass.name, 160))
-            .put("message", sanitize(throwable.message, 300))
-            .put("stack", frames)
+            .put("frame", frame?.let { sanitize("${it.className}.${it.methodName}", 240) })
           context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).edit().putString(LAST_CRASH, payload.toString()).commit()
         } catch (_: Throwable) {
           // Crash capture must never prevent Android's normal crash handler.

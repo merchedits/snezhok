@@ -5,6 +5,7 @@ import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { FriendEntry } from "@snezhok/contracts";
 
+import { peopleUseCases } from "../application/people/peopleUseCases";
 import { Avatar } from "../components/Avatar";
 import { AppIcon } from "../components/AppIcon";
 import { useAppDialog } from "../components/AppDialogProvider";
@@ -12,7 +13,6 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { TextEntryModal } from "../components/TextEntryModal";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { api } from "../lib/api";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
@@ -41,10 +41,9 @@ export function ContactsScreen({ embedded = false }: { embedded?: boolean }) {
   const openFriend = async (entry: FriendEntry) => {
     if (entry.relationship !== "friend" || busyId) return;
     setBusyId(entry.user.id);
-    const direct = conversations.find((conversation) => conversation.kind === "direct" && conversation.participants.some((user) => user.id === entry.user.id));
     try {
-      const conversation = direct ?? await api.createConversation([entry.user.id]);
-      if (!direct) applyConversation(conversation);
+      const { conversation, created } = await peopleUseCases.openDirect(conversations, entry.user.id);
+      if (created) applyConversation(conversation);
       navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: entry.user.displayName, subtitle: relationshipLabel(entry, language, t) });
     } catch (error) { showDialog(t("openChatFailed"), userFacingError(error, t)); }
     finally { setBusyId(null); }
@@ -62,7 +61,7 @@ export function ContactsScreen({ embedded = false }: { embedded?: boolean }) {
         renderItem={({ item }) => <Pressable disabled={busyId === item.user.id} onPress={() => openFriend(item)} style={({ pressed }) => [styles.row, { backgroundColor: pressed ? palette.surface : palette.elevated, borderColor: palette.border, opacity: busyId === item.user.id ? 0.55 : 1 }]}><Avatar uri={item.user.avatarUrl} label={item.user.displayName} color={item.user.avatarColor} online={item.user.presence === "online"} size={48} /><View style={styles.body}><Text style={[styles.name, { color: palette.text }]}>{item.user.displayName}</Text><Text numberOfLines={1} style={[styles.status, { color: palette.secondaryText }]}>{relationshipLabel(item, language, t)}</Text></View>{item.relationship === "incoming" && item.requestId ? <View style={styles.requestActions}><Pressable onPress={(event) => { event.stopPropagation(); void respond(item, "decline"); }} style={[styles.requestButton, { backgroundColor: palette.surface }]}><Text style={[styles.requestText, { color: palette.secondaryText }]}>{t("decline")}</Text></Pressable><Pressable onPress={(event) => { event.stopPropagation(); void respond(item, "accept"); }} style={[styles.requestButton, { backgroundColor: palette.accent }]}><Text style={styles.acceptText}>{t("accept")}</Text></Pressable></View> : item.relationship === "outgoing" && item.requestId ? <Pressable onPress={(event) => { event.stopPropagation(); confirmCancel(item); }} style={styles.moreButton}><Text style={[styles.requestText, { color: palette.accent }]}>{t("cancelRequest")}</Text></Pressable> : item.relationship === "friend" ? <Pressable accessibilityLabel={t("settings")} onPress={(event) => { event.stopPropagation(); showFriendActions(item); }} style={styles.moreButton}><AppIcon name="ellipsis-horizontal" size={21} color={palette.secondaryText} /></Pressable> : null}</Pressable>}
         ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{filter === "requests" ? t("noRequests") : t("noContacts")}</Text></View>}
       />
-      <TextEntryModal visible={adding} title={t("addContact")} placeholder={t("username")} submitLabel={t("sendRequest")} onClose={() => setAdding(false)} onSubmit={async (username) => { await api.requestFriend(username); await refresh(); }} />
+      <TextEntryModal visible={adding} title={t("addContact")} placeholder={t("username")} submitLabel={t("sendRequest")} onClose={() => setAdding(false)} onSubmit={async (username) => { await peopleUseCases.requestFriend(username); await refresh(); }} />
     </View>
   );
 
@@ -73,11 +72,11 @@ export function ContactsScreen({ embedded = false }: { embedded?: boolean }) {
     catch (error) { showDialog(t("requestFailed"), userFacingError(error, t)); }
     finally { setBusyId(null); }
   }
-  async function respond(entry: FriendEntry, action: "accept" | "decline") { if (!entry.requestId) return; await run(entry, () => api.respondFriend(entry.requestId!, action).then(() => undefined)); }
-  function confirmCancel(entry: FriendEntry) { if (!entry.requestId) return; showDialog(t("cancelRequest"), t("cancelRequestQuestion", { name: entry.user.displayName }), [{ text: t("cancel"), style: "cancel" }, { text: t("cancelRequest"), style: "destructive", onPress: () => void run(entry, () => api.cancelFriendRequest(entry.requestId!)) }]); }
+  async function respond(entry: FriendEntry, action: "accept" | "decline") { if (!entry.requestId) return; await run(entry, () => peopleUseCases.respondFriend(entry.requestId!, action).then(() => undefined)); }
+  function confirmCancel(entry: FriendEntry) { if (!entry.requestId) return; showDialog(t("cancelRequest"), t("cancelRequestQuestion", { name: entry.user.displayName }), [{ text: t("cancel"), style: "cancel" }, { text: t("cancelRequest"), style: "destructive", onPress: () => void run(entry, () => peopleUseCases.cancelFriendRequest(entry.requestId!)) }]); }
   function showFriendActions(entry: FriendEntry) { showDialog(entry.user.displayName, `@${entry.user.username}`, [{ text: t("cancel"), style: "cancel" }, { text: t("removeFriend"), style: "destructive", onPress: () => confirmRemove(entry) }, { text: t("blockUser"), style: "destructive", onPress: () => confirmBlock(entry) }]); }
-  function confirmRemove(entry: FriendEntry) { showDialog(t("removeFriend"), t("removeFriendQuestion", { name: entry.user.displayName }), [{ text: t("cancel"), style: "cancel" }, { text: t("removeFriend"), style: "destructive", onPress: () => void run(entry, () => api.removeFriend(entry.user.id)) }]); }
-  function confirmBlock(entry: FriendEntry) { showDialog(t("blockUser"), t("blockUserQuestion", { name: entry.user.displayName }), [{ text: t("cancel"), style: "cancel" }, { text: t("blockUser"), style: "destructive", onPress: () => void run(entry, () => api.blockUser(entry.user.id)) }]); }
+  function confirmRemove(entry: FriendEntry) { showDialog(t("removeFriend"), t("removeFriendQuestion", { name: entry.user.displayName }), [{ text: t("cancel"), style: "cancel" }, { text: t("removeFriend"), style: "destructive", onPress: () => void run(entry, () => peopleUseCases.removeFriend(entry.user.id)) }]); }
+  function confirmBlock(entry: FriendEntry) { showDialog(t("blockUser"), t("blockUserQuestion", { name: entry.user.displayName }), [{ text: t("cancel"), style: "cancel" }, { text: t("blockUser"), style: "destructive", onPress: () => void run(entry, () => peopleUseCases.blockUser(entry.user.id)) }]); }
 }
 
 function relationshipLabel(entry: FriendEntry, language: "en" | "ru", t: ReturnType<typeof useTranslation>["t"]): string {

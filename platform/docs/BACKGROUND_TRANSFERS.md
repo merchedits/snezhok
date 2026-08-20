@@ -47,6 +47,11 @@ use the normal attachment authorization rules.
   therefore becomes 10 + 10 + 3 without duplicates.
 - Signing out cancels native work, requests remote cancellation, deletes staged
   sources, and clears the account's pending intent queue.
+- Foreground compatibility transfers are owned by `TransferManager`, keyed by
+  transfer and batch IDs, and bounded independently. There is no process-global
+  active-upload slot: progress/cancellation in one chat cannot overwrite a
+  transfer in another. Every native result is reconciled against the current
+  account before it may dispatch its durable message mutation.
 
 ## Android compatibility
 

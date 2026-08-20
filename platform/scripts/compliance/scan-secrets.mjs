@@ -45,13 +45,25 @@ export function trackedFiles(root = repositoryRoot) {
   return result.stdout.split("\0").filter(Boolean);
 }
 
+export async function readTrackedFile(root, relativeFile) {
+  try {
+    return await readFile(path.join(root, relativeFile));
+  } catch (error) {
+    // `git ls-files --cached` intentionally includes an index entry while a
+    // reviewed deletion is still unstaged. Compliance must scan the resulting
+    // tree without requiring the deletion to be committed first.
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 async function main() {
   const failures = [];
   for (const relativeFile of trackedFiles()) {
     const extension = path.extname(relativeFile).toLowerCase();
     if (!TEXT_EXTENSIONS.has(extension)) continue;
-    const file = path.join(repositoryRoot, relativeFile);
-    const content = await readFile(file);
+    const content = await readTrackedFile(repositoryRoot, relativeFile);
+    if (!content) continue;
     if (content.byteLength > MAX_TEXT_BYTES || content.includes(0)) continue;
     for (const finding of scanText(content.toString("utf8"))) failures.push({ file: relativeFile.replaceAll("\\", "/"), ...finding });
   }

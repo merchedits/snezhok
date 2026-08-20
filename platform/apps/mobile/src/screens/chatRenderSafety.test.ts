@@ -7,14 +7,25 @@ const chatsSource = readFileSync(new URL("./ChatsScreen.tsx", import.meta.url), 
 const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
 const serverAdminSource = readFileSync(new URL("../components/management/ServerAdminModal.tsx", import.meta.url), "utf8");
 const storeSource = readFileSync(new URL("../store/useAppStore.ts", import.meta.url), "utf8");
+const productivityDomainSource = readFileSync(new URL("../application/productivity/productivityDomain.ts", import.meta.url), "utf8");
+const attachmentTransferDomainSource = readFileSync(new URL("../application/messaging/attachmentTransferDomain.ts", import.meta.url), "utf8");
+const messageQueryDomainSource = readFileSync(new URL("../application/messaging/messageQueryActions.ts", import.meta.url), "utf8");
+const activityMutationDomainSource = readFileSync(new URL("../application/activities/activityMutationActions.ts", import.meta.url), "utf8");
+const timelineSource = readFileSync(new URL("../components/chat/ChatMessageList.tsx", import.meta.url), "utf8");
+const composerSource = readFileSync(new URL("../components/chat/ChatComposer.tsx", import.meta.url), "utf8");
 const updateProviderSource = readFileSync(new URL("../updates/UpdateProvider.tsx", import.meta.url), "utf8");
 const messageBubbleSource = readFileSync(new URL("../components/MessageBubble.tsx", import.meta.url), "utf8");
+const messageMediaSource = readFileSync(new URL("../components/message/MessageMedia.tsx", import.meta.url), "utf8");
 const authenticatedImageSource = readFileSync(new URL("../components/AuthenticatedImage.tsx", import.meta.url), "utf8");
 const voiceAttachmentSource = readFileSync(new URL("../components/VoiceMessageAttachment.tsx", import.meta.url), "utf8");
 const bottomNavigationSource = readFileSync(new URL("../components/BottomNavigation.tsx", import.meta.url), "utf8");
 const settingsSource = readFileSync(new URL("./SettingsScreen.tsx", import.meta.url), "utf8");
 const attachmentSheetSource = readFileSync(new URL("../components/AttachmentSheet.tsx", import.meta.url), "utf8");
+const attachmentControllerSource = readFileSync(new URL("../components/attachments/useAttachmentSheetController.ts", import.meta.url), "utf8");
+const deviceMediaSource = readFileSync(new URL("../infrastructure/media/deviceMediaLibrary.ts", import.meta.url), "utf8");
 const activityModalSource = readFileSync(new URL("../components/CooperativeActivityModal.tsx", import.meta.url), "utf8");
+const activityInputsSource = readFileSync(new URL("../components/activities/CooperativeActivityInputs.tsx", import.meta.url), "utf8");
+const activitySharedSource = readFileSync(new URL("../components/activities/CooperativeActivityShared.tsx", import.meta.url), "utf8");
 const activityLauncherSource = readFileSync(new URL("../components/ActivityLauncherSheet.tsx", import.meta.url), "utf8");
 const togetherHistorySource = readFileSync(new URL("../components/TogetherHistoryModal.tsx", import.meta.url), "utf8");
 const newConversationSource = readFileSync(new URL("../components/NewConversationModal.tsx", import.meta.url), "utf8");
@@ -48,7 +59,7 @@ test("small-deployment chats hide global search, folders, and archive controls",
 });
 
 test("chat media uses native bounded caches and lazy audio players", () => {
-  assert.match(messageBubbleSource, /AuthenticatedImage/);
+  assert.match(messageMediaSource, /AuthenticatedImage/);
   assert.match(authenticatedImageSource, /from "expo-image"/);
   assert.match(authenticatedImageSource, /useAuthorizedMedia/);
   assert.match(authenticatedImageSource, /cachePolicy="memory-disk"/);
@@ -72,21 +83,22 @@ test("fixed visual language removes configurable density, contrast, motion, and 
 });
 
 test("productivity synchronization is single-flight and ignores duplicate online callbacks", () => {
-  assert.match(storeSource, /if \(productivityRefresh\) return productivityRefresh/);
+  assert.match(productivityDomainSource, /if \(productivityRefresh\) return productivityRefresh/);
   assert.match(storeSource, /if \(get\(\)\.online === online\) return/);
 });
 
 test("audited native background transfers retain the resumable foreground fallback", () => {
-  assert.match(storeSource, /const DURABLE_BACKGROUND_TRANSFERS_ENABLED = true/);
-  assert.match(storeSource, /!DURABLE_BACKGROUND_TRANSFERS_ENABLED \|\| !backgroundTransferAvailable/);
+  assert.match(storeSource, /available: backgroundTransferAvailable/);
+  assert.match(attachmentTransferDomainSource, /if \(!background\.available\)/);
+  assert.match(attachmentTransferDomainSource, /sendForegroundAttachmentBatch/);
 });
 
 test("cached chats use one bottom-anchor mechanism without a duplicate overlay", () => {
-  assert.match(chatSource, /const INITIAL_RENDERED_MESSAGES = 80/);
-  assert.match(chatSource, /startRenderingFromBottom: true/);
-  assert.match(chatSource, /onLoad=\{recordFirstPaint\}/);
-  assert.doesNotMatch(chatSource, /FIRST_FRAME_MESSAGES|firstFrameMessages|onContentSizeChange=/);
-  assert.match(chatSource, /onScrollBeginDrag=\{\(\) => \{[\s\S]{0,40}userDraggedHistory\.current = true/);
+  assert.match(timelineSource, /const INITIAL_RENDERED_MESSAGES = 80/);
+  assert.match(timelineSource, /startRenderingFromBottom: true/);
+  assert.match(timelineSource, /onLoad=\{recordFirstPaint\}/);
+  assert.doesNotMatch(timelineSource, /FIRST_FRAME_MESSAGES|firstFrameMessages|onContentSizeChange=/);
+  assert.match(timelineSource, /onScrollBeginDrag=\{\(\) => \{[\s\S]{0,40}userDraggedHistory\.current = true/);
 });
 
 test("conversation touch warms SQLite without pre-mounting the native route", () => {
@@ -101,22 +113,22 @@ test("conversation touch warms SQLite without pre-mounting the native route", ()
 });
 
 test("cached message warmups are single-flight per stream", () => {
-  assert.match(storeSource, /const cachedMessagePreloads = new Map<string, Promise<void>>\(\)/);
-  assert.match(storeSource, /cachedMessagePreloads\.get\(streamId\)/);
-  assert.match(storeSource, /cachedMessagePreloads\.set\(streamId, preload\)/);
+  assert.match(messageQueryDomainSource, /const cachedMessagePreloads = new Map<string, Promise<void>>\(\)/);
+  assert.match(messageQueryDomainSource, /cachedMessagePreloads\.get\(streamId\)/);
+  assert.match(messageQueryDomainSource, /cachedMessagePreloads\.set\(streamId, preload\)/);
 });
 
 test("chat reconciliation waits for the native transition to settle", () => {
-  assert.match(chatSource, /navigation\.addListener\("transitionEnd"/);
-  assert.match(chatSource, /if \(!routeSettled\) return/);
-  assert.match(chatSource, /preloadCachedMessages\(\[streamId\]\)/);
-  assert.match(chatSource, /recordPerformance\([\s\S]{0,80}chatOpenPerformanceKind\([\s\S]{0,80}cachedMessageCountAtOpen\.current/);
+  assert.match(timelineSource, /navigation\.addListener\("transitionEnd"/);
+  assert.match(timelineSource, /if \(!routeSettled\) return/);
+  assert.match(timelineSource, /preloadCachedMessages\(\[streamId\]\)/);
+  assert.match(timelineSource, /recordPerformance\([\s\S]{0,80}chatOpenPerformanceKind\([\s\S]{0,80}cachedMessageCountAtOpen\.current/);
 });
 
 test("chat composer follows keyboard progress without late JS visibility jumps", () => {
-  assert.match(chatSource, /useReanimatedKeyboardAnimation/);
-  assert.match(chatSource, /interpolate\([\s\S]{0,40}keyboardProgress\.value/);
-  assert.doesNotMatch(chatSource, /Keyboard\.addListener|keyboardDidShow|keyboardDidHide|keyboardVisible/);
+  assert.match(composerSource, /useReanimatedKeyboardAnimation/);
+  assert.match(composerSource, /interpolate\([\s\S]{0,40}keyboardProgress\.value/);
+  assert.doesNotMatch(composerSource, /Keyboard\.addListener|keyboardDidShow|keyboardDidHide|keyboardVisible/);
 });
 
 test("text-entry screens and management forms keep focused inputs above the keyboard", () => {
@@ -128,30 +140,31 @@ test("text-entry screens and management forms keep focused inputs above the keyb
 });
 
 test("attachments expose camera capture without replacing original-file sending", () => {
-  assert.match(attachmentSheetSource, /\.\.\.\(imagesOnly \? \[\] : \[UPLOAD_ITEM\]\),[\s\S]{0,30}CAMERA_ITEM/);
-  assert.match(attachmentSheetSource, /requestCameraPermissionsAsync/);
-  assert.match(attachmentSheetSource, /launchCameraAsync/);
-  assert.match(attachmentSheetSource, /stripLocation: true/);
+  assert.match(attachmentControllerSource, /\.\.\.\(imagesOnly \? \[\] : \[UPLOAD_ITEM\]\),[\s\S]{0,30}CAMERA_ITEM/);
+  assert.match(deviceMediaSource, /requestCameraPermissionsAsync/);
+  assert.match(deviceMediaSource, /launchCameraAsync/);
+  assert.match(deviceMediaSource, /stripLocation: true/);
+  assert.doesNotMatch(attachmentSheetSource, /expo-(document-picker|image-picker|media-library)/);
 });
 
 test("cooperative drawing is live and color hunt resolves to generated collage media", () => {
   assert.match(activityModalSource, /subscribeRealtimeDrawing/);
   assert.match(activityModalSource, /emitRealtimeDrawing/);
-  assert.match(activityModalSource, /ownCollage[\s\S]{0,80}<CollagePhoto/);
-  assert.match(activityModalSource, /entry\.kind === "collage"/);
+  assert.match(activityInputsSource, /ownCollage[\s\S]{0,80}<CollagePhoto/);
+  assert.match(activitySharedSource, /entry\.kind === "collage"/);
 });
 
 test("cooperative commands reconcile one stale peer revision without losing the action", () => {
-  assert.match(storeSource, /error instanceof ApiError/);
-  assert.match(storeSource, /await api\.activity\(message\.activity\.id\)/);
-  assert.match(storeSource, /api\.commandActivity\(message\.activity\.id, expectedRevision, action, payload, clientId\)/);
-  assert.match(storeSource, /const clientId = Crypto\.randomUUID\(\)/);
-  assert.match(storeSource, /if \(!retriedTransport && activityTransportMayHaveCommitted\(error\)\)/);
+  assert.match(activityMutationDomainSource, /error instanceof ApiError/);
+  assert.match(activityMutationDomainSource, /await transport\.activity\(message\.activity\.id\)/);
+  assert.match(activityMutationDomainSource, /transport\.commandActivity\(message\.activity\.id, expectedRevision, action, payload, clientId\)/);
+  assert.match(activityMutationDomainSource, /const clientId = createId\(\)/);
+  assert.match(activityMutationDomainSource, /if \(!retriedTransport && transportMayHaveCommitted\(error\)\)/);
 });
 
 test("Together history projects durable activity messages without local duplicate storage", () => {
   assert.match(activityLauncherSource, /onOpenHistory/);
-  assert.match(togetherHistorySource, /api\.activityHistory\(conversationId\)/);
+  assert.match(togetherHistorySource, /activityQueries\.history\(conversationId\)/);
   assert.match(togetherHistorySource, /CooperativeActivityCard/);
   assert.doesNotMatch(togetherHistorySource, /AsyncStorage|SQLite|insert|persist/i);
 });

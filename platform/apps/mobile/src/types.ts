@@ -127,6 +127,10 @@ interface OutboxBase {
   streamId: string;
   queuedAt: number;
   attempts: number;
+  /** Earliest retry time after bounded exponential backoff. */
+  availableAt?: number;
+  /** Explicit cross-stream ordering (for example, forward after local send). */
+  dependsOn?: string[];
 }
 
 /** `kind` is optional so cached v1 message entries remain valid after upgrade. */

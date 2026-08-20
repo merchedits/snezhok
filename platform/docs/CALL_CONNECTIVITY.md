@@ -163,6 +163,10 @@ The smoke test cannot authenticate a TURN allocation or prove media flow.
 Complete a two-device audio/video call with Wi-Fi disabled, then repeat through
 a network or VPN that blocks UDP. Diagnostics must show a relay/TCP candidate,
 and call setup, reconnect, mute, speaker route, and teardown must all succeed.
+Before both incoming and outgoing calls, play and record a voice note. Confirm
+that the call preempts that media, publishes the microphone, carries two-way
+audio, and that voice-note playback works again after teardown. This is the
+physical regression gate for the shared Expo Audio/LiveKit session owner.
 Open Call details during the strict-firewall run and verify that the selected
 ICE candidate is `relay` and the expected TCP/TLS protocol is reported; a
 successful signaling websocket is not TURN evidence.

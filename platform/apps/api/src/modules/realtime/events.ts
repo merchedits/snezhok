@@ -1,4 +1,4 @@
-import type { ServerToClientEvents } from "@snezhok/contracts";
+import type { DurableServerEvents } from "@snezhok/contracts";
 import type { DbClient } from "../../db/pool.js";
 import { pool } from "../../db/pool.js";
 import { newId } from "../../lib/ids.js";
@@ -10,8 +10,8 @@ export interface StoredEvent {
   recipients: string[];
   cursors: Record<string, number>;
 }
-export type EventName = keyof ServerToClientEvents;
-export type EventPayload<Name extends EventName> = Parameters<ServerToClientEvents[Name]>[0];
+export type EventName = keyof DurableServerEvents;
+export type EventPayload<Name extends EventName> = Parameters<DurableServerEvents[Name]>[0];
 export type RecipientPayload<Name extends EventName> = EventPayload<Name> | ((recipientId: string) => EventPayload<Name>);
 export interface ReplayEvent { cursor: number; name: string; payload: unknown; }
 export interface ReplayResult { accepted: boolean; cursor: number; eventCount: number; reason?: "retention-gap" | "cursor-ahead" | "backlog-too-large"; }

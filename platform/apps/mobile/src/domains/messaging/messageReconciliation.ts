@@ -1,6 +1,6 @@
 import type { Message } from "@snezhok/contracts";
 
-import { normalizeMessagePayload } from "../lib/messagePayload";
+import { normalizeMessagePayload } from "./messagePayload";
 
 /**
  * Merges server history, realtime events and local optimistic messages.
@@ -50,10 +50,18 @@ function compareMessages(left: Message, right: Message): number {
 
 /** A delayed HTTP/update response must never resurrect a durable deletion. */
 export function reconcileMessageVersion(previous: Message, incoming: Message): Message {
+  if (previous.id === incoming.id && previous.revision !== undefined && incoming.revision !== undefined) {
+    if (incoming.revision < previous.revision) return mergeMonotonicDeliveryState(previous, incoming);
+    if (incoming.revision === previous.revision && !previous.pending && incoming.pending) return previous;
+  }
   if (previous.id === incoming.id && previous.deletedAt !== null && !previous.pending && incoming.deletedAt === null) {
-    return incoming.readByOthers ? { ...previous, readByOthers: true } : previous;
+    return mergeMonotonicDeliveryState(previous, incoming);
   }
   return incoming;
+}
+
+function mergeMonotonicDeliveryState(previous: Message, incoming: Message): Message {
+  return incoming.readByOthers && !previous.readByOthers ? { ...previous, readByOthers: true } : previous;
 }
 
 export function markMessageDeleted(existing: Message[], id: string, deletedAt: number, pending = false): Message[] {

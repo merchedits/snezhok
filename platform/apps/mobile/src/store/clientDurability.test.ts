@@ -3,33 +3,35 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const store = readFileSync(new URL("./useAppStore.ts", import.meta.url), "utf8");
+const messageMutations = readFileSync(new URL("../application/messaging/messageMutationDomain.ts", import.meta.url), "utf8");
 const repository = readFileSync(new URL("../lib/offlineRepository.ts", import.meta.url), "utf8");
 const session = readFileSync(new URL("../lib/secureSession.ts", import.meta.url), "utf8");
-const api = readFileSync(new URL("../lib/api.ts", import.meta.url), "utf8");
-const productApi = readFileSync(new URL("../lib/productApi.ts", import.meta.url), "utf8");
+const api = readFileSync(new URL("../infrastructure/http/apiClient.ts", import.meta.url), "utf8");
+const productApi = readFileSync(new URL("../infrastructure/http/productApiClient.ts", import.meta.url), "utf8");
+const sessionTransport = readFileSync(new URL("../infrastructure/http/sessionTransportCore.ts", import.meta.url), "utf8");
 const appConfig = readFileSync(new URL("../../app.config.ts", import.meta.url), "utf8");
 const callRoom = readFileSync(new URL("../calls/CallRoomView.tsx", import.meta.url), "utf8");
 
-function operation(start: string, end: string): string {
-  const from = store.indexOf(start);
-  const to = store.indexOf(end, from + start.length);
+function operation(start: string, end: string, source = store): string {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from + start.length);
   assert.notEqual(from, -1, `missing ${start}`);
   assert.notEqual(to, -1, `missing ${end}`);
-  return store.slice(from, to);
+  return source.slice(from, to);
 }
 
 test("every optimistic message mutation is durable before its network request", () => {
   const cases = [
-    ["sendMessage: async", "forwardMessage: async", "api.createMessage"],
-    ["forwardMessage: async", "editMessage: async", "api.forwardMessage"],
-    ["editMessage: async", "toggleReaction: async", "api.editMessage"],
-    ["toggleReaction: async", "deleteMessage: async", "api.setReaction"],
-    ["deleteMessage: async", "setMessagePinned: async", "api.deleteMessage"],
-    ["setMessagePinned: async", "retryOutbox: async", "api.setMessagePinned"],
+    ["sendMessage: async", "forwardMessage: async", "transport.createMessage"],
+    ["forwardMessage: async", "editMessage: async", "transport.forwardMessage"],
+    ["editMessage: async", "toggleReaction: async", "transport.editMessage"],
+    ["toggleReaction: async", "deleteMessage: async", "transport.setReaction"],
+    ["deleteMessage: async", "setMessagePinned: async", "transport.deleteMessage"],
+    ["setMessagePinned: async", "retryOutbox: async", "transport.setMessagePinned"],
   ] as const;
   for (const [start, end, networkCall] of cases) {
-    const source = operation(start, end);
-    const persisted = source.indexOf("await persistState({");
+    const source = operation(start, end, messageMutations);
+    const persisted = source.indexOf("await persistNow({");
     assert.ok(persisted >= 0, `${start} must persist`);
     assert.ok(persisted < source.indexOf(networkCall), `${start} must persist before ${networkCall}`);
   }
@@ -46,16 +48,15 @@ test("a late token refresh cannot recreate a logged-out or replaced session", ()
   assert.match(session, /writeSessionIfCurrent\(tokens: AuthTokens, expectedGeneration: number\)/);
   assert.match(session, /clearSessionIfCurrent\(expectedGeneration: number\)/);
   assert.match(session, /mutationGeneration !== expectedGeneration/);
-  assert.match(api, /const sessionGeneration = getSessionGeneration\(\)/);
-  assert.match(api, /writeSessionIfCurrent\(tokens, sessionGeneration\)/);
-  assert.match(api, /clearSessionIfCurrent\(sessionGeneration\)/);
-  assert.match(productApi, /const sessionGeneration = getSessionGeneration\(\)/);
-  assert.match(productApi, /writeSessionIfCurrent/);
-  assert.match(productApi, /clearSessionIfCurrent\(sessionGeneration\)/);
+  assert.match(sessionTransport, /const sessionGeneration = this\.dependencies\.getSessionGeneration\(\)/);
+  assert.match(sessionTransport, /writeSessionIfCurrent\(tokens, sessionGeneration\)/);
+  assert.match(sessionTransport, /clearSessionIfCurrent\(sessionGeneration\)/);
+  assert.match(api, /sessionTransport\.request/);
+  assert.match(productApi, /sessionTransport\.request/);
 });
 
 test("expired credentials unmount private UI before failure-contained cleanup", () => {
-  const listener = store.slice(store.indexOf("function ensureSessionLossListener"), store.indexOf("function schedulePersistence"));
+  const listener = store.slice(store.indexOf("function ensureSessionLossListener"), store.indexOf("export const useAppStore"));
   const signedOut = listener.indexOf('phase: "signed-out"');
   const cleanup = listener.indexOf("terminalDataClear =");
   assert.ok(signedOut >= 0 && signedOut < cleanup, "the authenticated tree must unmount before durable cleanup starts");
@@ -69,10 +70,10 @@ test("asynchronous store completions are scoped to the account that started them
   assert.match(store, /guard\.epoch === accountEpoch/);
   assert.match(store, /signOut: async \(\) => \{\s+invalidateAccountOperations\(\)/);
 
-  const send = operation("sendMessage: async", "forwardMessage: async");
-  assert.match(send, /const guard = captureAccountOperation\(\)/);
-  assert.match(send, /const saved = await api\.createMessage/);
-  assert.match(send, /if \(!accountOperationIsCurrent\(guard\)\) return/);
+  const send = operation("sendMessage: async", "forwardMessage: async", messageMutations);
+  assert.match(send, /const guard = captureGuard\(\)/);
+  assert.match(send, /transport\.createMessage/);
+  assert.match(send, /if \(!guardIsCurrent\(guard\)\) return/);
 });
 
 test("private message state is excluded from Android backup", () => {

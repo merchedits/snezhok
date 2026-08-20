@@ -1,7 +1,7 @@
 import type { Message } from "@snezhok/contracts";
 
 import type { CachedState } from "../types";
-import { messagesForCache, normalizeCachedMessages } from "./cachePolicy";
+import { messagesForCache, normalizeCachedMessages } from "../domains/messaging/cachePolicy";
 
 export const RECENT_MESSAGES_PER_STREAM = 80;
 export const DEFAULT_CACHE_PAGE_SIZE = 40;

@@ -7,7 +7,7 @@ const source = (path: string) => readFile(new URL(path, import.meta.url), "utf8"
 test("authenticated thumbnails fall back to the authorized original", async () => {
   const [image, bubble] = await Promise.all([
     source("./AuthenticatedImage.tsx"),
-    source("./MessageBubble.tsx"),
+    source("./message/MessageMedia.tsx"),
   ]);
   assert.match(image, /fallbackUri\?: string \| null/);
   assert.match(image, /setUsingFallback\(true\)/);
@@ -29,15 +29,17 @@ test("voice and video playback failures remain retryable", async () => {
 });
 
 test("single media messages keep their aspect ratio and overlay compact metadata", async () => {
-  const [image, bubble] = await Promise.all([
+  const [image, bubble, media, styles] = await Promise.all([
     source("./AuthenticatedImage.tsx"),
     source("./MessageBubble.tsx"),
+    source("./message/MessageMedia.tsx"),
+    source("./message/messageBubbleStyles.ts"),
   ]);
   assert.match(image, /onIntrinsicSize\?: \(width: number, height: number\)/);
-  assert.match(bubble, /resizeMode="contain"/);
+  assert.match(media, /resizeMode="contain"/);
   assert.match(bubble, /mediaOnly && styles\.mediaBubble/);
   assert.match(bubble, /styles\.mediaMetaOverlay/);
   assert.match(bubble, /styles\.mediaReactionOverlay/);
-  assert.match(bubble, /StyleSheet\.hairlineWidth/);
+  assert.match(styles, /StyleSheet\.hairlineWidth/);
   assert.match(bubble, /<View style=\{\[styles\.footer,/);
 });

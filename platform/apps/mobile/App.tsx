@@ -14,6 +14,7 @@ import { AppDialogProvider } from "./src/components/AppDialogProvider";
 import { CallSessionProvider } from "./src/calls/CallSessionProvider";
 import { initializeDiagnostics, installGlobalErrorCapture, recordDiagnostic } from "./src/diagnostics/diagnostics";
 import { ingestNativeDiagnostics, installNativeDiagnostics } from "./src/diagnostics/nativeDiagnostics";
+import { flushMobileDiagnostics } from "./src/core/diagnostics/mobileDiagnosticDelivery";
 import { usePalette } from "./src/hooks/usePalette";
 import { useTranslation } from "./src/i18n";
 import { useRealtime } from "./src/hooks/useRealtime";
@@ -57,6 +58,8 @@ function AppRoot() {
   const phase = useAppStore((state) => state.phase);
   const initialize = useAppStore((state) => state.initialize);
   const setOnline = useAppStore((state) => state.setOnline);
+  const online = useAppStore((state) => state.online);
+  const { language } = useTranslation();
   const palette = usePalette();
 
   useEffect(() => {
@@ -81,6 +84,10 @@ function AppRoot() {
   }, [initialize, setOnline]);
 
   useRealtime(phase === "ready");
+
+  useEffect(() => {
+    if (phase === "ready" && online) void flushMobileDiagnostics(language).catch(() => undefined);
+  }, [language, online, phase]);
 
   if (phase === "booting") {
     return (

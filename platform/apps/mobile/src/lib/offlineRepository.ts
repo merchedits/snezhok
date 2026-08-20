@@ -4,6 +4,7 @@ import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 import type { AppSettings, BootstrapPayload, Message } from "@snezhok/contracts";
 
 import { recordDiagnostic } from "../diagnostics/diagnostics";
+import { decodeOutboxRecords } from "../repositories/mutations/outboxRecord";
 
 import type { CachedState, OutboxEntry } from "../types";
 import { PENDING_UPLOAD_KEY } from "./pendingUpload";
@@ -311,9 +312,11 @@ export async function readOutbox(): Promise<OutboxEntry[]> {
   const raw = await AsyncStorage.getItem(OUTBOX_KEY);
   if (!raw) return [];
   try {
-    const parsed = JSON.parse(raw) as Array<OutboxEntry | (Omit<Extract<OutboxEntry, { kind: "message" }>, "kind"> & { kind?: undefined })>;
-    return Array.isArray(parsed) ? parsed.map((entry) => entry.kind ? entry as OutboxEntry : { ...entry, kind: "message" }) : [];
+    const decoded = decodeOutboxRecords(JSON.parse(raw) as unknown);
+    if (decoded.rejected) recordDiagnostic("warn", "storage", "Invalid durable mutation records were quarantined", { count: decoded.rejected });
+    return decoded.entries;
   } catch {
+    recordDiagnostic("warn", "storage", "Durable mutation queue could not be decoded");
     return [];
   }
 }

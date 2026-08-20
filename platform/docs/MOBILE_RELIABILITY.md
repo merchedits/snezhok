@@ -14,7 +14,14 @@ Snezhok treats the Android application as the product authority. Changes to chat
 - Cached, optimistic, HTTP, and realtime attachment arrays are normalized before list classification or rendering. One malformed nested record must never unmount a chat.
 - Stateful native media children use the durable attachment ID as their React identity. Recycler-position keys are not permitted for image, video, audio, or document subtrees.
 - Every attachment subtree has a local JavaScript error boundary. A render failure records privacy-safe structural diagnostics and displays a compact fallback instead of reaching the application-level crash handler.
+- Android `ApplicationExitInfo` and the native uncaught-exception hook are
+  imported once on the next start. Only abnormal exits are retained; the crash
+  hook keeps the exception type and one package/method frame, never exception
+  text or a raw stack. New warning/error evidence is sent automatically after
+  an authenticated online transition with an event-ID watermark and server-side
+  deduplication, so a lost response cannot double-count a failure.
 - Authenticated image thumbnails use `expo-image`'s native memory/disk cache with an authorization-aware source and a stable recycling key. Voice notes create an `expo-audio` player only after playback is requested and pass the authenticated remote source directly; the native audio implementation performs its own temporary download. Do not add a second JavaScript-managed file cache unless a measured platform defect requires it. Explicit user downloads remain ordinary files outside this playback path.
+- Voice playback, voice recording, and LiveKit calls share one process-wide audio-session ownership arbiter. Calls preempt recording and playback; recording preempts playback; stale recorder/player cleanup is skipped after ownership changes. Every Android audio-mode mutation is serialized so an `expo-audio` unmount cannot reset LiveKit's `MODE_IN_COMMUNICATION` session. New native audio features must participate in this lease rather than calling audio-session configuration independently.
 - Chat history paints from the SQLite snapshot already held in Zustand. Touching a conversation row starts a deduplicated SQLite warmup; notification/deep-link routes start the same cache-only read as soon as they mount. Navigation stays immediate, and network reconciliation waits until the native transition completes.
 - `FlashList` is solely responsible for initial bottom anchoring through `startRenderingFromBottom`. Do not combine it with a duplicate first-frame overlay or an initial `scrollToEnd`, because competing position mechanisms cause extra row mounts and visible jumps.
 - Composer safe-area padding interpolates from the keyboard controller's UI-thread progress. It must not depend on Android's post-animation `keyboardDidShow`/`keyboardDidHide` callbacks.
@@ -25,6 +32,16 @@ Snezhok treats the Android application as the product authority. Changes to chat
 - Voice playback allocates its native player only after the user requests playback, starts after the authenticated source reports loaded, and uses the outgoing bubble's foreground/control colors rather than global secondary text colors. A failed player must be recreated on retry instead of reusing the failed native instance.
 - An incoming-call notification is useful only for its exact server call. Its timestamp must be recent, its call ID must be sent back during token issuance, and neither a delayed tap nor a superseded call may create a new room.
 - Android push registration is installation-scoped and idempotently refreshed on foreground/reconnect. A successful historical token is never assumed to remain valid after FCM rotates the native token.
+- Durable realtime payload and cursor arrive in one validated envelope. One
+  serial sync engine applies the repository projection first and advances the
+  cursor afterward; duplicate or reordered envelopes are harmless and a failed
+  projection triggers an authoritative snapshot without acknowledging the
+  failed envelope.
+- Message and attachment entities have one normalized repository each. Shared
+  forwarded/activity attachment references update from one lifecycle event;
+  older HTTP revisions cannot replace newer realtime or optimistic projections.
+- Runtime capabilities are authenticated bootstrap data and server-enforced.
+  UI gating improves clarity but is never treated as authorization.
 
 ## Samsung A12 performance budgets
 
@@ -61,8 +78,10 @@ Client reports contain bounded technical events only. Credentials, message conte
 
 Before publishing an APK:
 
-1. Run mobile, API, media-worker, and contracts type checks and tests.
+1. Run `npm run architecture:check`, then mobile, API, media-worker, web, and
+   contracts type checks and tests.
 2. Build the signed release APK with minification and resource shrinking.
 3. Verify application ID, version code, signing certificate, byte count, and SHA-256.
 4. Verify resumable HTTP range delivery from the public endpoint.
-5. Confirm API health, database latency, realtime reconnect, LiveKit reachability, and media-worker queue health.
+5. Confirm API health, domain job-worker heartbeat/revision, database latency,
+   realtime reconnect, LiveKit reachability, and media-worker queue health.

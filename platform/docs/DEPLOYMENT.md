@@ -20,7 +20,8 @@ Daily age-encrypted synchronized backups, isolated weekly restore drills, and re
 ## Release gate
 
 1. Install from the lockfiles.
-2. Run contract, API, web and Android type checks and tests.
+2. Run the executable architecture gate plus contract, API, media-worker, web,
+   and Android type checks and tests.
 3. Build the web/server production image and signed APK.
    CI runs the native Kotlin background-transfer unit tests and compiles the
    macrobenchmark APK. It cannot generate representative baseline-profile or
@@ -28,9 +29,16 @@ Daily age-encrypted synchronized backups, isolated weekly restore drills, and re
    authenticated physical device with private test data. Run the signed APK on
    the Samsung A12 according to `apps/mobile/performance/A12_BUDGETS.md`; retain
    the benchmark output and generated profile as release evidence.
+   Building the media-worker image also runs the compiled toolchain verifier
+   against its real FFmpeg. The build fails unless Opus voice, silence waveform,
+   H.264/AAC portrait video, WebP thumbnail, aspect ratio, and MP4 fast-start
+   pass. A workstation with the same codecs can run
+   `npm run release:verify-media`.
 4. Run SQL migrations in a one-shot deployment task.
-5. Start PostgreSQL, the app and LiveKit without changing Nginx.
-6. Verify app, PostgreSQL and LiveKit health; inspect logs and resource limits.
+5. Start PostgreSQL, the request API, the domain `job-worker`, the media worker,
+   and LiveKit without changing Nginx.
+6. Verify API, job-worker heartbeat/revision, media-worker, PostgreSQL and
+   LiveKit health; inspect logs and resource limits.
    For production call fallback, follow [CALL_CONNECTIVITY.md](./CALL_CONNECTIVITY.md) and pass its external STUN/TLS smoke test plus a real two-device relayed call.
 7. Exercise registration/login, bootstrap, send/retry, uploads/ranges, realtime resume, calls and screen share.
    Verify a message, incoming call, decline and missed call with the APK process terminated. A build without `EXPO_PUBLIC_EAS_PROJECT_ID`, `GOOGLE_SERVICES_JSON` and the EAS FCM V1 credential cannot pass this gate.
@@ -51,9 +59,10 @@ sudo bash scripts/deploy/deploy-production.sh "$SOURCE_REVISION"
 ```
 
 The deployment helper refuses a permissive `.env`, creates a synchronized
-encrypted recovery point, builds all three revision-labelled images, runs the
+encrypted recovery point, builds all three revision-labelled images (the API
+image is deliberately reused by the isolated `job-worker` entry point), runs the
 one-shot migration and role provisioning, waits for health, verifies OCI and
-API revision provenance through local TLS, verifies that every PostgreSQL blob
+API and job-worker revision provenance through local TLS, verifies that every PostgreSQL blob
 reference resolves to an immutable object with the expected byte count (and is
 readable by Nginx when running as root), and checks the Android channel's range
 response. The pre-deployment backup is deliberately labelled with the

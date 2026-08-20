@@ -19,7 +19,7 @@ export interface MessageCreateInput {
 }
 
 interface MessageRow {
-  id: string; client_id: string | null; stream_id: string; stream_kind: "conversation" | "channel"; sequence: string;
+  id: string; revision: string; client_id: string | null; stream_id: string; stream_kind: "conversation" | "channel"; sequence: string;
   sender_id: string; kind: MessageKind; text: string; created_at_ms: number; edited_at_ms: number | null;
   deleted_at_ms: number | null; pinned_at_ms: number | null; username: string; display_name: string;
   avatar_attachment_id: string | null; avatar_color: string; bio: string; status_text: string; last_seen_at_ms: number;
@@ -420,7 +420,7 @@ async function mapMessagesForViewer(client: Pick<DbClient, "query">, rows: Messa
 }
 
 const messageSelectSql = `
-  SELECT m.id,m.client_id,m.stream_id,m.stream_kind,m.sequence::text,m.sender_id,m.kind,m.text,m.silent,
+  SELECT m.id,m.revision::text,m.client_id,m.stream_id,m.stream_kind,m.sequence::text,m.sender_id,m.kind,m.text,m.silent,
     (extract(epoch from m.created_at)*1000)::bigint::float8 AS created_at_ms,
     CASE WHEN m.edited_at IS NULL THEN NULL ELSE (extract(epoch from m.edited_at)*1000)::bigint::float8 END AS edited_at_ms,
     CASE WHEN m.deleted_at IS NULL THEN NULL ELSE (extract(epoch from m.deleted_at)*1000)::bigint::float8 END AS deleted_at_ms,
@@ -448,7 +448,8 @@ const messageSelectSql = `
       'bytes',coalesce(p.bytes,a.bytes),'width',coalesce(p.width,a.width),'height',coalesce(p.height,a.height),'durationMs',coalesce(p.duration_ms,a.duration_ms),
       'quality',a.quality,'checksum',b.checksum_sha256,'primaryChecksum',p.checksum_sha256,'waveform',p.waveform,'originalUrl','/api/v1/files/'||a.id,
       'url',CASE WHEN p.id IS NULL THEN '/api/v1/files/'||a.id ELSE '/api/v1/files/'||a.id||'?variant='||p.id END,
-      'thumbnailUrl',CASE WHEN t.id IS NOT NULL THEN '/api/v1/files/'||a.id||'?variant='||t.id WHEN a.thumbnail_attachment_id IS NOT NULL THEN '/api/v1/files/'||a.thumbnail_attachment_id ELSE NULL END) ORDER BY ma.position) items
+      'thumbnailUrl',CASE WHEN t.id IS NOT NULL THEN '/api/v1/files/'||a.id||'?variant='||t.id WHEN a.thumbnail_attachment_id IS NOT NULL THEN '/api/v1/files/'||a.thumbnail_attachment_id ELSE NULL END,
+      'status',a.status,'updatedAt',(extract(epoch from a.updated_at)*1000)::bigint::float8) ORDER BY ma.position) items
     FROM message_attachments ma JOIN attachments a ON a.id=ma.attachment_id JOIN blobs b ON b.id=a.blob_id
     LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='primary' ORDER BY created_at DESC LIMIT 1) p ON true
     LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='thumbnail' ORDER BY created_at DESC LIMIT 1) t ON true
@@ -463,7 +464,7 @@ const messageSelectSql = `
 function mapMessage(row: MessageRow, viewerId?: string): Message {
   const reactions = (row.reactions as Array<{ emoji: string; count: number; reacted: boolean; userIds: string[] }>).map((reaction) => ({ ...reaction, reacted: viewerId ? reaction.userIds.includes(viewerId) : false }));
   return {
-    id: row.id, clientId: row.client_id, streamId: row.stream_id, streamKind: row.stream_kind, sequence: Number(row.sequence),
+    id: row.id, revision: Number(row.revision), clientId: row.client_id, streamId: row.stream_id, streamKind: row.stream_kind, sequence: Number(row.sequence),
     sender: { id: row.sender_id, username: row.username, displayName: row.display_name, avatarUrl: row.avatar_attachment_id ? `/api/v1/files/${row.avatar_attachment_id}` : null, avatarColor: row.avatar_color,
       bio: row.bio, statusText: row.status_text, presence: "offline", lastSeenAt: 0 },
     kind: row.kind, text: row.text,

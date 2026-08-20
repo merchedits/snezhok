@@ -54,14 +54,14 @@ trap 'exit 130' INT TERM HUP
 if $apply; then
   mapfile -t running_services < <(
     compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" ps --status running --services \
-      | awk '$0 == "app" || $0 == "media-worker"' | sort
+      | awk '$0 == "app" || $0 == "job-worker" || $0 == "media-worker"' | sort
   )
   if ((${#running_services[@]})); then
     log "quiescing API and media worker before deleting storage"
     # Compose can stop one service before reporting failure for another. Mark
     # the group first so the EXIT trap always restores the entry state.
     services_stopped=true
-    compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" stop --timeout 30 app media-worker
+    compose_command "$PLATFORM_ROOT" "$COMPOSE_FILE" stop --timeout 30 app job-worker media-worker
   fi
 fi
 

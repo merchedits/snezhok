@@ -1,7 +1,7 @@
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 import { BACKGROUND_NOTIFICATION_TASK, dismissCallNotification } from "./androidNotifications";
-import { api } from "../lib/api";
+import { api } from "../infrastructure/http/apiClient";
 import { extractNotificationTaskData } from "./notificationRouting";
 
 if (!TaskManager.isTaskDefined(BACKGROUND_NOTIFICATION_TASK)) {

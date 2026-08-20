@@ -6,6 +6,7 @@ import { listFriends } from "../friends/service.js";
 import { defaultSettings } from "../settings/defaults.js";
 import { findUser, mapContactUser, mapUser, publicUserSelect, type PublicUserRow } from "../users/queries.js";
 import { visibleChannelIdsForUser } from "../servers/permissions.js";
+import { effectiveMemberPolicy } from "../admin/policy.js";
 
 export async function bootstrap(userId: string): Promise<BootstrapPayload> {
   return readSnapshot(async (client) => {
@@ -13,8 +14,9 @@ export async function bootstrap(userId: string): Promise<BootstrapPayload> {
     if (!me) throw new Error("Authenticated user was not found");
     // One repeatable-read snapshot guarantees the cursor describes exactly the
     // durable state represented by the bootstrap payload.
+    const policy = await effectiveMemberPolicy(userId, client);
     const conversations = await conversationSummaries(userId, client);
-    const serverData = await serverSummaries(userId, client);
+    const serverData = policy.capabilities.servers ? await serverSummaries(userId, client) : { servers: [], categories: [], channels: [] };
     const friends = await listFriends(userId, client);
     const settingsResult = await client.query<{ settings: typeof defaultSettings }>("SELECT settings FROM user_settings WHERE user_id=$1", [userId]);
     const isAdmin = (await client.query<{ is_admin: boolean }>("SELECT is_admin FROM users WHERE id=$1", [userId])).rows[0]?.is_admin ?? false;
@@ -27,6 +29,7 @@ export async function bootstrap(userId: string): Promise<BootstrapPayload> {
     return {
       me: { ...mapContactUser(me), isAdmin }, conversations: privateConversations, servers: serverData.servers, categories: serverData.categories,
       channels: serverData.channels, friends, settings: { ...defaultSettings, ...(settingsResult.rows[0]?.settings ?? {}) }, eventCursor,
+      capabilities: policy.capabilities,
     };
   });
 }

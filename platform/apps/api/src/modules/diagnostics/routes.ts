@@ -1,15 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { diagnosticReportSchema, type DiagnosticReport } from "@snezhok/contracts";
 import { pool } from "../../db/pool.js";
 import { metricsSnapshot } from "../../lib/metrics.js";
 import { requireAuth } from "../auth/middleware.js";
 import { requireGlobalAdmin } from "../admin/middleware.js";
+import { diagnosticProblemCount, persistDiagnosticReport, recentDiagnosticAggregates } from "./aggregation.js";
 
-const diagnosticCategories = [
-  "auth", "call", "crash", "lifecycle", "media", "native-crash", "navigation",
-  "network", "notifications", "performance", "process-exit", "storage",
-] as const;
 const safeMessages = new Set([
   "Android notifications could not be initialized",
   "Remote push registration failed",
@@ -24,11 +22,18 @@ const safeMessages = new Set([
   "Call setup failed",
   "Call lifecycle acknowledgement failed",
   "Application diagnostics initialized",
+  "Application initialization failed",
+  "Could not configure media cache",
   "Fatal JavaScript error",
   "Unhandled JavaScript error",
+  "Isolated content render failure",
+  "Isolated attachment render failure",
   "Previous process ended with an uncaught native exception",
   "API request could not reach the server",
   "API request completed",
+  "Durable event projection failed",
+  "Invalid realtime event",
+  "Realtime synchronization paused",
   "Upload completed",
   "Upload cancelled",
   "Upload failed",
@@ -39,6 +44,9 @@ const safeMessages = new Set([
   "Offline cache persistence failed",
   "Remote device session cleanup failed",
   "Background transfer reconciliation failed",
+  "Expired session cleanup was incomplete",
+  "Invalid durable mutation records were quarantined",
+  "Durable mutation queue could not be decoded",
   "SQLite cache unavailable; using legacy cache",
   "SQLite cache clear failed",
   "Navigation ready",
@@ -56,31 +64,11 @@ const safeContextKeys = new Set([
   "attempt", "averageFps", "budgetMs", "build", "bytes", "chunks", "connection",
   "description", "errorName", "failure", "fatal", "frames", "from", "importance",
   "jankyFrames", "kind", "method", "name", "passed", "path", "p95FrameMs", "pss",
-  "quality", "reason", "requestId", "route", "status", "to", "version",
+  "quality", "reason", "requestId", "route", "status", "to", "version", "type", "thread",
+  "reasonCode", "recordedAt", "timestamp", "pssKb", "rssKb", "issueCount", "count", "source", "frame",
 ]);
 
-const eventSchema = z.object({
-  at: z.number().int().nonnegative(),
-  level: z.enum(["debug", "info", "warn", "error"]),
-  category: z.enum(diagnosticCategories),
-  message: z.string().trim().min(1).max(240),
-  durationMs: z.number().nonnegative().max(600_000).optional(),
-  context: z.record(z.string(), z.union([z.string().max(160), z.number(), z.boolean(), z.null()])).optional(),
-});
-
-const reportSchema = z.object({
-  installationId: z.string().min(8).max(80),
-  appVersion: z.string().max(32),
-  versionCode: z.number().int().positive(),
-  platform: z.literal("android"),
-  osVersion: z.string().max(32),
-  device: z.string().max(80),
-  locale: z.enum(["ru", "en"]),
-  recordedAt: z.number().int().nonnegative(),
-  events: z.array(eventSchema).max(200),
-});
-
-type DiagnosticReport = z.infer<typeof reportSchema>;
+const aggregateQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(30).default(7) });
 
 export function sanitizeDiagnosticReport(report: DiagnosticReport) {
   return {
@@ -92,6 +80,7 @@ export function sanitizeDiagnosticReport(report: DiagnosticReport) {
     locale: report.locale,
     recordedAt: report.recordedAt,
     events: report.events.map((event) => ({
+      id: event.id,
       at: event.at,
       level: event.level,
       category: event.category,
@@ -130,30 +119,40 @@ export async function diagnosticRoutes(app: FastifyInstance) {
   app.get("/diagnostics/health", { preHandler: requireGlobalAdmin }, async (request) => {
     const databaseStarted = performance.now();
     await pool.query("SELECT 1");
+    const databaseLatencyMs = Math.round((performance.now() - databaseStarted) * 10) / 10;
+    const problems24h = await diagnosticProblemCount();
     const memory = process.memoryUsage();
     return {
       status: "ok",
       requestId: request.id,
-      databaseLatencyMs: Math.round((performance.now() - databaseStarted) * 10) / 10,
+      databaseLatencyMs,
       databasePool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount },
       process: {
         uptimeSeconds: Math.floor(process.uptime()),
         rssBytes: memory.rss,
         heapUsedBytes: memory.heapUsed,
       },
+      clientDiagnostics: { problems24h },
       metrics: metricsSnapshot(),
       checkedAt: Date.now(),
     };
   });
 
   app.post("/diagnostics/client-reports", { preHandler: requireAuth }, async (request, reply) => {
-    const report = reportSchema.parse(request.body);
+    const report = diagnosticReportSchema.parse(request.body);
+    const sanitized = sanitizeDiagnosticReport(report);
+    await persistDiagnosticReport({ ...report, ...sanitized, installationId: sanitized.installation });
     request.log.warn({
       diagnosticReport: {
-        ...sanitizeDiagnosticReport(report),
+        ...sanitized,
         requestId: request.id,
       },
     }, "mobile diagnostic report");
     return reply.status(202).send({ accepted: true, requestId: request.id });
+  });
+
+  app.get("/diagnostics/aggregates", { preHandler: requireGlobalAdmin }, async (request) => {
+    const { days } = aggregateQuerySchema.parse(request.query);
+    return { aggregates: await recentDiagnosticAggregates(days) };
   });
 }

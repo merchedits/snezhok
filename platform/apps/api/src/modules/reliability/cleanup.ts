@@ -22,6 +22,8 @@ export interface CleanupOptions {
 export interface CleanupResult {
   prunedUserEvents: number;
   prunedEvents: number;
+  prunedDiagnosticEvents: number;
+  prunedDiagnosticAggregates: number;
   expiredCallSessions: number;
   expiredMessages: number;
   expiredUploads: number;
@@ -212,9 +214,34 @@ export async function cleanupReliabilityData(
     [options.pushRetentionDays],
   );
 
+  const prunedDiagnosticEvents = await client.query<{ event_hash: string }>(
+    `WITH doomed AS (
+       SELECT event_hash FROM client_diagnostic_events
+       WHERE received_at<now()-interval '90 days'
+       ORDER BY received_at,event_hash LIMIT $1
+     ) DELETE FROM client_diagnostic_events event USING doomed
+       WHERE event.event_hash=doomed.event_hash RETURNING event.event_hash`,
+    [options.batchSize],
+  );
+  const prunedDiagnosticAggregates = await client.query<{ signature: string }>(
+    `WITH doomed AS (
+       SELECT bucket_date,app_version,version_code,os_version,device,signature
+       FROM client_diagnostic_aggregates
+       WHERE bucket_date<current_date-90
+       ORDER BY bucket_date LIMIT $1
+     ) DELETE FROM client_diagnostic_aggregates aggregate USING doomed
+       WHERE aggregate.bucket_date=doomed.bucket_date AND aggregate.app_version=doomed.app_version
+         AND aggregate.version_code=doomed.version_code AND aggregate.os_version=doomed.os_version
+         AND aggregate.device=doomed.device AND aggregate.signature=doomed.signature
+       RETURNING aggregate.signature`,
+    [options.batchSize],
+  );
+
   return {
     prunedUserEvents: oldUserEvents.rows.length,
     prunedEvents: prunedEvents.rows.length,
+    prunedDiagnosticEvents: prunedDiagnosticEvents.rows.length,
+    prunedDiagnosticAggregates: prunedDiagnosticAggregates.rows.length,
     expiredCallSessions: expiredCalls.rows.length,
     expiredMessages: expiredMessages.rows.length,
     expiredUploads: expiredUploads.rows.length,

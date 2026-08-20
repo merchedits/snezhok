@@ -78,3 +78,12 @@ test("pinned endpoint clears stale cached pins while preserving canonical ones",
   assert.equal(result.find((item) => item.id === stale.id)?.pinnedAt, null);
   assert.equal(result.find((item) => item.id === current.id)?.pinnedAt, 10);
 });
+
+test("a delayed lower-revision response cannot overwrite newer realtime state", () => {
+  const current = message("server", { sequence: 3, revision: 7, text: "new", editedAt: 70 });
+  const delayed = { ...current, revision: 6, text: "old", editedAt: 60, readByOthers: true };
+  const merged = mergeMessages([current], [delayed]);
+  assert.equal(merged[0]?.text, "new");
+  assert.equal(merged[0]?.revision, 7);
+  assert.equal(merged[0]?.readByOthers, true);
+});

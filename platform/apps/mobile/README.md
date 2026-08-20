@@ -15,7 +15,7 @@ This is the first-party Android client for the clean-slate Snezhok platform. It 
 - Russian-first interface with English available in Settings
 - Public email, username, and password registration without invitations
 
-The app imports domain types from `@snezhok/contracts`. REST calls are isolated in `src/lib/api.ts`; durable local state is isolated behind `src/lib/offlineRepository.ts` so a SQLite-backed repository can replace AsyncStorage without changing screens.
+The app imports domain types from `@snezhok/contracts`. Runtime-validated REST transport is isolated in `src/infrastructure/http`, while screens use application use cases instead of the transport directly. Durable local state is isolated behind repositories and the SQLite persistence coordinator so storage can evolve without changing screens.
 
 ## Development
 

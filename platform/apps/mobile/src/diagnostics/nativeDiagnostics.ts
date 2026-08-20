@@ -27,6 +27,7 @@ export async function ingestNativeDiagnostics(): Promise<void> {
       recordedAt: summary.recordedAt,
       thread: summary.thread,
       type: summary.type,
+      frame: summary.frame,
     });
   }
 

@@ -52,10 +52,10 @@ test("legacy filenames and returned channel names are canonical", () => {
 });
 
 test("database and source contain the serialized release invariants", async () => {
-  const [migration, auth, authRoutes, conversations, importer, legacyFiles, events, socket, uploads, app, calls, reactions, messageService, bootstrap] = await Promise.all([
+  const [migration, auth, authRoutes, conversations, importer, legacyFiles, events, socket, uploadRoutes, uploadService, app, calls, reactions, messageService, bootstrap] = await Promise.all([
     source("../migrations/0001_initial.sql"), source("modules/auth/service.ts"), source("modules/auth/routes.ts"),
     source("modules/conversations/routes.ts"), source("commands/import-legacy.ts"), source("lib/legacy-files.ts"), source("modules/realtime/events.ts"), source("modules/realtime/socket.ts"),
-    source("modules/uploads/routes.ts"), source("app.ts"), source("modules/calls/routes.ts"), source("modules/messages/routes.ts"), source("modules/messages/service.ts"), source("modules/bootstrap/service.ts"),
+    source("modules/uploads/routes.ts"), source("modules/uploads/uploadService.ts"), source("app.ts"), source("modules/calls/routes.ts"), source("modules/messages/routes.ts"), source("modules/messages/service.ts"), source("modules/bootstrap/service.ts"),
   ]);
   assert.match(migration, /call_sessions_one_active_stream_idx/);
   assert.match(migration, /'finalizing'/);
@@ -67,8 +67,9 @@ test("database and source contain the serialized release invariants", async () =
   assert.match(legacyFiles, /isSymbolicLink/);
   assert.match(events, /pg_notify\('snezhok_events'/);
   assert.match(socket, /LISTEN snezhok_events/);
-  assert.match(uploads, /stageObject/);
-  assert.match(uploads, /info\.size !== Number\(locked\.declared_bytes\)/);
+  assert.match(uploadService, /stageObject/);
+  assert.match(uploadService, /info\.size !== Number\(locked\.declared_bytes\)/);
+  assert.match(uploadRoutes, /offset \+ chunk\.length > Number\(upload\.declared_bytes\)/);
   assert.match(app, /trustProxy: config\.TRUST_PROXY_HOPS/);
   assert.match(app, /fastifyStatic/);
   assert.match(authRoutes, /rateLimit: \{ max: 5/);

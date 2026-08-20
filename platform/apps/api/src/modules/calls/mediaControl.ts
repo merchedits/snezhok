@@ -278,8 +278,10 @@ export async function drainCallMediaCommands(log: MaintenanceLog, mediaPlane: Ca
 }
 
 export function requestCallMediaDrain(log: MaintenanceLog): void {
-  void drainCallMediaCommands(log).catch((error) => {
-    log.error({ code: sanitizedMediaErrorCode(error) }, "call media-control drain failed");
+  // The API only emits a low-latency hint. External LiveKit I/O belongs to the
+  // separately supervised domain worker, whose durable poll remains canonical.
+  void pool.query("SELECT pg_notify('snezhok_jobs','call-media')").catch((error) => {
+    log.error({ code: sanitizedMediaErrorCode(error) }, "call media-control wake hint failed");
   });
 }
 

@@ -11,14 +11,15 @@ test("only abnormal Android exits enter diagnostics", () => {
   assert.equal(nativeExitSeverity("package-updated"), null);
 });
 
-test("native crash ingestion excludes exception messages and stack frames", () => {
+test("native crash ingestion excludes messages and retains one structural frame", () => {
   const summary = parseNativeCrashSummary(JSON.stringify({
     recordedAt: 123,
     thread: "main",
     type: "java.lang.IllegalStateException",
     message: "private chat text",
     stack: ["private frame"],
+    frame: "xyz.merchedits.snezhok.ChatModule.open",
   }));
-  assert.deepEqual(summary, { recordedAt: 123, thread: "main", type: "java.lang.IllegalStateException" });
+  assert.deepEqual(summary, { recordedAt: 123, thread: "main", type: "java.lang.IllegalStateException", frame: "xyz.merchedits.snezhok.ChatModule.open" });
   assert.equal(parseNativeCrashSummary("not-json"), null);
 });

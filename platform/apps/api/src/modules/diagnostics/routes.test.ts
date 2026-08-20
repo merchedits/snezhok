@@ -14,6 +14,7 @@ test("diagnostic reports omit identities and redact untrusted client fields", ()
     locale: "ru",
     recordedAt: 1,
     events: [{
+      id: "00000000-0000-4000-8000-000000000001",
       at: 1,
       level: "warn",
       category: "network",
@@ -44,6 +45,7 @@ test("diagnostic reports retain allowlisted operational signals", () => {
     locale: "ru",
     recordedAt: 2,
     events: [{
+      id: "00000000-0000-4000-8000-000000000002",
       at: 2,
       level: "warn",
       category: "performance",
@@ -53,6 +55,7 @@ test("diagnostic reports retain allowlisted operational signals", () => {
     }],
   });
   assert.deepEqual(sanitized.events[0], {
+    id: "00000000-0000-4000-8000-000000000002",
     at: 2,
     level: "warn",
     category: "performance",
@@ -73,6 +76,7 @@ test("media decoder failures remain useful without retaining file identity", () 
     locale: "en",
     recordedAt: 10,
     events: [{
+      id: "00000000-0000-4000-8000-000000000003",
       at: 9,
       level: "warn",
       category: "media",

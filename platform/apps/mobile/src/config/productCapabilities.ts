@@ -1,4 +1,4 @@
-import type { GlobalPermission } from "../lib/api";
+import type { GlobalPermission } from "@snezhok/contracts";
 
 /**
  * Checked-in product switches for capabilities that remain implemented but are

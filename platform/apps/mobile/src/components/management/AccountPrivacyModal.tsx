@@ -4,10 +4,9 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, Vi
 
 import type { PrivacyAudience, PrivacySettings, SessionDevice, UserSummary } from "@snezhok/contracts";
 
+import { accountUseCases } from "../../application/management/accountUseCases";
 import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
-import { api } from "../../lib/api";
-import { productApi } from "../../lib/productApi";
 import { productCopy } from "../../lib/productCopy";
 import { userFacingError } from "../../lib/userFacingError";
 import { useAppStore } from "../../store/useAppStore";
@@ -40,7 +39,7 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
   useEffect(() => {
     if (!visible) return;
     setBusy(true);
-    void Promise.all([productApi.sessions(), productApi.privacy()]).then(([nextSessions, nextPrivacy]) => { setSessions(nextSessions); setPrivacy(nextPrivacy); }).catch((error) => showDialog(pc("operationFailed"), userFacingError(error, t))).finally(() => setBusy(false));
+    void accountUseCases.load().then(({ sessions: nextSessions, privacy: nextPrivacy }) => { setSessions(nextSessions); setPrivacy(nextPrivacy); }).catch((error) => showDialog(pc("operationFailed"), userFacingError(error, t))).finally(() => setBusy(false));
   }, [pc, showDialog, t, visible]);
 
   const run = async (action: () => Promise<void>) => {
@@ -59,7 +58,7 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
     showDialog(label, undefined, [
       ...options.map((option) => ({ text: `${privacy[key] === option.value ? "✓ " : ""}${option.label}`, onPress: () => {
         const previous = privacy; const next = { ...privacy, [key]: option.value }; setPrivacy(next);
-        void productApi.updatePrivacy({ [key]: option.value }).then(setPrivacy).catch((error) => { setPrivacy(previous); showDialog(pc("operationFailed"), userFacingError(error, t)); });
+        void accountUseCases.updatePrivacy({ [key]: option.value }).then(setPrivacy).catch((error) => { setPrivacy(previous); showDialog(pc("operationFailed"), userFacingError(error, t)); });
       } })),
       { text: pc("cancel"), style: "cancel" },
     ]);
@@ -82,9 +81,9 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
           detail={`${session.ipAddress || "—"} · ${new Date(session.lastUsedAt).toLocaleString(language === "ru" ? "ru-RU" : "en-US")}`}
           {...(session.current
             ? { value: pc("currentDevice") }
-            : { onPress: () => void run(async () => { await productApi.revokeSession(session.id); setSessions((items) => items.filter((item) => item.id !== session.id)); }) })}
+            : { onPress: () => void run(async () => { await accountUseCases.revokeSession(session.id); setSessions((items) => items.filter((item) => item.id !== session.id)); }) })}
         />) : <ManagementEmpty text={pc("noSessions")} />}
-        {sessions.some((session) => !session.current) ? <ManagementRow icon="log-out-outline" label={pc("revokeOthers")} destructive onPress={() => showDialog(pc("revokeOthers"), undefined, [{ text: pc("cancel"), style: "cancel" }, { text: pc("confirm"), style: "destructive", onPress: () => void run(async () => { await productApi.revokeOtherSessions(); setSessions((items) => items.filter((item) => item.current)); }) }])} /> : null}
+        {sessions.some((session) => !session.current) ? <ManagementRow icon="log-out-outline" label={pc("revokeOthers")} destructive onPress={() => showDialog(pc("revokeOthers"), undefined, [{ text: pc("cancel"), style: "cancel" }, { text: pc("confirm"), style: "destructive", onPress: () => void run(async () => { await accountUseCases.revokeOtherSessions(); setSessions((items) => items.filter((item) => item.current)); }) }])} /> : null}
       </ManagementSection>
       <ManagementSection title={pc("deleteAccount")} footer={pc("deleteAccountWarning")}>
         <ManagementRow icon="trash-outline" label={pc("deleteAccount")} destructive onPress={() => setDeleting(true)} />
@@ -92,7 +91,7 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
       {deleting ? <View style={[styles.dangerCard, { backgroundColor: palette.surface, borderColor: palette.danger }]}>
         <Text style={[styles.warning, { color: palette.danger }]}>{pc("deleteAccountWarning")}</Text>
         <TextInput secureTextEntry value={password} onChangeText={setPassword} placeholder={pc("enterPassword")} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text, borderColor: palette.border, backgroundColor: palette.background }]} />
-        <View style={styles.inlineActions}><Pressable onPress={() => { setDeleting(false); setPassword(""); }} style={styles.textButton}><Text style={{ color: palette.secondaryText }}>{pc("cancel")}</Text></Pressable><Pressable disabled={password.length < 8 || busy} onPress={() => showDialog(pc("deleteAccount"), pc("deleteAccountWarning"), [{ text: pc("cancel"), style: "cancel" }, { text: pc("deletePermanently"), style: "destructive", onPress: () => void run(async () => { await productApi.deleteAccount(password); await signOut(); }) }], { dismissible: false })} style={[styles.deleteButton, { backgroundColor: palette.danger, opacity: password.length < 8 ? 0.45 : 1 }]}><Text style={styles.deleteText}>{pc("deletePermanently")}</Text></Pressable></View>
+        <View style={styles.inlineActions}><Pressable onPress={() => { setDeleting(false); setPassword(""); }} style={styles.textButton}><Text style={{ color: palette.secondaryText }}>{pc("cancel")}</Text></Pressable><Pressable disabled={password.length < 8 || busy} onPress={() => showDialog(pc("deleteAccount"), pc("deleteAccountWarning"), [{ text: pc("cancel"), style: "cancel" }, { text: pc("deletePermanently"), style: "destructive", onPress: () => void run(async () => { await accountUseCases.deleteAccount(password); await signOut(); }) }], { dismissible: false })} style={[styles.deleteButton, { backgroundColor: palette.danger, opacity: password.length < 8 ? 0.45 : 1 }]}><Text style={styles.deleteText}>{pc("deletePermanently")}</Text></Pressable></View>
       </View> : null}
     </ManagementScroll> : <ManagementScroll>
       <ManagementSection>
@@ -101,10 +100,10 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
         <ManagementRow icon="images-outline" label={pc("profilePhotosPrivacy")} value={privacy ? audienceLabel(privacy.profilePhotos) : "—"} onPress={() => chooseAudience("profilePhotos", pc("profilePhotosPrivacy"))} />
       </ManagementSection>
       <ManagementSection title={pc("blockedUsers")}>
-        {blocked.length ? blocked.map((entry) => <ManagementRow key={entry.user.id} icon="person-remove-outline" label={entry.user.displayName} detail={`@${entry.user.username}`} value={pc("unblock")} onPress={() => void run(async () => { await productApi.unblockUser(entry.user.id); await refresh({ force: true }); })} />) : <ManagementEmpty text={pc("noBlockedUsers")} />}
+        {blocked.length ? blocked.map((entry) => <ManagementRow key={entry.user.id} icon="person-remove-outline" label={entry.user.displayName} detail={`@${entry.user.username}`} value={pc("unblock")} onPress={() => void run(async () => { await accountUseCases.unblockUser(entry.user.id); await refresh({ force: true }); })} />) : <ManagementEmpty text={pc("noBlockedUsers")} />}
         <ManagementRow icon="person-add-outline" label={pc("block")} onPress={() => setBlocking(true)} />
       </ManagementSection>
-      {blocking ? <View style={styles.searchBlock}><View style={[styles.searchBox, { backgroundColor: palette.surface }]}><TextInput autoCapitalize="none" value={query} onChangeText={setQuery} placeholder={pc("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} /><Pressable onPress={() => void run(async () => setResults(await api.searchUsers(query.trim())))}><Text style={{ color: palette.accent }}>{pc("search")}</Text></Pressable></View><FlatList scrollEnabled={false} data={results} keyExtractor={(item) => item.id} renderItem={({ item }) => <Pressable onPress={() => void run(async () => { await productApi.blockUser(item.id); await refresh({ force: true }); setBlocking(false); setResults([]); setQuery(""); })} style={styles.userRow}><Avatar uri={item.avatarUrl} label={item.displayName} color={item.avatarColor} size={42} /><View><Text style={{ color: palette.text, fontWeight: "700" }}>{item.displayName}</Text><Text style={{ color: palette.secondaryText }}>@{item.username}</Text></View></Pressable>} /></View> : null}
+      {blocking ? <View style={styles.searchBlock}><View style={[styles.searchBox, { backgroundColor: palette.surface }]}><TextInput autoCapitalize="none" value={query} onChangeText={setQuery} placeholder={pc("search")} placeholderTextColor={palette.faintText} style={[styles.searchInput, { color: palette.text }]} /><Pressable onPress={() => void run(async () => setResults(await accountUseCases.searchUsers(query)))}><Text style={{ color: palette.accent }}>{pc("search")}</Text></Pressable></View><FlatList scrollEnabled={false} data={results} keyExtractor={(item) => item.id} renderItem={({ item }) => <Pressable onPress={() => void run(async () => { await accountUseCases.blockUser(item.id); await refresh({ force: true }); setBlocking(false); setResults([]); setQuery(""); })} style={styles.userRow}><Avatar uri={item.avatarUrl} label={item.displayName} color={item.avatarColor} size={42} /><View><Text style={{ color: palette.text, fontWeight: "700" }}>{item.displayName}</Text><Text style={{ color: palette.secondaryText }}>@{item.username}</Text></View></Pressable>} /></View> : null}
     </ManagementScroll>}
   </ManagementModal>;
 

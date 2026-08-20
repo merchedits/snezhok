@@ -43,7 +43,7 @@ else
   health_payload=$(curl --fail --silent --show-error --max-time 8 http://127.0.0.1:3003/api/v1/health 2>/dev/null || true)
   api_revision=$(sed -n 's/.*"revision":"\([0-9a-f]\{40\}\)".*/\1/p' <<<"$health_payload")
   [[ "$api_revision" == "$SOURCE_REVISION" ]] || failures+=("api-source-revision-mismatch")
-  for container in snezhok-v3-app-1 snezhok-v3-media-worker-1 snezhok-v3-postgres-1; do
+  for container in snezhok-v3-app-1 snezhok-v3-job-worker-1 snezhok-v3-media-worker-1 snezhok-v3-postgres-1; do
     image_revision=$(docker inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$container" 2>/dev/null || true)
     [[ "$image_revision" == "$SOURCE_REVISION" ]] || failures+=("${container}-source-revision-mismatch")
   done
@@ -73,6 +73,7 @@ elif [[ "$REQUIRE_OFFSITE_BACKUP" != "0" ]]; then
 fi
 check "postgres-container" container_healthy snezhok-v3-postgres-1
 check "api-container" container_healthy snezhok-v3-app-1
+check "job-worker-container" container_healthy snezhok-v3-job-worker-1
 check "media-worker-container" container_healthy snezhok-v3-media-worker-1
 check "livekit-signal-local-tls" curl --fail --silent --show-error --max-time 8 \
   --resolve "${LOCAL_TLS_HOST}:443:${LOCAL_TLS_ADDRESS}" "https://${LOCAL_TLS_HOST}/chat/livekit/"

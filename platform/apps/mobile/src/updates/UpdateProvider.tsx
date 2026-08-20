@@ -8,7 +8,7 @@ import { AppState, BackHandler, Platform, View } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AndroidReleaseManifest } from "../types";
-import { api, resolveApiResource } from "../lib/api";
+import { api, resolveApiResource } from "../infrastructure/http/apiClient";
 import { userFacingError } from "../lib/userFacingError";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";

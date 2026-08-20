@@ -7,7 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { BrandMark } from "../components/BrandMark";
 import { usePalette } from "../hooks/usePalette";
 import { type TranslationKey, useTranslation } from "../i18n";
-import { ApiError } from "../lib/api";
+import { ApiError } from "../lib/apiError";
 import { validEmail, validPassword, validUsername } from "../lib/authValidation";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";

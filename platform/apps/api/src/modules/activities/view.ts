@@ -75,7 +75,8 @@ export async function getActivityViews(client: Pick<DbClient, "query">, activity
          'checksum',b.checksum_sha256,'primaryChecksum',p.checksum_sha256,'waveform',p.waveform,
          'originalUrl','/api/v1/files/'||a.id,
          'url',CASE WHEN p.id IS NULL THEN '/api/v1/files/'||a.id ELSE '/api/v1/files/'||a.id||'?variant='||p.id END,
-         'thumbnailUrl',CASE WHEN t.id IS NOT NULL THEN '/api/v1/files/'||a.id||'?variant='||t.id WHEN a.thumbnail_attachment_id IS NOT NULL THEN '/api/v1/files/'||a.thumbnail_attachment_id ELSE NULL END)
+         'thumbnailUrl',CASE WHEN t.id IS NOT NULL THEN '/api/v1/files/'||a.id||'?variant='||t.id WHEN a.thumbnail_attachment_id IS NOT NULL THEN '/api/v1/files/'||a.thumbnail_attachment_id ELSE NULL END,
+         'status',a.status,'updatedAt',(extract(epoch from a.updated_at)*1000)::bigint::float8)
          ORDER BY caa.position) items
        FROM cooperative_activity_attachments caa JOIN attachments a ON a.id=caa.attachment_id JOIN blobs b ON b.id=a.blob_id
        LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='primary' ORDER BY created_at DESC LIMIT 1) p ON true

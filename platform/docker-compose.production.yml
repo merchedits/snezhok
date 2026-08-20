@@ -175,6 +175,65 @@ services:
       - backend
     logging: *default-logging
 
+  job-worker:
+    image: snezhok-v3-app:${IMAGE_TAG:?Set IMAGE_TAG to the exact 40-character public source revision}
+    restart: unless-stopped
+    depends_on:
+      db-provision:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      RUNTIME_ROLE: job-worker
+      JOB_WORKER_ID: production-domain-jobs-1
+      APP_ORIGINS: https://merchedits.xyz
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_NAME: snezhok
+      DATABASE_USER: snezhok_api
+      DATABASE_PASSWORD: ${API_DATABASE_PASSWORD:?Set API_DATABASE_PASSWORD}
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-5}
+      RUN_MIGRATIONS: "false"
+      SOURCE_REVISION: ${IMAGE_TAG:?Set IMAGE_TAG}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      STORAGE_ROOT: /app/data
+      USE_X_ACCEL: "true"
+      LIVEKIT_URL: wss://merchedits.xyz/chat/livekit
+      LIVEKIT_CONTROL_URL: http://host.docker.internal:7880
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET}
+      CALL_STALE_HOURS: ${CALL_STALE_HOURS:-12}
+      CALL_PHANTOM_TIMEOUT_SECONDS: ${CALL_PHANTOM_TIMEOUT_SECONDS:-120}
+      EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-30}
+      ORPHAN_MEDIA_RETENTION_DAYS: ${ORPHAN_MEDIA_RETENTION_DAYS:-7}
+      RELIABILITY_CLEANUP_INTERVAL_MINUTES: ${RELIABILITY_CLEANUP_INTERVAL_MINUTES:-15}
+      PUSH_DELIVERY_RETENTION_DAYS: ${PUSH_DELIVERY_RETENTION_DAYS:-7}
+      ANDROID_APK_PATH: /app/releases/snezhok-current.apk
+      ANDROID_RELEASE_MANIFEST_PATH: /app/releases/android-current.json
+    command: ["node", "apps/api/dist/worker.js"]
+    volumes:
+      - ./data-v3/storage:/app/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    read_only: true
+    mem_limit: 384m
+    cpus: 0.75
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:fs').stat('/tmp/snezhok-job-worker-heartbeat',(e,s)=>process.exit(e||Date.now()-s.mtimeMs>30000?1:0))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - backend
+    logging: *default-logging
+
   media-worker:
     build:
       context: .

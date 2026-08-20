@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  RUNTIME_ROLE: z.enum(["api", "job-worker"]).default("api"),
+  JOB_WORKER_ID: z.string().min(1).max(160).default("development-jobs-1"),
   HOST: z.string().default("0.0.0.0"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3100),
   DATABASE_URL: z.string().min(1).default("postgres://snezhok:snezhok@127.0.0.1:5432/snezhok"),

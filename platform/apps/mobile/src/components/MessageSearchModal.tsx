@@ -5,14 +5,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Message, UserSummary } from "@snezhok/contracts";
 
+import { searchUseCases, type SearchScope } from "../application/search/searchUseCases";
 import { isUserVisibleStreamKind, productCapabilities } from "../config/productCapabilities";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { renderableAttachments } from "../lib/messagePayload";
-import { api } from "../lib/api";
+import { renderableAttachments } from "../domains/messaging/messagePayload";
 import { AppIcon } from "./AppIcon";
 
-type SearchScope = "all" | "messages" | "media" | "files" | "links";
 type ResultRow = { type: "user"; user: UserSummary } | { type: "message"; message: Message } | { type: "file"; id: string; filename: string; kind: string; bytes: number };
 
 export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage, onOpenUser }: { visible: boolean; streamId?: string; onClose: () => void; onOpenMessage: (message: Message) => void; onOpenUser?: (user: UserSummary) => void }) {
@@ -31,7 +30,7 @@ export function MessageSearchModal({ visible, streamId, onClose, onOpenMessage, 
     if (!trimmed && scope === "all") { setRows([]); return; }
     const timer = setTimeout(() => {
       setLoading(true);
-      void api.search(trimmed, streamId, scope).then((result) => {
+      void searchUseCases.search(trimmed, streamId, scope).then((result) => {
         if (cancelled) return;
         setRows([
           ...(streamId ? [] : result.users.map((user): ResultRow => ({ type: "user", user }))),

@@ -6,13 +6,13 @@ import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from "react-n
 
 import type { ChannelSummary } from "@snezhok/contracts";
 
+import { serverUseCases } from "../application/management/serverUseCases";
 import { Avatar } from "../components/Avatar";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { TextEntryModal } from "../components/TextEntryModal";
 import { ServerAdminModal } from "../components/management/ServerAdminModal";
 import { usePalette } from "../hooks/usePalette";
 import { useTranslation } from "../i18n";
-import { api } from "../lib/api";
 import { productCopy } from "../lib/productCopy";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
@@ -66,7 +66,7 @@ export function ServersScreen() {
           <FlatList data={selectedChannels} keyExtractor={(item) => item.id} contentContainerStyle={styles.list} renderItem={({ item }) => <ChannelRow channel={item} onPress={() => open(item)} />} ListEmptyComponent={<Text style={[styles.empty, { color: palette.secondaryText }]}>{t("noChannels")}</Text>} />
         </>
       ) : <View style={styles.emptyWrap}><AppIcon name="albums-outline" size={38} color={palette.faintText} /><Text style={[styles.emptyTitle, { color: palette.text }]}>{t("noServers")}</Text><Pressable onPress={() => setCreating(true)} style={[styles.createButton, { backgroundColor: palette.accent }]}><Text style={styles.createText}>{t("createServer")}</Text></Pressable></View>}
-      <TextEntryModal visible={creating} title={t("createServer")} placeholder={t("serverName")} submitLabel={t("create")} onClose={() => setCreating(false)} onSubmit={async (name) => { const server = await api.createServer(name); await refresh(); setSelectedId(server.id); }} />
+      <TextEntryModal visible={creating} title={t("createServer")} placeholder={t("serverName")} submitLabel={t("create")} onClose={() => setCreating(false)} onSubmit={async (name) => { const server = await serverUseCases.create(name); await refresh(); setSelectedId(server.id); }} />
       <ServerAdminModal visible={management !== null} serverId={selected?.id ?? null} initialTab={management ?? "overview"} onClose={() => setManagement(null)} />
     </View>
   );

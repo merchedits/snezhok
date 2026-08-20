@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { DiagnosticEvent as ContractDiagnosticEvent, DiagnosticReport as ContractDiagnosticReport } from "@snezhok/contracts";
 import * as Application from "expo-application";
 import Constants from "expo-constants";
 import * as Crypto from "expo-crypto";
@@ -15,26 +16,8 @@ const MAX_EVENTS = 200;
 const PERSIST_DELAY_MS = 4_000;
 
 export type DiagnosticLevel = "debug" | "info" | "warn" | "error";
-export interface DiagnosticEvent {
-  at: number;
-  level: DiagnosticLevel;
-  category: string;
-  message: string;
-  durationMs?: number;
-  context?: Record<string, string | number | boolean | null>;
-}
-
-export interface DiagnosticReport {
-  installationId: string;
-  appVersion: string;
-  versionCode: number;
-  platform: "android";
-  osVersion: string;
-  device: string;
-  locale: "ru" | "en";
-  recordedAt: number;
-  events: DiagnosticEvent[];
-}
+export type DiagnosticEvent = ContractDiagnosticEvent;
+export type DiagnosticReport = ContractDiagnosticReport;
 
 let events: DiagnosticEvent[] = [];
 let installationId = "pending";
@@ -82,15 +65,16 @@ export function installGlobalErrorCapture(): () => void {
 
 export function recordDiagnostic(
   level: DiagnosticLevel,
-  category: string,
+  category: DiagnosticEvent["category"],
   message: string,
   context?: Record<string, unknown>,
   durationMs?: number,
 ): void {
   const event: DiagnosticEvent = {
+    id: Crypto.randomUUID(),
     at: Date.now(),
     level,
-    category: sanitizeText(category, 48),
+    category,
     message: sanitizeText(message, 240),
     ...(durationMs === undefined ? {} : { durationMs: Math.max(0, Math.round(durationMs * 10) / 10) }),
     ...(context ? { context: sanitizeDiagnosticContext(context) } : {}),
@@ -104,7 +88,7 @@ export function recordPerformance(name: PerformanceBudget, durationMs: number, c
   recordDiagnostic(result.passed ? "info" : "warn", "performance", name, { ...context, budgetMs: result.budgetMs, passed: result.passed }, durationMs);
 }
 
-export async function diagnosticReport(locale: "ru" | "en"): Promise<DiagnosticReport> {
+export async function diagnosticReport(locale: "ru" | "en", afterExclusive = 0): Promise<DiagnosticReport> {
   await initializeDiagnostics();
   return {
     installationId,
@@ -115,7 +99,7 @@ export async function diagnosticReport(locale: "ru" | "en"): Promise<DiagnosticR
     device: sanitizeText(Constants.deviceName ?? "Android device", 80),
     locale,
     recordedAt: Date.now(),
-    events: events.slice(),
+    events: events.filter((event) => event.at > afterExclusive),
   };
 }
 
@@ -138,7 +122,12 @@ function parseEvents(value: string | null): DiagnosticEvent[] {
   try {
     const parsed = JSON.parse(value ?? "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((event): event is DiagnosticEvent => Boolean(event && typeof event === "object" && typeof (event as DiagnosticEvent).at === "number" && typeof (event as DiagnosticEvent).message === "string")).slice(-MAX_EVENTS);
+    return parsed.flatMap((event): DiagnosticEvent[] => {
+      if (!event || typeof event !== "object") return [];
+      const value = event as Partial<DiagnosticEvent>;
+      if (typeof value.at !== "number" || typeof value.message !== "string" || typeof value.category !== "string" || typeof value.level !== "string") return [];
+      return [{ ...value, id: typeof value.id === "string" ? value.id : Crypto.randomUUID() } as DiagnosticEvent];
+    }).slice(-MAX_EVENTS);
   } catch {
     return [];
   }

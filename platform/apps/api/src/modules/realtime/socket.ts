@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from "node:http";
-import type { ClientToServerEvents, ServerToClientEvents } from "@snezhok/contracts";
-import { Server } from "socket.io";
+import type { ClientToServerEvents, DurableEventEnvelope, DurableEventName, ServerToClientEvents } from "@snezhok/contracts";
+import { Server, type Socket as ServerSocket } from "socket.io";
 import { config } from "../../config.js";
 import { authenticateAccessToken } from "../auth/service.js";
 import { eventDelivery, replayEvents } from "./events.js";
@@ -10,7 +10,7 @@ import { markRead } from "../messages/service.js";
 import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
 
 type InterServerEvents = Record<string, never>;
-interface SocketData { userId: string; }
+interface SocketData { userId: string; eventEnvelopeVersion: 0 | 1; }
 let listenerHealthy = false;
 
 export function realtimeListenerHealthy() { return listenerHealthy; }
@@ -25,13 +25,17 @@ export async function setupRealtime(server: HttpServer) {
     try {
       const token = typeof socket.handshake.auth.token === "string" ? socket.handshake.auth.token : cookie(socket.handshake.headers.cookie, "access_token");
       if (!token) throw new Error("missing token");
-      const user = await authenticateAccessToken(token); socket.data.userId = user.id; next();
+      const user = await authenticateAccessToken(token);
+      socket.data.userId = user.id;
+      socket.data.eventEnvelopeVersion = socket.handshake.auth.eventEnvelopeVersion === 1 ? 1 : 0;
+      next();
     } catch { next(new Error("Authentication required")); }
   });
 
   io.on("connection", (socket) => {
     const userId = socket.data.userId;
     void socket.join(`user:${userId}`);
+    void socket.join(durableRoom(userId, socket.data.eventEnvelopeVersion));
     const previousConnections = connections.get(userId) ?? 0;
     connections.set(userId, previousConnections + 1);
 
@@ -44,10 +48,8 @@ export async function setupRealtime(server: HttpServer) {
       if (replaying) { acknowledge(false); return; }
       replaying = true;
       try {
-        const replay = await replayEvents(userId, cursor, (event) => {
-          socket.emit(event.name as keyof ServerToClientEvents, event.payload as never);
-        });
-        if (replay.accepted) socket.emit("sync:ready", { cursor: replay.cursor, serverTime: Date.now() });
+        const replay = await replayEvents(userId, cursor, (event) => emitDurableToSocket(socket, event));
+        if (replay.accepted && socket.data.eventEnvelopeVersion === 0) socket.emit("sync:ready", { cursor: replay.cursor, serverTime: Date.now() });
         acknowledge(replay.accepted);
       } catch { acknowledge(false); }
       finally { replaying = false; }
@@ -119,8 +121,9 @@ export async function setupRealtime(server: HttpServer) {
     }
     void eventDelivery(notification.payload).then((deliveries) => {
       for (const delivery of deliveries) {
-        io.to(`user:${delivery.userId}`).emit(delivery.name as keyof ServerToClientEvents, delivery.payload as never);
-        io.to(`user:${delivery.userId}`).emit("sync:ready", { cursor: delivery.cursor, serverTime: Date.now() });
+        io.to(durableRoom(delivery.userId, 1)).emit("sync:event", durableEnvelope(delivery));
+        io.to(durableRoom(delivery.userId, 0)).emit(delivery.name as DurableEventName, delivery.payload as never);
+        io.to(durableRoom(delivery.userId, 0)).emit("sync:ready", { cursor: delivery.cursor, serverTime: Date.now() });
       }
     }).catch((error) => console.error("Realtime event delivery failed", error));
   };
@@ -193,6 +196,22 @@ export async function setupRealtime(server: HttpServer) {
     activeListener = null;
   });
   return io;
+}
+
+function durableRoom(userId: string, version: 0 | 1): string {
+  return `durable:${version}:user:${userId}`;
+}
+
+function durableEnvelope(event: { cursor: number; name: string; payload: unknown }): DurableEventEnvelope {
+  return { cursor: event.cursor, name: event.name as DurableEventName, payload: event.payload } as DurableEventEnvelope;
+}
+
+function emitDurableToSocket(
+  socket: ServerSocket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>,
+  event: { cursor: number; name: string; payload: unknown },
+): void {
+  if (socket.data.eventEnvelopeVersion === 1) socket.emit("sync:event", durableEnvelope(event));
+  else socket.emit(event.name as DurableEventName, event.payload as never);
 }
 
 export function validLiveDrawing(value: unknown): value is number[][][] {

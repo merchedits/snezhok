@@ -13,6 +13,7 @@ export const adminSettingsPatchSchema = z.object({
   messageRetentionDays: z.number().int().min(1).max(3650).nullable().optional(),
   orphanMediaRetentionDays: z.number().int().min(1).max(3650).optional(),
   eventRetentionDays: z.number().int().min(1).max(3650).optional(),
+  featureCapabilities: z.object({ uploads: z.boolean(), calls: z.boolean(), activities: z.boolean(), servers: z.boolean() }).strict().optional(),
 }).strict().refine((value) => Object.keys(value).some((key) => key !== "revision"), { message: "At least one setting is required" });
 
 export const adminMemberPatchSchema = z.object({

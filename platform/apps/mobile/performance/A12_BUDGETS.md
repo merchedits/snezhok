@@ -13,11 +13,18 @@ Target device: Samsung Galaxy A12-class hardware, Android 10–12, 4 GB RAM, rel
 | Message or attachment scrolling | p95 frame ≤ 32 ms; missed-frame rate < 5% |
 | Cold startup with baseline profile | time-to-initial-display ≤ 1.8 s |
 
-Run the instrumentation against a signed-in physical A12:
+Run the fail-closed instrumentation against a signed-in physical SM-A125F from
+`platform/`:
 
 ```powershell
-cd platform/apps/mobile/android
-./gradlew :app:assembleRelease :macrobenchmark:connectedBenchmarkAndroidTest
+npm run release:verify-android-physical
 ```
 
-The `StartupBenchmarks` suite measures cold startup, inbox-to-chat, message scrolling, and attachment-drawer scrolling. Runtime upload, navigation, and media timings are also retained in the app's redacted diagnostics report. Regressions over these budgets should block a release unless a trace identifies network latency rather than device work.
+The runner rejects emulators, ambiguous devices, a dirty `platform/` subtree,
+missing journeys, cold startup above 1.8 seconds, frame P95 above 32 ms, and a
+missed-frame rate of 5% or more. The instrumentation separately enforces the
+150/350 ms warm/cold cached-chat and 400 ms attachment-drawer interaction
+budgets. Results and Perfetto traces are copied to
+`runtime/evidence/android/<revision>/<timestamp>/` with a privacy-safe manifest
+and hashes. Runtime upload, navigation, and media timings are also retained in
+the app's redacted diagnostics report.

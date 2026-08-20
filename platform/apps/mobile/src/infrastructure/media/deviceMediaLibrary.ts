@@ -1,0 +1,118 @@
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
+import * as MediaLibrary from "expo-media-library";
+
+import type { UploadInput } from "../../types";
+import { kindFromMimeType, mimeTypeFor } from "./mediaNormalization";
+
+export interface DeviceMediaAsset {
+  id: string;
+  filename: string | null;
+  mediaType: "image" | "video";
+  duration: number | null;
+  width: number;
+  height: number;
+}
+
+export type DeviceMediaResult<T> =
+  | { status: "selected"; value: T }
+  | { status: "cancelled" }
+  | { status: "permission-denied" };
+
+const MAX_RECENT_ASSETS = 72;
+
+/** Native picker/library boundary. UI only receives normalized application data. */
+class DeviceMediaLibrary {
+  private recent: DeviceMediaAsset[] = [];
+
+  cachedRecent(): DeviceMediaAsset[] {
+    return this.recent;
+  }
+
+  async recentAssets(imagesOnly: boolean): Promise<DeviceMediaResult<DeviceMediaAsset[]>> {
+    const permission = await MediaLibrary.requestPermissionsAsync(false, ["photo", "video"]);
+    if (!permission.granted) return { status: "permission-denied" };
+    const rows = await new MediaLibrary.Query()
+      .within(MediaLibrary.AssetField.MEDIA_TYPE, imagesOnly ? [MediaLibrary.MediaType.IMAGE] : [MediaLibrary.MediaType.IMAGE, MediaLibrary.MediaType.VIDEO])
+      .orderBy({ key: MediaLibrary.AssetField.CREATION_TIME, ascending: false })
+      .limit(MAX_RECENT_ASSETS)
+      .exeForMetadata();
+    this.recent = rows.flatMap((asset) => {
+      const mediaType = asset.mediaType === MediaLibrary.MediaType.IMAGE ? "image" : asset.mediaType === MediaLibrary.MediaType.VIDEO ? "video" : null;
+      return mediaType ? [{ id: asset.id, filename: asset.filename ?? null, mediaType, duration: asset.duration, width: asset.width ?? 0, height: asset.height ?? 0 }] : [];
+    });
+    return { status: "selected", value: this.recent };
+  }
+
+  async originalFile(): Promise<DeviceMediaResult<{ inputs: UploadInput[]; messageKind: "file" }>> {
+    const result = await DocumentPicker.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
+    const asset = result.assets?.[0];
+    if (!asset) return { status: "cancelled" };
+    return {
+      status: "selected",
+      value: {
+        messageKind: "file",
+        inputs: [{
+          uri: asset.uri,
+          filename: asset.name,
+          mimeType: asset.mimeType ?? "application/octet-stream",
+          kind: kindFromMimeType(asset.mimeType),
+          quality: "original",
+          purpose: "standard",
+          stripLocation: false,
+        }],
+      },
+    };
+  }
+
+  async cameraPhoto(quality: "auto" | "high"): Promise<DeviceMediaResult<{ inputs: UploadInput[]; messageKind: "media" }>> {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) return { status: "permission-denied" };
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: quality === "high" ? 1 : 0.86, exif: false });
+    const asset = result.assets?.[0];
+    if (!asset) return { status: "cancelled" };
+    const filename = asset.fileName ?? `snezhok-camera-${Date.now()}.jpg`;
+    return {
+      status: "selected",
+      value: {
+        messageKind: "media",
+        inputs: [{
+          uri: asset.uri,
+          filename,
+          mimeType: asset.mimeType ?? mimeTypeFor(filename, false),
+          kind: "image",
+          quality,
+          purpose: "standard",
+          stripLocation: true,
+          sourceWidth: asset.width,
+          sourceHeight: asset.height,
+        }],
+      },
+    };
+  }
+
+  async resolveAssets(assetIds: string[], quality: "auto" | "high"): Promise<UploadInput[]> {
+    const infos = await Promise.all(assetIds.map(async (id) => ({ id, info: await new MediaLibrary.Asset(id).getInfo() })));
+    return infos.map(({ id, info }) => {
+      const cached = this.recent.find((asset) => asset.id === id);
+      const filename = info.filename || cached?.filename || `media-${Date.now()}`;
+      const video = info.mediaType === MediaLibrary.MediaType.VIDEO;
+      return {
+        uri: info.uri,
+        filename,
+        mimeType: mimeTypeFor(filename, video),
+        kind: video ? "video" : "image",
+        quality,
+        purpose: "standard",
+        sourceWidth: info.width ?? cached?.width,
+        sourceHeight: info.height ?? cached?.height,
+      };
+    });
+  }
+
+  reset(): void {
+    this.recent = [];
+  }
+}
+
+export const deviceMediaLibrary = new DeviceMediaLibrary();

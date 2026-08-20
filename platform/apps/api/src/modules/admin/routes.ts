@@ -58,11 +58,12 @@ export async function adminRoutes(app: FastifyInstance) {
            message_retention_days=CASE WHEN $6::boolean THEN $7 ELSE message_retention_days END,
            orphan_media_retention_days=coalesce($8,orphan_media_retention_days),
            event_retention_days=coalesce($9,event_retention_days),
+           feature_capabilities=coalesce($10::jsonb,feature_capabilities),
            revision=revision+1,updated_by=$1,updated_at=now()
          WHERE singleton=true AND revision=$2 RETURNING revision`,
         [request.auth.id, body.revision, body.defaultPermissions ?? null, body.defaultStorageQuotaBytes ?? null,
           body.maxUploadBytes ?? null, body.messageRetentionDays !== undefined, body.messageRetentionDays ?? null,
-          body.orphanMediaRetentionDays ?? null, body.eventRetentionDays ?? null],
+          body.orphanMediaRetentionDays ?? null, body.eventRetentionDays ?? null, body.featureCapabilities ?? null],
       );
       if (!updated.rowCount) throw conflict("Administration settings changed on another device; reload and retry");
       await writeAudit(client, request.auth.id, "settings.updated", null, { previousRevision: body.revision, fields: Object.keys(body).filter((key) => key !== "revision") });
@@ -149,11 +150,11 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 }
 
-interface SettingsRow { revision: string | number; default_permissions: Record<string, boolean>; default_storage_quota_bytes: string | number; max_upload_bytes: string | number; message_retention_days: number | null; orphan_media_retention_days: number; event_retention_days: number; updated_at_ms: number }
+interface SettingsRow { revision: string | number; default_permissions: Record<string, boolean>; default_storage_quota_bytes: string | number; max_upload_bytes: string | number; message_retention_days: number | null; orphan_media_retention_days: number; event_retention_days: number; feature_capabilities: { uploads: boolean; calls: boolean; activities: boolean; servers: boolean }; updated_at_ms: number }
 async function loadSettings(client: Pick<DbClient, "query"> = pool) {
   const row = (await client.query<SettingsRow>(`SELECT revision,default_permissions,default_storage_quota_bytes,max_upload_bytes,message_retention_days,
-    orphan_media_retention_days,event_retention_days,(extract(epoch from updated_at)*1000)::bigint::float8 updated_at_ms FROM global_admin_settings WHERE singleton=true`)).rows[0]!;
-  return { revision: Number(row.revision), defaultPermissions: mergePermissions(row.default_permissions, {}), defaultStorageQuotaBytes: Number(row.default_storage_quota_bytes), maxUploadBytes: Number(row.max_upload_bytes), messageRetentionDays: row.message_retention_days, orphanMediaRetentionDays: row.orphan_media_retention_days, eventRetentionDays: row.event_retention_days, updatedAt: row.updated_at_ms };
+    orphan_media_retention_days,event_retention_days,feature_capabilities,(extract(epoch from updated_at)*1000)::bigint::float8 updated_at_ms FROM global_admin_settings WHERE singleton=true`)).rows[0]!;
+  return { revision: Number(row.revision), defaultPermissions: mergePermissions(row.default_permissions, {}), defaultStorageQuotaBytes: Number(row.default_storage_quota_bytes), maxUploadBytes: Number(row.max_upload_bytes), messageRetentionDays: row.message_retention_days, orphanMediaRetentionDays: row.orphan_media_retention_days, eventRetentionDays: row.event_retention_days, featureCapabilities: row.feature_capabilities, updatedAt: row.updated_at_ms };
 }
 
 interface AdminMemberRow { id: string; username: string; display_name: string; is_admin: boolean; suspended_at: Date | null; created_at_ms: number; permission_overrides: Record<string, boolean>; storage_quota_bytes: string | number | null; storage_used_bytes: string | number }

@@ -103,14 +103,15 @@ export async function completeJob(job: MediaJob, outputs: Array<OutputVariant & 
     const primary = outputs.find((output) => output.role === "primary");
     const thumbnail = outputs.find((output) => output.role === "thumbnail");
     if (primary) await client.query(
-      `UPDATE attachments SET width=$2,height=$3,duration_ms=$4,status='ready',
+      `UPDATE attachments SET width=$2,height=$3,duration_ms=$4,status='ready',updated_at=now(),
          blob_id=CASE WHEN $5='color-collage' THEN $6 ELSE blob_id END,
          bytes=CASE WHEN $5='color-collage' THEN $7 ELSE bytes END,
          mime_type=CASE WHEN $5='color-collage' THEN $8 ELSE mime_type END WHERE id=$1`,
       [job.attachmentId, primary.width, primary.height, primary.durationMs, job.operation, resolvedPrimary?.id ?? null, resolvedPrimary?.bytes ?? 0, resolvedPrimary?.mimeType ?? primary.mimeType],
     );
-    if (thumbnail) await client.query("UPDATE attachments SET thumbnail_attachment_id=NULL WHERE id=$1", [job.attachmentId]);
+    if (thumbnail) await client.query("UPDATE attachments SET thumbnail_attachment_id=NULL,updated_at=now() WHERE id=$1", [job.attachmentId]);
     await client.query("UPDATE media_jobs SET status='complete',completed_at=now(),heartbeat_at=NULL,locked_by=NULL,error=NULL,updated_at=now() WHERE id=$1", [job.id]);
+    await client.query("SELECT publish_attachment_lifecycle($1)", [job.attachmentId]);
     await client.query("COMMIT");
     return unusedStorageKeys;
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
@@ -125,16 +126,27 @@ export async function failJob(job: MediaJob, error: unknown) {
     return;
   }
   const delaySeconds = Math.min(900, 5 * (2 ** Math.max(0, job.attempts - 1)));
-  const result = await pool.query<{ status: string }>(
-    `UPDATE media_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'pending' END,
-       available_at=CASE WHEN attempts>=max_attempts THEN available_at ELSE now()+($3::int*interval '1 second') END,
-       completed_at=CASE WHEN attempts>=max_attempts THEN now() ELSE NULL END,locked_by=NULL,heartbeat_at=NULL,error=$4,updated_at=now()
-     WHERE id=$1 AND locked_by=$2 RETURNING status`, [job.id, config.WORKER_ID, delaySeconds, message.slice(0, 4000)],
-  );
-  // The immutable source is still valid if optimization fails. Expose that
-  // fallback instead of leaving the attachment in an endless processing state.
-  if (result.rows[0]?.status === "failed") {
-    await pool.query("UPDATE attachments SET status=$2 WHERE id=$1 AND status='processing'", [job.attachmentId, job.operation === "color-collage" ? "failed" : "ready"]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ status: string }>(
+      `UPDATE media_jobs SET status=CASE WHEN attempts>=max_attempts THEN 'failed' ELSE 'pending' END,
+         available_at=CASE WHEN attempts>=max_attempts THEN available_at ELSE now()+($3::int*interval '1 second') END,
+         completed_at=CASE WHEN attempts>=max_attempts THEN now() ELSE NULL END,locked_by=NULL,heartbeat_at=NULL,error=$4,updated_at=now()
+       WHERE id=$1 AND locked_by=$2 RETURNING status`, [job.id, config.WORKER_ID, delaySeconds, message.slice(0, 4000)],
+    );
+    // The immutable source is still valid if optimization fails. Expose that
+    // fallback instead of leaving the attachment in an endless processing state.
+    if (result.rows[0]?.status === "failed") {
+      const transitioned = await client.query("UPDATE attachments SET status=$2,updated_at=now() WHERE id=$1 AND status='processing' RETURNING id", [job.attachmentId, job.operation === "color-collage" ? "failed" : "ready"]);
+      if (transitioned.rowCount) await client.query("SELECT publish_attachment_lifecycle($1)", [job.attachmentId]);
+    }
+    await client.query("COMMIT");
+  } catch (transitionError) {
+    await client.query("ROLLBACK");
+    throw transitionError;
+  } finally {
+    client.release();
   }
 }
 

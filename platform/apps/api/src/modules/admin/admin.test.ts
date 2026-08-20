@@ -22,6 +22,11 @@ test("administration validation is strict and bounded", () => {
   assert.equal(adminSettingsPatchSchema.safeParse({ revision: 1 }).success, false);
   assert.equal(adminSettingsPatchSchema.safeParse({ revision: 1, messageRetentionDays: null }).success, true);
   assert.equal(adminSettingsPatchSchema.safeParse({ revision: 1, eventRetentionDays: 0 }).success, false);
+  assert.equal(adminSettingsPatchSchema.safeParse({ revision: 1, featureCapabilities: { uploads: true } }).success, false);
+  assert.equal(adminSettingsPatchSchema.safeParse({
+    revision: 1,
+    featureCapabilities: { uploads: true, calls: true, activities: false, servers: false },
+  }).success, true);
 });
 
 test("permission overrides remain sparse and defaults continue to flow through", () => {

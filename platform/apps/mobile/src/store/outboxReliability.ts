@@ -9,6 +9,7 @@ export function outboxKind(entry: OutboxEntry): NonNullable<OutboxEntry["kind"]>
  * This keeps a long offline session bounded while preserving stream ordering.
  */
 export function enqueueOutbox(entries: OutboxEntry[], incoming: OutboxEntry): OutboxEntry[] {
+  incoming = attachDependencies(entries, incoming);
   if (incoming.kind === "message" || incoming.kind === "forward") {
     return entries.some((entry) => entry.id === incoming.id) ? entries : [...entries, incoming];
   }
@@ -44,16 +45,97 @@ export async function replayOutbox(
   onSuccess: (entry: OutboxEntry) => void,
   onFailure: (entry: OutboxEntry, error: unknown) => void,
 ): Promise<void> {
-  const blockedStreams = new Set<string>();
+  await drainOutbox(entries, dispatch, onSuccess, onFailure, { concurrency: 1, now: Number.MAX_SAFE_INTEGER });
+}
+
+export interface OutboxDrainOptions {
+  concurrency?: number;
+  now?: number;
+}
+
+export interface OutboxDrainResult {
+  dispatched: number;
+  nextAvailableAt: number | null;
+}
+
+/**
+ * Preserves order within a chat, runs independent chats concurrently, and
+ * holds cross-stream dependants until their idempotent prerequisite commits.
+ */
+export async function drainOutbox(
+  entries: readonly OutboxEntry[],
+  dispatch: (entry: OutboxEntry) => Promise<void>,
+  onSuccess: (entry: OutboxEntry) => void,
+  onFailure: (entry: OutboxEntry, error: unknown) => void,
+  options: OutboxDrainOptions = {},
+): Promise<OutboxDrainResult> {
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 3, 6));
+  const now = options.now ?? Date.now();
+  const queues = new Map<string, OutboxEntry[]>();
+  const remaining = new Set(entries.map((entry) => entry.id));
   for (const entry of entries) {
-    if (blockedStreams.has(entry.streamId)) continue;
-    try {
-      await dispatch(entry);
+    const queue = queues.get(entry.streamId) ?? [];
+    queue.push(entry);
+    queues.set(entry.streamId, queue);
+  }
+  const blockedStreams = new Set<string>();
+  let dispatched = 0;
+
+  while (true) {
+    const ready = [...queues.entries()].flatMap(([streamId, queue]) => {
+      const entry = queue[0];
+      if (!entry || blockedStreams.has(streamId) || (entry.availableAt ?? 0) > now) return [];
+      return (entry.dependsOn ?? []).some((dependency) => remaining.has(dependency)) ? [] : [entry];
+    }).slice(0, concurrency);
+    if (!ready.length) break;
+    const results = await Promise.all(ready.map(async (entry) => {
+      try { await dispatch(entry); return { entry, error: null as unknown }; }
+      catch (error) { return { entry, error }; }
+    }));
+    for (const { entry, error } of results) {
+      if (error) {
+        blockedStreams.add(entry.streamId);
+        onFailure(entry, error);
+        continue;
+      }
+      queues.get(entry.streamId)?.shift();
+      remaining.delete(entry.id);
+      dispatched += 1;
       onSuccess(entry);
-    } catch (error) {
-      blockedStreams.add(entry.streamId);
-      onFailure(entry, error);
     }
+  }
+  const nextAvailableAt = [...queues.entries()]
+    .filter(([streamId, queue]) => !blockedStreams.has(streamId) && queue.length > 0)
+    .map(([, queue]) => queue[0]!.availableAt ?? 0)
+    .filter((availableAt) => availableAt > now)
+    .sort((left, right) => left - right)[0] ?? null;
+  return { dispatched, nextAvailableAt };
+}
+
+export function retryAvailableAt(attempts: number, now = Date.now(), random = Math.random): number {
+  const ceiling = Math.min(60_000, 1_000 * (2 ** Math.min(Math.max(0, attempts), 6)));
+  return now + Math.max(250, Math.round(ceiling * (0.5 + random() * 0.5)));
+}
+
+export class MutationRetryScheduler {
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private scheduledAt: number | null = null;
+
+  schedule(availableAt: number, run: () => void, now = Date.now()): void {
+    if (this.scheduledAt !== null && this.scheduledAt <= availableAt) return;
+    this.cancel();
+    this.scheduledAt = availableAt;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.scheduledAt = null;
+      run();
+    }, Math.max(0, availableAt - now));
+  }
+
+  cancel(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.scheduledAt = null;
   }
 }
 
@@ -68,4 +150,15 @@ function mutationKey(entry: OutboxEntry): string {
 
 function targetsMessage(entry: OutboxEntry, messageId: string): boolean {
   return (entry.kind === "edit" || entry.kind === "pin" || entry.kind === "reaction" || entry.kind === "delete") && entry.messageId === messageId;
+}
+
+function attachDependencies(entries: OutboxEntry[], incoming: OutboxEntry): OutboxEntry {
+  if (incoming.dependsOn?.length) return incoming;
+  const targetId = incoming.kind === "forward" ? incoming.sourceMessageId
+    : incoming.kind === "edit" || incoming.kind === "pin" || incoming.kind === "reaction" || incoming.kind === "delete" ? incoming.messageId
+      : null;
+  if (!targetId) return incoming;
+  const dependency = entries.find((entry) => (entry.kind === "message" && (entry.id === targetId || entry.input.clientId === targetId))
+    || (entry.kind === "forward" && (entry.id === targetId || entry.clientId === targetId)));
+  return dependency ? { ...incoming, dependsOn: [dependency.id] } : incoming;
 }

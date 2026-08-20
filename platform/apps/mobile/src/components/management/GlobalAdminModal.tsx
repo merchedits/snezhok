@@ -2,10 +2,10 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 
+import { globalAdminUseCases, ApiError, type AdminMember, type AdminSettings, type GlobalPermission, type GlobalPermissions } from "../../application/management/globalAdminUseCases";
 import { userVisibleGlobalPermissions } from "../../config/productCapabilities";
 import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
-import { api, ApiError, type AdminMember, type AdminSettings, type GlobalPermission, type GlobalPermissions } from "../../lib/api";
 import { userFacingError } from "../../lib/userFacingError";
 import { useAppStore } from "../../store/useAppStore";
 import { AppIcon } from "../AppIcon";
@@ -37,7 +37,8 @@ export function GlobalAdminModal({ visible, onClose }: { visible: boolean; onClo
 
   const copy = useCallback((russian: string, english: string) => ru ? russian : english, [ru]);
   const load = useCallback(async () => {
-    const [nextSettings, memberPage] = await Promise.all([api.adminSettings(), api.adminMembers()]);
+    const result = await globalAdminUseCases.load();
+    const nextSettings = result.settings; const memberPage = result.members;
     setSettings(nextSettings); setMembers(memberPage.items); setNextCursor(memberPage.nextCursor);
     setQuotaGb(formatUnit(nextSettings.defaultStorageQuotaBytes, GB));
     setUploadMb(formatUnit(nextSettings.maxUploadBytes, MB));
@@ -62,7 +63,7 @@ export function GlobalAdminModal({ visible, onClose }: { visible: boolean; onClo
   const saveSettings = () => void run(async () => {
     if (!settings) return;
     try {
-      const next = await api.updateAdminSettings({
+      const next = await globalAdminUseCases.updateSettings({
         revision: settings.revision,
         defaultPermissions: settings.defaultPermissions,
         defaultStorageQuotaBytes: parseUnit(quotaGb, GB, copy("Квота", "Quota")),
@@ -84,7 +85,7 @@ export function GlobalAdminModal({ visible, onClose }: { visible: boolean; onClo
   };
   const saveMember = () => void run(async () => {
     if (!selected) return;
-    const next = await api.updateAdminMember(selected.id, {
+    const next = await globalAdminUseCases.updateMember(selected.id, {
       isAdmin: selected.isAdmin,
       suspended: selected.suspended,
       permissionOverrides: {
@@ -95,8 +96,8 @@ export function GlobalAdminModal({ visible, onClose }: { visible: boolean; onClo
     });
     setMembers((items) => items.map((item) => item.id === next.id ? next : item)); setSelected(next);
   });
-  const searchMembers = () => void run(async () => { const page = await api.adminMembers(search.trim()); setMembers(page.items); setNextCursor(page.nextCursor); });
-  const loadMoreMembers = () => void run(async () => { if (!nextCursor) return; const page = await api.adminMembers(search.trim(), nextCursor); setMembers((items) => [...items, ...page.items.filter((member) => !items.some((item) => item.id === member.id))]); setNextCursor(page.nextCursor); });
+  const searchMembers = () => void run(async () => { const page = await globalAdminUseCases.members(search); setMembers(page.items); setNextCursor(page.nextCursor); });
+  const loadMoreMembers = () => void run(async () => { if (!nextCursor) return; const page = await globalAdminUseCases.members(search, nextCursor); setMembers((items) => [...items, ...page.items.filter((member) => !items.some((item) => item.id === member.id))]); setNextCursor(page.nextCursor); });
 
   return <ManagementModal visible={visible} title={copy("Управление", "Administration")} onClose={onClose} busy={busy} right={<Pressable accessibilityRole="button" accessibilityLabel={copy("Сохранить", "Save")} onPress={page === "settings" ? saveSettings : selected ? saveMember : undefined} style={styles.headerAction}>{page === "settings" || selected ? <AppIcon name="checkmark" size={22} color={palette.accent} /> : null}</Pressable>}>
     <View style={[styles.segment, { backgroundColor: palette.surface }]}>
