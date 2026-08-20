@@ -290,7 +290,7 @@ services:
     logging: *default-logging
 
   livekit:
-    image: livekit/livekit-server:v1.13.3@sha256:483b8b7b5b0654f91f1e8bdc7b46fcd37fd9911612ecf627f97e3185a89825bd
+    image: livekit/livekit-server:v1.13.5@sha256:3497163e15c48fef6e7830c78716f9e9d5edc28abf7aa90b61c86e93bbc306b1
     restart: unless-stopped
     user: "65532:65532"
     network_mode: host
