@@ -35,6 +35,8 @@ if "${api_psql[@]}" -c 'CREATE TABLE public.ci_api_must_not_create(id integer);'
   exit 1
 fi
 "${worker_psql[@]}" -c 'SELECT count(*) FROM media_jobs;' >/dev/null
+[[ "$("${worker_psql[@]}" -Atc "SELECT has_function_privilege('snezhok_worker','publish_attachment_lifecycle(uuid)','EXECUTE');")" == "t" ]]
+[[ "$(owner_query "SELECT prosecdef::text FROM pg_proc WHERE oid='publish_attachment_lifecycle(uuid)'::regprocedure;")" == "true" ]]
 if "${worker_psql[@]}" -c 'SELECT count(*) FROM users;' >/dev/null 2>&1; then
   echo "media-worker role unexpectedly read users" >&2
   exit 1

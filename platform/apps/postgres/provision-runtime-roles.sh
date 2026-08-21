@@ -24,6 +24,7 @@ GRANT USAGE,SELECT,UPDATE ON ALL SEQUENCES IN SCHEMA public TO snezhok_api;
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM snezhok_worker;
 GRANT SELECT,INSERT,UPDATE ON TABLE media_jobs,attachments,blobs,media_variants TO snezhok_worker;
 GRANT SELECT ON TABLE upload_sessions,call_sessions TO snezhok_worker;
+GRANT EXECUTE ON FUNCTION publish_attachment_lifecycle(uuid) TO snezhok_api,snezhok_worker;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE snezhok IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO snezhok_api;
 ALTER DEFAULT PRIVILEGES FOR ROLE snezhok IN SCHEMA public GRANT USAGE,SELECT,UPDATE ON SEQUENCES TO snezhok_api;

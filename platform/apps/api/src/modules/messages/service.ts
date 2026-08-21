@@ -444,12 +444,14 @@ const messageSelectSql = `
   LEFT JOIN messages reply ON reply.id=m.reply_to_id LEFT JOIN users ru ON ru.id=reply.sender_id
   LEFT JOIN messages forwarded ON forwarded.id=m.forwarded_from_id LEFT JOIN users fu ON fu.id=forwarded.sender_id
   LEFT JOIN LATERAL (
-    SELECT jsonb_agg(jsonb_build_object('id',a.id,'ownerId',a.owner_id,'kind',a.kind,'filename',a.filename,'mimeType',coalesce(p.mime_type,a.mime_type),
+    SELECT jsonb_agg((jsonb_build_object('id',a.id,'ownerId',a.owner_id,'kind',a.kind,'filename',a.filename,'mimeType',coalesce(p.mime_type,a.mime_type),
       'bytes',coalesce(p.bytes,a.bytes),'width',coalesce(p.width,a.width),'height',coalesce(p.height,a.height),'durationMs',coalesce(p.duration_ms,a.duration_ms),
-      'quality',a.quality,'checksum',b.checksum_sha256,'primaryChecksum',p.checksum_sha256,'waveform',p.waveform,'originalUrl','/api/v1/files/'||a.id,
+      'quality',a.quality,'checksum',b.checksum_sha256,'waveform',p.waveform,'originalUrl','/api/v1/files/'||a.id,
       'url',CASE WHEN p.id IS NULL THEN '/api/v1/files/'||a.id ELSE '/api/v1/files/'||a.id||'?variant='||p.id END,
       'thumbnailUrl',CASE WHEN t.id IS NOT NULL THEN '/api/v1/files/'||a.id||'?variant='||t.id WHEN a.thumbnail_attachment_id IS NOT NULL THEN '/api/v1/files/'||a.thumbnail_attachment_id ELSE NULL END,
-      'status',a.status,'updatedAt',(extract(epoch from a.updated_at)*1000)::bigint::float8) ORDER BY ma.position) items
+      'status',a.status,'updatedAt',(extract(epoch from a.updated_at)*1000)::bigint::float8)
+      || CASE WHEN p.checksum_sha256 IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('primaryChecksum',p.checksum_sha256) END)
+      ORDER BY ma.position) items
     FROM message_attachments ma JOIN attachments a ON a.id=ma.attachment_id JOIN blobs b ON b.id=a.blob_id
     LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='primary' ORDER BY created_at DESC LIMIT 1) p ON true
     LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='thumbnail' ORDER BY created_at DESC LIMIT 1) t ON true

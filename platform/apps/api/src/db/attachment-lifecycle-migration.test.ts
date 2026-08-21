@@ -52,3 +52,10 @@ test("attachment lifecycle completion is durable and limited to authorized recip
     await db.close();
   }
 });
+
+test("attachment lifecycle publisher is a narrow security-definer capability", async () => {
+  const migration = await readFile(new URL("../../migrations/0025_attachment_lifecycle_privileges.sql", import.meta.url), "utf8");
+  assert.match(migration, /ALTER FUNCTION publish_attachment_lifecycle\(uuid\) SECURITY DEFINER/i);
+  assert.match(migration, /SET search_path = pg_catalog, public/i);
+  assert.match(migration, /REVOKE ALL ON FUNCTION publish_attachment_lifecycle\(uuid\) FROM PUBLIC/i);
+});

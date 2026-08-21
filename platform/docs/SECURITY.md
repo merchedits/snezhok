@@ -34,6 +34,10 @@ not an acceptable substitute.
 - Diagnostic reports exclude credentials, email addresses, account IDs,
   message text, exception messages, and stack payloads that may contain user
   content.
+- PostgreSQL request and media processes use separate least-privilege roles.
+  The media worker can mutate only media tables; attachment lifecycle fanout is
+  exposed as a revoked-by-default, fixed-search-path security-definer function
+  so the worker never receives general access to users or durable events.
 - Cooperative activity projections are generated per viewer. Secret answers,
   hidden choices, capsule contents, attachment metadata, and media file access
   remain unavailable to the other participant until the database reveal state

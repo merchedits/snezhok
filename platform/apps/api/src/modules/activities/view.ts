@@ -69,14 +69,15 @@ export async function getActivityViews(client: Pick<DbClient, "query">, activity
       COALESCE(att.items,'[]'::jsonb) attachments
      FROM cooperative_activity_entries cae
      LEFT JOIN LATERAL (
-       SELECT jsonb_agg(jsonb_build_object('id',a.id,'ownerId',a.owner_id,'kind',a.kind,'filename',a.filename,
+       SELECT jsonb_agg((jsonb_build_object('id',a.id,'ownerId',a.owner_id,'kind',a.kind,'filename',a.filename,
          'mimeType',coalesce(p.mime_type,a.mime_type),'bytes',coalesce(p.bytes,a.bytes),'width',coalesce(p.width,a.width),
          'height',coalesce(p.height,a.height),'durationMs',coalesce(p.duration_ms,a.duration_ms),'quality',a.quality,
-         'checksum',b.checksum_sha256,'primaryChecksum',p.checksum_sha256,'waveform',p.waveform,
+         'checksum',b.checksum_sha256,'waveform',p.waveform,
          'originalUrl','/api/v1/files/'||a.id,
          'url',CASE WHEN p.id IS NULL THEN '/api/v1/files/'||a.id ELSE '/api/v1/files/'||a.id||'?variant='||p.id END,
          'thumbnailUrl',CASE WHEN t.id IS NOT NULL THEN '/api/v1/files/'||a.id||'?variant='||t.id WHEN a.thumbnail_attachment_id IS NOT NULL THEN '/api/v1/files/'||a.thumbnail_attachment_id ELSE NULL END,
          'status',a.status,'updatedAt',(extract(epoch from a.updated_at)*1000)::bigint::float8)
+         || CASE WHEN p.checksum_sha256 IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('primaryChecksum',p.checksum_sha256) END)
          ORDER BY caa.position) items
        FROM cooperative_activity_attachments caa JOIN attachments a ON a.id=caa.attachment_id JOIN blobs b ON b.id=a.blob_id
        LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='primary' ORDER BY created_at DESC LIMIT 1) p ON true
