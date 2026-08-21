@@ -27,3 +27,19 @@ test("realtime trust boundary bounds ephemeral drawing payloads", () => {
   assert.equal(decodeRealtimeEvent("activity:drawing:updated", { ...base, strokes: [[[10, 10], [20, 20]]] }).success, true);
   assert.equal(decodeRealtimeEvent("activity:drawing:updated", { ...base, strokes: [[[10, 10], [9_999, 20]]] }).success, false);
 });
+
+test("a legacy attachment cannot make realtime skip a valid durable message", () => {
+  const senderId = crypto.randomUUID();
+  const message = {
+    id: crypto.randomUUID(), revision: 1, clientId: null, streamId: crypto.randomUUID(), streamKind: "conversation", sequence: 1,
+    sender: { id: senderId, username: "tester", displayName: "Tester", avatarUrl: null, avatarColor: "#000", bio: "", statusText: "", presence: "offline", lastSeenAt: 0 },
+    kind: "media", text: "", replyTo: null, forwardedFrom: null,
+    attachments: [{ id: crypto.randomUUID(), kind: "image" }], reactions: [], activity: null,
+    createdAt: 1, editedAt: null, deletedAt: null, pinnedAt: null, readByOthers: false, silent: false,
+  };
+  const decoded = decodeRealtimeEvent("sync:event", { cursor: 1, name: "message:created", payload: message });
+  assert.equal(decoded.success, true);
+  if (decoded.success && decoded.data.name === "message:created") {
+    assert.equal(decoded.data.payload.attachments[0]?.ownerId, senderId);
+  }
+});

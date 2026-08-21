@@ -485,9 +485,9 @@ function ensureBackgroundWakeListener(): void {
   installBackgroundTransferWakeListener(() => {
     const state = useAppStore.getState();
     if (state.phase !== "ready" || !state.me) return;
-    void state.reconcileBackgroundTransfers().catch(() => {
-      recordDiagnostic("warn", "media", "Background transfer reconciliation failed");
-    });
+    void state.reconcileBackgroundTransfers().catch((error: unknown) => recordDiagnostic(
+      "warn", "media", "Background transfer reconciliation failed", { errorName: error instanceof Error ? error.name : "UnknownError" },
+    ));
   });
 }
 

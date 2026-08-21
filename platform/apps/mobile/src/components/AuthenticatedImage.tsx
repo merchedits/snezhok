@@ -3,7 +3,7 @@ import { Image, type ImageContentFit } from "expo-image";
 import { ActivityIndicator, StyleSheet, Text, View, type ImageStyle, type StyleProp, type ViewStyle } from "react-native";
 
 import { recordDiagnostic } from "../diagnostics/diagnostics";
-import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
+import { refreshAuthorizedMediaSession, useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 
 interface AuthenticatedImageProps {
   uri: string;
@@ -24,11 +24,15 @@ export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallba
   const [usingFallback, setUsingFallback] = useState(false);
   const [loading, setLoading] = useState(showLoader);
   const [failed, setFailed] = useState(false);
+  const [authorizationAttempt, setAuthorizationAttempt] = useState(0);
+  const [authorizationRefreshed, setAuthorizationRefreshed] = useState(false);
 
   useEffect(() => {
     setUsingFallback(false);
     setLoading(showLoader);
     setFailed(false);
+    setAuthorizationAttempt(0);
+    setAuthorizationRefreshed(false);
   }, [fallbackUri, showLoader, uri]);
 
   const source = usingFallback ? fallbackSource : primarySource;
@@ -39,7 +43,7 @@ export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallba
         source={source}
         cachePolicy="memory-disk"
         contentFit={resizeMode}
-        recyclingKey={`${cacheKey}:${usingFallback ? "original" : "preferred"}`}
+        recyclingKey={`${cacheKey}:${usingFallback ? "original" : "preferred"}:${authorizationAttempt}`}
         transition={0}
         onLoadStart={() => { if (showLoader) setLoading(true); }}
         onLoad={(event) => {
@@ -49,6 +53,19 @@ export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallba
           if (width > 0 && height > 0) onIntrinsicSize?.(width, height);
         }}
         onError={() => {
+          if (!authorizationRefreshed) {
+            setAuthorizationRefreshed(true);
+            void refreshAuthorizedMediaSession().then((refreshed) => {
+              if (refreshed) setAuthorizationAttempt((value) => value + 1);
+              else if (canFallback) setUsingFallback(true);
+              else {
+                setLoading(false);
+                setFailed(true);
+                recordDiagnostic("warn", "media", "Authenticated image session refresh failed", { failure: "authorization" });
+              }
+            });
+            return;
+          }
           if (canFallback) {
             setUsingFallback(true);
             setLoading(showLoader);

@@ -3,7 +3,7 @@ import { useIsFocused } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 
 import type { ConversationSummary, Message, UserSummary } from "@snezhok/contracts";
@@ -96,6 +96,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   const markStreamRead = useAppStore((state) => state.markStreamRead);
   const toggleReaction = useAppStore((state) => state.toggleReaction);
   const [routeSettled, setRouteSettled] = useState(false);
+  const [historyState, setHistoryState] = useState<"waiting" | "loading" | "ready" | "error">("waiting");
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
   const userDraggedHistory = useRef(false);
   const loadingOlder = useRef(false);
@@ -128,12 +129,20 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   }, [navigation, streamId]);
 
   useEffect(() => { void preloadCachedMessages([streamId]).catch(() => undefined); }, [preloadCachedMessages, streamId]);
+  const refreshHistory = useCallback(async () => {
+    setHistoryState("loading");
+    try {
+      await preloadCachedMessages([streamId]);
+      await loadMessages(streamId);
+      setHistoryState("ready");
+      void loadPinnedMessages(streamId).catch(() => undefined);
+    } catch {
+      setHistoryState((useAppStore.getState().messages[streamId]?.length ?? 0) > 0 ? "ready" : "error");
+    }
+  }, [loadMessages, loadPinnedMessages, preloadCachedMessages, streamId]);
   useEffect(() => {
-    if (!routeSettled) return;
-    void preloadCachedMessages([streamId])
-      .then(() => Promise.all([loadMessages(streamId), loadPinnedMessages(streamId)]))
-      .catch(() => undefined);
-  }, [loadMessages, loadPinnedMessages, preloadCachedMessages, routeSettled, streamId]);
+    if (routeSettled) void refreshHistory();
+  }, [refreshHistory, routeSettled]);
   useEffect(() => {
     if (!isFocused || !routeSettled) return;
     joinRealtimeStream(streamId);
@@ -145,6 +154,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     firstPaintRecorded.current = false;
     cachedMessageCountAtOpen.current = useAppStore.getState().messages[streamId]?.length ?? 0;
     setRouteSettled(false);
+    setHistoryState("waiting");
     setRenderLimit(INITIAL_RENDERED_MESSAGES);
   }, [streamId]);
 
@@ -203,6 +213,8 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
       await loadOlderMessages(streamId);
       const available = visibleMessages(useAppStore.getState().messages[streamId] ?? []).length;
       setRenderLimit((current) => Math.min(available, current + MESSAGE_PAGE_SIZE));
+    } catch {
+      showDialog(t("requestFailed"), t("tryAgain"));
     } finally {
       loadingOlder.current = false;
     }
@@ -272,7 +284,11 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
         onStartReached={() => void revealOlderMessages().catch(() => undefined)}
         onStartReachedThreshold={0.2}
         onLoad={recordFirstPaint}
-        ListEmptyComponent={<View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>}
+        ListEmptyComponent={historyState === "error"
+          ? <View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("tryAgain")}</Text><Pressable accessibilityRole="button" onPress={() => void refreshHistory()} style={[styles.retry, { backgroundColor: palette.accent }]}><Text style={[styles.retryText, { color: palette.onAccent }]}>{t("tryAgain")}</Text></Pressable></View>
+          : historyState !== "ready"
+            ? <View style={styles.empty}><ActivityIndicator color={palette.accent} /></View>
+            : <View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>}
       />
     </View>
   );
@@ -285,4 +301,6 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 90, paddingHorizontal: 24 },
   emptyTitle: { fontSize: 20, fontWeight: "800" },
   emptyText: { fontSize: 14, marginTop: 6 },
+  retry: { minWidth: 132, height: 44, marginTop: 16, paddingHorizontal: 18, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  retryText: { fontSize: 15, fontWeight: "800" },
 });

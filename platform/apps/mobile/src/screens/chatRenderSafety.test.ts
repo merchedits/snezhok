@@ -120,7 +120,7 @@ test("cached message warmups are single-flight per stream", () => {
 
 test("chat reconciliation waits for the native transition to settle", () => {
   assert.match(timelineSource, /navigation\.addListener\("transitionEnd"/);
-  assert.match(timelineSource, /if \(!routeSettled\) return/);
+  assert.match(timelineSource, /if \(routeSettled\) void refreshHistory\(\)/);
   assert.match(timelineSource, /preloadCachedMessages\(\[streamId\]\)/);
   assert.match(timelineSource, /recordPerformance\([\s\S]{0,80}chatOpenPerformanceKind\([\s\S]{0,80}cachedMessageCountAtOpen\.current/);
 });

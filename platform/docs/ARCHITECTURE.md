@@ -103,6 +103,22 @@ The Android attachment drawer defaults to adaptive compressed media and exposes 
 
 Nginx serves authorized immutable objects through an internal location after the API returns `X-Accel-Redirect`, preserving range requests and avoiding Node memory pressure.
 
+All API message projections use the database `attachment_transport_payload`
+function. Upload completion, history, bootstrap, realtime, forwarding, and
+lifecycle updates therefore expose one contract instead of independently
+reconstructing attachment JSON. A deferred database invariant verifies the
+allowed message/attachment shapes at transaction commit: text and system
+messages have no attachments, voice and video notes have exactly one matching
+attachment, and media/file albums contain one through ten items.
+
+The Android transport boundary decodes each message and each nested attachment
+independently. Compatible legacy attachment records are repaired to canonical
+authenticated file URLs; irrecoverable nested records are dropped without
+discarding neighboring messages. SQLite applies the same rule, quarantines
+metadata about damaged rows, removes the bad payload, and continues rendering
+the healthy cached window. Quarantine records never retain message text, URLs,
+or attachment metadata.
+
 Activity media reuses the same immutable attachments and upload jobs. File authorization joins the activity participant and reveal state in addition to normal ownership rules; possessing a guessed file URL cannot bypass a secret reveal. Orphan collection treats activity attachment links as live references.
 
 ## Calls and screen sharing

@@ -6,7 +6,7 @@ import type { Attachment } from "@snezhok/contracts";
 
 import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { usePalette } from "../hooks/usePalette";
-import { useAuthorizedMedia, type AuthenticatedMediaSource } from "../hooks/useAuthorizedMedia";
+import { refreshAuthorizedMediaSession, useAuthorizedMedia, type AuthenticatedMediaSource } from "../hooks/useAuthorizedMedia";
 import { useTranslation } from "../i18n";
 import { VOICE_WAVEFORM_HEIGHT, voiceWaveformBars } from "../lib/voiceWaveform";
 import { claimAudioSession, ownsAudioSession, releaseAudioSession, runAudioSessionOperation, type AudioSessionLease } from "../lib/audioSessionOwnership";
@@ -55,7 +55,9 @@ interface ActiveVoiceMessageProps {
 
 function ActiveVoiceMessage({ attachment, bars, source, speed, streamId, mine, foreground, mutedForeground }: ActiveVoiceMessageProps) {
   const [attempt, setAttempt] = useState(0);
-  return <LoadedVoiceMessage key={attempt} attachment={attachment} bars={bars} source={source} speed={speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onRetry={() => setAttempt((current) => current + 1)} />;
+  return <LoadedVoiceMessage key={attempt} attachment={attachment} bars={bars} source={source} speed={speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onRetry={() => {
+    void refreshAuthorizedMediaSession().finally(() => setAttempt((current) => current + 1));
+  }} />;
 }
 
 function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, foreground, mutedForeground, onRetry }: ActiveVoiceMessageProps & { onRetry: () => void }) {

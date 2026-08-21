@@ -74,3 +74,19 @@ test("an idempotent server initializer can reconcile an upload completed while J
   assert.equal(batch.transfers[0]?.input.uri, "");
   assert.deepEqual(readyAttachmentGroups(batch)[0]?.attachments.map((attachment) => attachment.id), ["stable-upload"]);
 });
+
+test("a malformed native result remains recoverable and never throws reconciliation", () => {
+  const batch = createAttachmentBatch({
+    id: "batch", ownerId: "owner", streamId: "stream", messageKind: "voice", replyToId: null,
+    inputs: [{ ...input, kind: "audio", mimeType: "audio/mp4", filename: "voice.m4a" }],
+    transferIds: ["voice-transfer"], clientIds: ["voice-message"], now: 1,
+  });
+  const next = applyNativeSnapshot(batch, {
+    transferId: "voice-transfer", uploadId: "voice-transfer", status: "succeeded", uploadedBytes: 4, totalBytes: 4,
+    progress: 100, attempt: 1, errorCode: null, createdAt: 1, updatedAt: 2, expiresAt: 10, allowMetered: true,
+    resultJson: "{not-json",
+  });
+  assert.equal(next.transfers[0]?.status, "pending");
+  assert.equal(next.transfers[0]?.errorCode, "invalid_result");
+  assert.equal(next.transfers[0]?.input.uri, input.uri);
+});

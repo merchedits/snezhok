@@ -11,6 +11,7 @@ import { useTranslation } from "../i18n";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppDialog } from "./AppDialogProvider";
 import { AuthenticatedImage } from "./AuthenticatedImage";
+import { downloadAuthorizedMedia } from "../lib/authorizedMediaDownload";
 
 type AuthorizedImageSource = {
   uri: string;
@@ -149,16 +150,8 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
       }
       const extension = imageExtension(filename, mimeType);
       temporaryFile = new File(Paths.cache, `snezhok-photo-${Date.now()}.${extension}`);
-      const task = File.createDownloadTask(source.uri, temporaryFile, {
-        headers: source.headers,
-      });
-      try {
-        const downloaded = await task.downloadAsync();
-        if (!downloaded?.exists) throw new Error(t("tryAgain"));
-        await MediaLibrary.Asset.create(downloaded.uri);
-      } finally {
-        task.release();
-      }
+      const downloaded = await downloadAuthorizedMedia(source.uri, temporaryFile);
+      await MediaLibrary.Asset.create(downloaded.uri);
       showDialog(t("photoSaved"));
     } catch (error) {
       showDialog(t("photoSaveFailed"), userFacingError(error, t));

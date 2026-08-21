@@ -1,20 +1,36 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { batchComplete, type QueuedAttachmentBatch, type QueuedTransferStatus } from "./backgroundTransferModel";
 
 const STORAGE_KEY = "@snezhok/background-transfers/v1";
 const MAX_BATCHES = 24;
 export const MAX_ACTIVE_TRANSFERS = 120;
 let mutationQueue: Promise<void> = Promise.resolve();
+let lastCorruptionSignature = "";
 
 export async function readBackgroundTransferBatches(): Promise<QueuedAttachmentBatch[]> {
   try {
     const parsed = JSON.parse(await AsyncStorage.getItem(STORAGE_KEY) ?? "[]") as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(validBatch).slice(0, MAX_BATCHES);
+    if (!Array.isArray(parsed)) {
+      reportCorruption("invalid-root", 1);
+      return [];
+    }
+    const valid = parsed.filter(validBatch).slice(0, MAX_BATCHES);
+    const rejected = parsed.length - valid.length;
+    if (rejected > 0) reportCorruption("invalid-batch", rejected);
+    return valid;
   } catch {
+    reportCorruption("invalid-json", 1);
     return [];
   }
+}
+
+function reportCorruption(reason: string, count: number): void {
+  const signature = `${reason}:${count}`;
+  if (signature === lastCorruptionSignature) return;
+  lastCorruptionSignature = signature;
+  recordDiagnostic("warn", "storage", "Invalid background transfer records were isolated", { reason, count });
 }
 
 export function mutateBackgroundTransferBatches(
@@ -47,7 +63,7 @@ function boundQueue(value: QueuedAttachmentBatch[]): QueuedAttachmentBatch[] {
 function validBatch(value: unknown): value is QueuedAttachmentBatch {
   if (!value || typeof value !== "object") return false;
   const batch = value as Partial<QueuedAttachmentBatch>;
-  return typeof batch.id === "string" && typeof batch.ownerId === "string" && typeof batch.streamId === "string"
+  if (!(typeof batch.id === "string" && batch.id.length > 0 && typeof batch.ownerId === "string" && batch.ownerId.length > 0 && typeof batch.streamId === "string" && batch.streamId.length > 0
     && ["media", "file", "video-note", "voice"].includes(String(batch.messageKind))
     && typeof batch.createdAt === "number" && Number.isFinite(batch.createdAt)
     && typeof batch.updatedAt === "number" && Number.isFinite(batch.updatedAt)
@@ -56,7 +72,13 @@ function validBatch(value: unknown): value is QueuedAttachmentBatch {
       && typeof group.clientId === "string" && Array.isArray(group.transferIds)
       && group.transferIds.every((id) => typeof id === "string")
       && (group.replyToId === null || typeof group.replyToId === "string")
-      && (group.dispatchedAt === null || Number.isFinite(group.dispatchedAt)));
+      && (group.dispatchedAt === null || Number.isFinite(group.dispatchedAt))))) return false;
+  const transferIds = batch.transfers.map((transfer) => transfer.transferId);
+  const groupedIds = batch.groups.flatMap((group) => group.transferIds);
+  return new Set(transferIds).size === transferIds.length
+    && new Set(groupedIds).size === groupedIds.length
+    && groupedIds.length === transferIds.length
+    && groupedIds.every((id) => transferIds.includes(id));
 }
 
 const transferStatuses: readonly QueuedTransferStatus[] = ["pending", "staging", "queued", "running", "retrying", "succeeded", "failed", "cancelled"];

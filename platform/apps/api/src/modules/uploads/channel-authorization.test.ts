@@ -39,12 +39,14 @@ test("channel attachment authorization applies the final view_channels override"
        VALUES ($1,$2,'60000000-0000-4000-8000-000000000001','channel.jpg','image','image/jpeg',4,'auto','ready')`,
       [attachmentId, ownerId],
     );
+    await db.query("BEGIN");
     await db.query(
       `INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text)
        VALUES ($1,'channel',$2,1,$3,'70000000-0000-4000-8000-000000000001','media','')`,
       [messageId, channelId, ownerId],
     );
     await db.query("INSERT INTO message_attachments(message_id,attachment_id,position) VALUES ($1,$2,0)", [messageId, attachmentId]);
+    await db.query("COMMIT");
 
     assert.equal(await allowed(db, attachmentId, viewerId), true);
     await db.query(

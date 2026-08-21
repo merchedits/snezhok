@@ -2,6 +2,7 @@ import type { Message } from "@snezhok/contracts";
 
 import type { CachedState } from "../types";
 import { messagesForCache, normalizeCachedMessages } from "../domains/messaging/cachePolicy";
+import { decodeMessageValue } from "../domains/messaging/messageDecoding";
 
 export const RECENT_MESSAGES_PER_STREAM = 80;
 export const DEFAULT_CACHE_PAGE_SIZE = 40;
@@ -10,7 +11,14 @@ export const STARTUP_STREAM_LIMIT = 16;
 
 export interface CachedMessageRow {
   stream_id: string;
+  message_id?: string;
   payload: string;
+}
+
+export interface RejectedCachedMessageRow {
+  streamId: string;
+  messageId: string | null;
+  reason: "invalid-json" | "invalid-message" | "stream-mismatch";
 }
 
 export interface CachedStoredProjectionRow {
@@ -109,15 +117,40 @@ export function parseLegacyCache(raw: string | null): CachedState | null {
 }
 
 export function decodeMessageRows(rows: CachedMessageRow[]): Record<string, Message[]> {
-  const grouped: Record<string, unknown[]> = {};
+  return decodeMessageRowsDetailed(rows).messages;
+}
+
+export function decodeMessageRowsDetailed(rows: CachedMessageRow[]): {
+  messages: Record<string, Message[]>;
+  rejected: RejectedCachedMessageRow[];
+  repaired: number;
+} {
+  const grouped: Record<string, Message[]> = {};
+  const rejected: RejectedCachedMessageRow[] = [];
+  let repaired = 0;
   for (const row of rows) {
+    let payload: unknown;
     try {
-      (grouped[row.stream_id] ??= []).push(JSON.parse(row.payload));
+      payload = JSON.parse(row.payload) as unknown;
     } catch {
-      // A damaged row must not prevent the rest of the offline cache loading.
+      rejected.push({ streamId: row.stream_id, messageId: row.message_id ?? null, reason: "invalid-json" });
+      continue;
     }
+    const decoded = decodeMessageValue(payload);
+    const legacy = decoded.message ? null : normalizeCachedMessages({ [row.stream_id]: [payload] })[row.stream_id]?.[0] ?? null;
+    const message = decoded.message ?? legacy;
+    if (!message) {
+      rejected.push({ streamId: row.stream_id, messageId: row.message_id ?? null, reason: "invalid-message" });
+      continue;
+    }
+    if (message.streamId !== row.stream_id) {
+      rejected.push({ streamId: row.stream_id, messageId: row.message_id ?? message.id, reason: "stream-mismatch" });
+      continue;
+    }
+    if (decoded.repaired || legacy) repaired += 1;
+    (grouped[row.stream_id] ??= []).push(message);
   }
-  return normalizeCachedMessages(grouped);
+  return { messages: normalizeCachedMessages(grouped), rejected, repaired };
 }
 
 export function clampCachePageSize(limit: number | undefined): number {

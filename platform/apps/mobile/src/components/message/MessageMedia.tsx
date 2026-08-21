@@ -1,6 +1,8 @@
 import type { Attachment } from "@snezhok/contracts";
 import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { File, Paths } from "expo-file-system";
+import * as IntentLauncher from "expo-intent-launcher";
 
 import { recordDiagnostic } from "../../diagnostics/diagnostics";
 import { useAuthorizedMedia } from "../../hooks/useAuthorizedMedia";
@@ -8,7 +10,10 @@ import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
 import { mediaAlbumRows } from "../../lib/mediaAlbums";
 import { messageMediaSize } from "../../lib/mediaLayout";
+import { downloadAuthorizedMedia } from "../../lib/authorizedMediaDownload";
+import { userFacingError } from "../../lib/userFacingError";
 import { AppIcon } from "../AppIcon";
+import { useAppDialog } from "../AppDialogProvider";
 import { AuthenticatedImage } from "../AuthenticatedImage";
 import { ImageViewer } from "../ImageViewer";
 import { VideoViewer } from "../VideoViewer";
@@ -96,15 +101,43 @@ function AlbumAttachmentViewer({ attachments, index, onIndex, onClose }: { attac
 }
 
 function AttachmentView({ attachment, streamId, mine, foreground, mutedForeground }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string }) {
-  const palette = usePalette();
   if (attachment.kind === "image") return <ImageAttachment attachment={attachment} />;
   if (attachment.kind === "video") return <InlineVideo attachment={attachment} />;
   if (attachment.kind === "audio") return <VoiceMessageAttachment attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
+  if (attachment.kind === "document") return <DocumentAttachment attachment={attachment} />;
+  return null;
+}
+
+function DocumentAttachment({ attachment }: { attachment: Attachment }) {
+  const palette = usePalette();
+  const { t } = useTranslation();
+  const showDialog = useAppDialog();
+  const [opening, setOpening] = useState(false);
+  const open = useCallback(async () => {
+    if (opening) return;
+    setOpening(true);
+    try {
+      const safeName = attachment.filename.replace(/[^A-Za-z0-9._-]+/g, "-").slice(-100) || "attachment.bin";
+      const destination = new File(Paths.cache, `snezhok-${attachment.id}-${safeName}`);
+      const completeCachedCopy = destination.exists && destination.size === attachment.bytes;
+      const downloaded = completeCachedCopy ? destination : await downloadAuthorizedMedia(attachment.url, destination);
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        data: downloaded.contentUri,
+        type: attachment.mimeType || "application/octet-stream",
+        flags: 1,
+      });
+    } catch (error) {
+      recordDiagnostic("warn", "media", "Protected document open failed", { failure: error instanceof Error ? error.name : "UnknownError" });
+      showDialog(t("requestFailed"), userFacingError(error, t));
+    } finally {
+      setOpening(false);
+    }
+  }, [attachment, opening, showDialog, t]);
   return (
-    <Pressable onPress={() => void Linking.openURL(attachment.url)} style={[styles.file, { backgroundColor: palette.surface }]}>
+    <Pressable disabled={opening} onPress={() => void open()} style={[styles.file, { backgroundColor: palette.surface }]}>
       <View style={[styles.fileIcon, { backgroundColor: palette.accentSoft }]}><AppIcon name="document-outline" size={23} color={palette.accent} /></View>
       <View style={styles.fileText}><Text numberOfLines={1} style={[styles.filename, { color: palette.text }]}>{attachment.filename}</Text><Text style={[styles.filesize, { color: palette.secondaryText }]}>{formatBytes(attachment.bytes)} · {attachment.quality}</Text></View>
-      <AppIcon name="download-outline" size={20} color={palette.accent} />
+      {opening ? <ActivityIndicator size="small" color={palette.accent} /> : <AppIcon name="download-outline" size={20} color={palette.accent} />}
     </Pressable>
   );
 }

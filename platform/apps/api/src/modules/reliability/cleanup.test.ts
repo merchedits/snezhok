@@ -101,6 +101,7 @@ async function seed(db: PGlite): Promise<void> {
     `INSERT INTO call_media_commands(call_session_id,action,livekit_room,reason,status,completed_at)
      VALUES ('90000000-0000-4000-8000-000000000001','delete_room','expired-room','test','completed',now()-interval '40 days')`,
   );
+  await db.query("BEGIN");
   await db.query(
     `INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text,deleted_at) VALUES
       ('60000000-0000-4000-8000-000000000001','conversation',$1,1,$2,'80000000-0000-4000-8000-000000000001','media','',NULL),
@@ -112,4 +113,5 @@ async function seed(db: PGlite): Promise<void> {
       ('60000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',0),
       ('60000000-0000-4000-8000-000000000002','30000000-0000-4000-8000-000000000003',0)`,
   );
+  await db.query("COMMIT");
 }

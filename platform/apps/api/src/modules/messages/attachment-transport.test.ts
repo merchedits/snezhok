@@ -9,7 +9,7 @@ test("message and activity projections omit an unavailable primary checksum", as
     readFile(new URL("./service.ts", import.meta.url), "utf8"),
     readFile(new URL("../activities/view.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(messages, optionalPrimaryChecksum);
+  assert.match(messages, /attachment_transport_payload\(ma\.attachment_id\)/);
   assert.match(activities, optionalPrimaryChecksum);
   assert.doesNotMatch(messages, /'primaryChecksum',p\.checksum_sha256,'waveform'/);
   assert.doesNotMatch(activities, /'primaryChecksum',p\.checksum_sha256,'waveform'/);

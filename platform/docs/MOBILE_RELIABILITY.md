@@ -21,6 +21,11 @@ Snezhok treats the Android application as the product authority. Changes to chat
   an authenticated online transition with an event-ID watermark and server-side
   deduplication, so a lost response cannot double-count a failure.
 - Authenticated image thumbnails use `expo-image`'s native memory/disk cache with an authorization-aware source and a stable recycling key. Voice notes create an `expo-audio` player only after playback is requested and pass the authenticated remote source directly; the native audio implementation performs its own temporary download. Do not add a second JavaScript-managed file cache unless a measured platform defect requires it. Explicit user downloads remain ordinary files outside this playback path.
+- Protected image, video, voice, and document reads refresh a nearly expired
+  access token before native playback or transfer. A 401-like media failure
+  rotates the session once and recreates the native consumer; it never falls
+  back to an unauthenticated browser URL. Cached document downloads are reused
+  only when their byte count matches the server attachment contract.
 - Voice playback, voice recording, and LiveKit calls share one process-wide audio-session ownership arbiter. Calls preempt recording and playback; recording preempts playback; stale recorder/player cleanup is skipped after ownership changes. Every Android audio-mode mutation is serialized so an `expo-audio` unmount cannot reset LiveKit's `MODE_IN_COMMUNICATION` session. New native audio features must participate in this lease rather than calling audio-session configuration independently.
 - Chat history paints from the SQLite snapshot already held in Zustand. Touching a conversation row starts a deduplicated SQLite warmup; notification/deep-link routes start the same cache-only read as soon as they mount. Navigation stays immediate, and network reconciliation waits until the native transition completes.
 - `FlashList` is solely responsible for initial bottom anchoring through `startRenderingFromBottom`. Do not combine it with a duplicate first-frame overlay or an initial `scrollToEnd`, because competing position mechanisms cause extra row mounts and visible jumps.
@@ -42,6 +47,11 @@ Snezhok treats the Android application as the product authority. Changes to chat
   older HTTP revisions cannot replace newer realtime or optimistic projections.
 - Runtime capabilities are authenticated bootstrap data and server-enforced.
   UI gating improves clarity but is never treated as authorization.
+- Background-transfer reconciliation is scoped per authenticated owner. A
+  malformed WorkManager result is removed only from the native terminal queue,
+  retains its stable upload/message identifiers and source URI, and returns to
+  recoverable pending state. One malformed result cannot abort reconciliation
+  of the remaining transfers.
 
 ## Samsung A12 performance budgets
 

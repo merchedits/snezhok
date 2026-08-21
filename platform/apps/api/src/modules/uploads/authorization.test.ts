@@ -47,11 +47,13 @@ test("file authorization excludes deleted/hidden links and enforces profile-phot
     await db.query("UPDATE messages SET deleted_at=now() WHERE id=$1", [messageId]);
     assert.equal(await allowed(db, viewerId, attachmentId), false, "a deleted message cannot authorize an attachment");
 
+    await db.query("BEGIN");
     await db.query(
       "INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text,forwarded_from_id) VALUES ($1,'conversation',$2,1,$3,$4,'media','',$5)",
       [forwardedMessageId, forwardedConversationId, ownerId, "50000000-0000-4000-8000-000000000002", messageId],
     );
     await db.query("INSERT INTO message_attachments(message_id,attachment_id,position) VALUES ($1,$2,0)", [forwardedMessageId, attachmentId]);
+    await db.query("COMMIT");
     assert.equal(await allowed(db, viewerId, attachmentId), true, "an active forwarded copy remains a valid authorization link");
 
     assert.equal(await allowed(db, outsiderId, profileAttachmentId), true, "active profile photos are visible to authenticated users");
@@ -112,11 +114,13 @@ async function seed(db: PGlite): Promise<void> {
       ($1,$3,'owner'),($1,$4,'member'),($2,$3,'owner'),($2,$4,'member')`,
     [conversationId, forwardedConversationId, ownerId, viewerId],
   );
+  await db.query("BEGIN");
   await db.query(
     "INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text) VALUES ($1,'conversation',$2,1,$3,$4,'media','')",
     [messageId, conversationId, ownerId, "50000000-0000-4000-8000-000000000001"],
   );
   await db.query("INSERT INTO message_attachments(message_id,attachment_id,position) VALUES ($1,$2,0)", [messageId, attachmentId]);
+  await db.query("COMMIT");
   await db.query(
     "INSERT INTO cooperative_activities(id,conversation_id,anchor_message_id,created_by,client_id,type,state,config) VALUES ($1,$2,$3,$4,'72000000-0000-4000-8000-000000000001','tiny-quest','waiting','{}')",
     [activityId, conversationId, messageId, ownerId],

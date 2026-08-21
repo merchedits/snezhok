@@ -39,7 +39,7 @@ test("every optimistic message mutation is durable before its network request", 
 
 test("offline repositories bind SQLite, drafts, and outbox data to one owner", () => {
   assert.match(repository, /ensureOfflineOwner/);
-  assert.match(repository, /DELETE FROM cached_messages; DELETE FROM cache_metadata/);
+  assert.match(repository, /DELETE FROM cached_messages; DELETE FROM quarantined_cached_messages; DELETE FROM cache_metadata/);
   assert.match(repository, /OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY/);
 });
 

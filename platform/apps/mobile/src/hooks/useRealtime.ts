@@ -115,7 +115,14 @@ export function useRealtime(enabled: boolean): void {
         receivedEnvelope = true;
         void syncEngine.accept(event).catch((error: unknown) => recordDiagnostic("error", "network", "Realtime synchronization paused", { errorName: diagnosticErrorName(error) }));
       };
-      onValidated(socket, "sync:event", receiveDurable);
+      onValidated(socket, "sync:event", receiveDurable, () => {
+        // Never let sync:ready acknowledge past an event the installed client
+        // could not decode. Reconcile the authoritative snapshot instead.
+        receivedEnvelope = true;
+        void refreshBootstrap({ force: true, silent: true }).catch((error: unknown) => {
+          recordDiagnostic("error", "network", "Realtime compatibility recovery failed", { errorName: diagnosticErrorName(error) });
+        });
+      });
       onValidated(socket, "sync:ready", ({ cursor }) => { if (!receivedEnvelope) setEventCursor(cursor); });
       onValidated(socket, "message:created", (message) => {
         applyMessage(message, "created");
@@ -164,11 +171,13 @@ function onValidated<Name extends ServerEventName>(
   socket: RealtimeSocket,
   name: Name,
   listener: (payload: ServerEventPayload<Name>) => void,
+  onInvalid?: () => void,
 ): void {
   socket.on(name, ((payload: unknown) => {
     const decoded = decodeRealtimeEvent(name, payload);
     if (!decoded.success) {
       recordDiagnostic("error", "network", "Invalid realtime event", { name, issueCount: decoded.issueCount });
+      onInvalid?.();
       return;
     }
     listener(decoded.data);

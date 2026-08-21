@@ -31,11 +31,13 @@ test("attachment lifecycle completion is durable and limited to authorized recip
       "INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,quality,status) VALUES ($1,$2,$3,'photo.jpg','image','image/jpeg',10,'auto','processing')",
       [attachment, owner, blob],
     );
+    await db.query("BEGIN");
     await db.query(
       "INSERT INTO messages(id,stream_kind,stream_id,sequence,sender_id,client_id,kind,text) VALUES ($1,'conversation',$2,1,$3,'60000000-0000-4000-8000-000000000001','media','')",
       [message, conversation, owner],
     );
     await db.query("INSERT INTO message_attachments(message_id,attachment_id,position) VALUES ($1,$2,0)", [message, attachment]);
+    await db.query("COMMIT");
     await db.query("UPDATE attachments SET status='ready',width=1200,height=1600,updated_at=now() WHERE id=$1", [attachment]);
     const eventId = (await db.query<{ id: string }>("SELECT publish_attachment_lifecycle($1) id", [attachment])).rows[0]!.id;
     const event = await db.query<{ user_id: string; payload: { id: string; status: string; attachment: { width: number; height: number; status: string } } }>(

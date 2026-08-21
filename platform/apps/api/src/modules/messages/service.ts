@@ -444,18 +444,12 @@ const messageSelectSql = `
   LEFT JOIN messages reply ON reply.id=m.reply_to_id LEFT JOIN users ru ON ru.id=reply.sender_id
   LEFT JOIN messages forwarded ON forwarded.id=m.forwarded_from_id LEFT JOIN users fu ON fu.id=forwarded.sender_id
   LEFT JOIN LATERAL (
-    SELECT jsonb_agg((jsonb_build_object('id',a.id,'ownerId',a.owner_id,'kind',a.kind,'filename',a.filename,'mimeType',coalesce(p.mime_type,a.mime_type),
-      'bytes',coalesce(p.bytes,a.bytes),'width',coalesce(p.width,a.width),'height',coalesce(p.height,a.height),'durationMs',coalesce(p.duration_ms,a.duration_ms),
-      'quality',a.quality,'checksum',b.checksum_sha256,'waveform',p.waveform,'originalUrl','/api/v1/files/'||a.id,
-      'url',CASE WHEN p.id IS NULL THEN '/api/v1/files/'||a.id ELSE '/api/v1/files/'||a.id||'?variant='||p.id END,
-      'thumbnailUrl',CASE WHEN t.id IS NOT NULL THEN '/api/v1/files/'||a.id||'?variant='||t.id WHEN a.thumbnail_attachment_id IS NOT NULL THEN '/api/v1/files/'||a.thumbnail_attachment_id ELSE NULL END,
-      'status',a.status,'updatedAt',(extract(epoch from a.updated_at)*1000)::bigint::float8)
-      || CASE WHEN p.checksum_sha256 IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('primaryChecksum',p.checksum_sha256) END)
-      ORDER BY ma.position) items
-    FROM message_attachments ma JOIN attachments a ON a.id=ma.attachment_id JOIN blobs b ON b.id=a.blob_id
-    LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='primary' ORDER BY created_at DESC LIMIT 1) p ON true
-    LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='thumbnail' ORDER BY created_at DESC LIMIT 1) t ON true
-    WHERE ma.message_id=m.id
+    SELECT jsonb_agg(projected.payload ORDER BY projected.position)
+      FILTER (WHERE projected.payload IS NOT NULL) items
+    FROM (
+      SELECT ma.position,attachment_transport_payload(ma.attachment_id) payload
+      FROM message_attachments ma WHERE ma.message_id=m.id
+    ) projected
   ) att ON true
   LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object('emoji',x.emoji,'count',x.count,'reacted',false,'userIds',x.user_ids)) items FROM (

@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import type { FastifyRequest } from "fastify";
-import type { Attachment } from "@snezhok/contracts";
+import { attachmentSchema, type Attachment } from "@snezhok/contracts";
 
 import { config } from "../../config.js";
 import { pool, transaction } from "../../db/pool.js";
@@ -169,17 +169,7 @@ export async function ownedUpload(userId: string, id: string, client: Pick<impor
 }
 
 export async function attachment(id: string, client: Pick<import("../../db/pool.js").DbClient, "query"> = pool): Promise<Attachment> {
-  const row = (await client.query<{ id: string; owner_id: string; kind: Attachment["kind"]; filename: string; mime_type: string; bytes: string; width: number | null; height: number | null; duration_ms: number | null; quality: Attachment["quality"]; status: "processing" | "ready" | "failed"; updated_at_ms: number; checksum_sha256: string; primary_id: string | null; primary_checksum: string | null; waveform: number[] | null; thumbnail_id: string | null; thumbnail_attachment_id: string | null }>(
-    `SELECT a.id,a.owner_id,a.kind,a.filename,coalesce(p.mime_type,a.mime_type) mime_type,coalesce(p.bytes,a.bytes)::text bytes,
-       coalesce(p.width,a.width) width,coalesce(p.height,a.height) height,coalesce(p.duration_ms,a.duration_ms) duration_ms,a.quality,b.checksum_sha256,
-       a.status,(extract(epoch from a.updated_at)*1000)::bigint::float8 updated_at_ms,
-       p.id primary_id,p.checksum_sha256 primary_checksum,p.waveform,t.id thumbnail_id,a.thumbnail_attachment_id
-     FROM attachments a JOIN blobs b ON b.id=a.blob_id
-     LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='primary' ORDER BY created_at DESC LIMIT 1) p ON true
-     LEFT JOIN LATERAL (SELECT * FROM media_variants WHERE attachment_id=a.id AND role='thumbnail' ORDER BY created_at DESC LIMIT 1) t ON true WHERE a.id=$1`, [id])).rows[0];
-  if (!row) throw notFound("Attachment not found");
-  return { id: row.id, ownerId: row.owner_id, kind: row.kind, filename: row.filename, mimeType: row.mime_type, bytes: Number(row.bytes), width: row.width, height: row.height, durationMs: row.duration_ms, quality: row.quality, status: row.status, updatedAt: Number(row.updated_at_ms),
-    url: row.primary_id ? `/api/v1/files/${row.id}?variant=${row.primary_id}` : `/api/v1/files/${row.id}`,
-    originalUrl: `/api/v1/files/${row.id}`, thumbnailUrl: row.thumbnail_id ? `/api/v1/files/${row.id}?variant=${row.thumbnail_id}` : row.thumbnail_attachment_id ? `/api/v1/files/${row.thumbnail_attachment_id}` : null,
-    checksum: row.checksum_sha256, ...(row.primary_checksum ? { primaryChecksum: row.primary_checksum } : {}), ...(row.waveform ? { waveform: row.waveform } : {}) };
+  const payload = (await client.query<{ payload: unknown }>("SELECT attachment_transport_payload($1) payload", [id])).rows[0]?.payload;
+  if (!payload) throw notFound("Attachment not found");
+  return attachmentSchema.parse(payload) as Attachment;
 }

@@ -16,6 +16,7 @@
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
     "db:migrate": "tsx src/commands/migrate.ts",
+    "messaging:audit": "tsx src/commands/audit-messaging.ts",
     "admin:bootstrap": "tsx src/commands/bootstrap-admin.ts",
     "import:legacy": "tsx src/commands/import-legacy.ts",
     "import:legacy:prod": "node dist/commands/import-legacy.js"

@@ -2,6 +2,7 @@ import type { Attachment } from "@snezhok/contracts";
 
 import type { NativeTransferSnapshot } from "../../modules/snezhok-background-transfer";
 import type { UploadInput } from "../types";
+import { decodeAttachmentValue } from "../domains/messaging/messageDecoding";
 
 export type AttachmentMessageKind = "media" | "file" | "video-note" | "voice";
 export type QueuedTransferStatus = "pending" | "staging" | "queued" | "running" | "retrying" | "succeeded" | "failed" | "cancelled";
@@ -114,15 +115,18 @@ export function applyNativeSnapshot(batch: QueuedAttachmentBatch, snapshot: Nati
   let changed = false;
   const transfers = batch.transfers.map((transfer) => {
     if (transfer.transferId !== snapshot.transferId) return transfer;
-    changed = transfer.status !== snapshot.status || transfer.progress !== snapshot.progress
-      || transfer.errorCode !== snapshot.errorCode || (attachment !== null && transfer.attachment?.id !== attachment.id);
+    const recoverableInvalidResult = snapshot.status === "succeeded" && !attachment && !transfer.attachment;
+    const status = recoverableInvalidResult ? "pending" as const : snapshot.status;
+    const errorCode = recoverableInvalidResult ? "invalid_result" : snapshot.errorCode;
+    changed = transfer.status !== status || transfer.progress !== snapshot.progress
+      || transfer.errorCode !== errorCode || (attachment !== null && transfer.attachment?.id !== attachment.id);
     return {
       ...transfer,
-      status: snapshot.status,
+      status,
       progress: snapshot.progress,
-      errorCode: snapshot.errorCode,
+      errorCode,
       attachment: attachment ?? transfer.attachment,
-      ...(snapshot.status === "succeeded" ? { input: { ...transfer.input, uri: "" } } : {}),
+      ...(snapshot.status === "succeeded" && (attachment || transfer.attachment) ? { input: { ...transfer.input, uri: "" } } : {}),
     };
   });
   return changed ? { ...batch, transfers, updatedAt: Date.now() } : batch;
@@ -155,13 +159,11 @@ export function batchComplete(batch: QueuedAttachmentBatch): boolean {
   return batch.groups.every((group) => group.dispatchedAt !== null);
 }
 
-export function parseAttachmentResult(resultJson: string): Attachment {
-  const parsed = JSON.parse(resultJson) as { attachment?: Partial<Attachment> };
-  const value = parsed.attachment;
-  if (!value || typeof value.id !== "string" || typeof value.ownerId !== "string" || typeof value.filename !== "string"
-    || typeof value.mimeType !== "string" || typeof value.bytes !== "number" || typeof value.url !== "string"
-    || !["image", "video", "audio", "document"].includes(String(value.kind))) {
-    throw new Error("Background upload returned an invalid attachment");
+export function parseAttachmentResult(resultJson: string): Attachment | null {
+  try {
+    const parsed = JSON.parse(resultJson) as { attachment?: unknown };
+    return decodeAttachmentValue(parsed.attachment);
+  } catch {
+    return null;
   }
-  return value as Attachment;
 }

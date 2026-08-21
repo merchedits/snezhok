@@ -24,8 +24,16 @@ test("voice and video playback failures remain retryable", async () => {
   assert.match(voice, /status\.error \|\| playbackFailed/);
   assert.match(voice, /Voice playback failed/);
   assert.match(video, /useEventListener\(player, "statusChange"/);
-  assert.match(video, /onRetry=\{\(\) => setAttempt/);
+  assert.match(video, /refreshAuthorizedMediaSession\(\)\.finally/);
+  assert.match(video, /onRetry=\{retry\}/);
   assert.match(video, /Video playback failed/);
+});
+
+test("protected documents never bypass authenticated media transport", async () => {
+  const media = await readFile(new URL("./message/MessageMedia.tsx", import.meta.url), "utf8");
+  assert.match(media, /downloadAuthorizedMedia\(attachment\.url, destination\)/);
+  assert.match(media, /destination\.size === attachment\.bytes/);
+  assert.doesNotMatch(media, /Linking\.openURL\(attachment\.url\)/);
 });
 
 test("single media messages keep their aspect ratio and overlay compact metadata", async () => {

@@ -2,7 +2,6 @@ import * as Crypto from "expo-crypto";
 
 import {
   activityEnvelopeSchema,
-  activityHistoryEnvelopeSchema,
   acceptedDiagnosticEnvelopeSchema,
   adminMemberEnvelopeSchema,
   adminMembersEnvelopeSchema,
@@ -18,10 +17,6 @@ import {
   folderEnvelopeSchema,
   friendEnvelopeSchema,
   hiddenMessageEnvelopeSchema,
-  messageContextSchema,
-  messageEnvelopeSchema,
-  messagePageSchema,
-  messagesEnvelopeSchema,
   mutationAcknowledgementSchema,
   productivityPayloadSchema,
   profileEnvelopeSchema,
@@ -57,6 +52,12 @@ import { closeRemoteDeviceSession } from "../../lib/sessionClosure";
 import { getRuntimeSession } from "../../lib/secureSession";
 import { API_URL } from "./apiConfig";
 import { fetchWithTimeout, sessionTransport, type JsonRequestOptions, type ResponseDecoder } from "./sessionTransport";
+import {
+  resilientMessageContextDecoder,
+  resilientMessageEnvelopeDecoder,
+  resilientMessagePageDecoder,
+  resilientMessagesEnvelopeDecoder,
+} from "./messageResponseDecoders";
 
 export { ApiError } from "../../lib/apiError";
 
@@ -118,7 +119,7 @@ class ApiClient {
   messages(streamId: string, before?: number): Promise<MessagesResponse> {
     const query = new URLSearchParams({ limit: "60" });
     if (before !== undefined) query.set("before", String(before));
-    return this.request<MessagesResponse>(`/streams/${encodeURIComponent(streamId)}/messages?${query}`, {}, messagePageSchema);
+    return this.request<MessagesResponse>(`/streams/${encodeURIComponent(streamId)}/messages?${query}`, {}, resilientMessagePageDecoder);
   }
 
   markRead(streamId: string, sequence: number): Promise<{ streamId: string; userId: string; sequence: number }> {
@@ -136,25 +137,25 @@ class ApiClient {
   }
 
   pinnedMessages(streamId: string): Promise<Message[]> {
-    return this.request<{ messages: Message[] }>(`/streams/${encodeURIComponent(streamId)}/pins`, {}, messagesEnvelopeSchema).then((result) => result.messages);
+    return this.request<{ messages: Message[] }>(`/streams/${encodeURIComponent(streamId)}/pins`, {}, resilientMessagesEnvelopeDecoder).then((result) => result.messages);
   }
 
   messageContext(messageId: string): Promise<{ streamId: string; targetId: string; items: Message[] }> {
-    return this.request<{ streamId: string; targetId: string; items: Message[] }>(`/messages/${encodeURIComponent(messageId)}/context?limit=60`, {}, messageContextSchema);
+    return this.request<{ streamId: string; targetId: string; items: Message[] }>(`/messages/${encodeURIComponent(messageId)}/context?limit=60`, {}, resilientMessageContextDecoder);
   }
 
   createMessage(streamId: string, input: MessageCreateInput): Promise<Message> {
     return this.request<{ message: Message }>(`/streams/${encodeURIComponent(streamId)}/messages`, {
       method: "POST",
       body: input,
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   createActivity(conversationId: string, type: CooperativeActivityType, options: Record<string, unknown> = {}, clientId = Crypto.randomUUID()): Promise<Message> {
     return this.request<{ message: Message }>(`/conversations/${encodeURIComponent(conversationId)}/activities`, {
       method: "POST",
       body: { clientId, type, options },
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   activity(activityId: string): Promise<CooperativeActivity> {
@@ -162,41 +163,41 @@ class ApiClient {
   }
 
   activityHistory(conversationId: string): Promise<Message[]> {
-    return this.request<{ messages: Message[] }>(`/conversations/${encodeURIComponent(conversationId)}/activities/history`, {}, activityHistoryEnvelopeSchema).then((result) => result.messages);
+    return this.request<{ messages: Message[] }>(`/conversations/${encodeURIComponent(conversationId)}/activities/history`, {}, resilientMessagesEnvelopeDecoder).then((result) => result.messages);
   }
 
   commandActivity(activityId: string, expectedRevision: number, action: string, payload: Record<string, unknown> = {}, clientId = Crypto.randomUUID()): Promise<Message> {
     return this.request<{ message: Message }>(`/activities/${encodeURIComponent(activityId)}/commands`, {
       method: "POST",
       body: { clientId, expectedRevision, action, payload },
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   forwardMessage(messageId: string, targetStreamId: string, clientId: string): Promise<Message> {
     return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/forward`, {
       method: "POST",
       body: { targetStreamId, clientId },
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   editMessage(messageId: string, text: string): Promise<Message> {
     return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}`, {
       method: "PATCH",
       body: { text },
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   setReaction(messageId: string, emoji: string, active: boolean): Promise<Message> {
     return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/reactions`, {
       method: "PUT",
       body: { emoji, active },
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   deleteMessage(messageId: string): Promise<Message> {
     return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}?scope=everyone`, {
       method: "DELETE",
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   hideMessage(messageId: string): Promise<{ id: string; streamId: string }> {
@@ -209,7 +210,7 @@ class ApiClient {
     return this.request<{ message: Message }>(`/messages/${encodeURIComponent(messageId)}/pin`, {
       method: "PUT",
       body: { pinned },
-    }, messageEnvelopeSchema).then((result) => result.message);
+    }, resilientMessageEnvelopeDecoder).then((result) => result.message);
   }
 
   updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {

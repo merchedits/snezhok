@@ -12,6 +12,8 @@ import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppDialog } from "./AppDialogProvider";
 import { AppIcon } from "./AppIcon";
+import { refreshAuthorizedMediaSession } from "../hooks/useAuthorizedMedia";
+import { downloadAuthorizedMedia } from "../lib/authorizedMediaDownload";
 
 type AuthorizedVideoSource = {
   uri: string;
@@ -29,6 +31,9 @@ interface VideoViewerProps {
 
 export function VideoViewer(props: VideoViewerProps) {
   const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    void refreshAuthorizedMediaSession().finally(() => setAttempt((value) => value + 1));
+  }, []);
   return (
     <Modal
       visible={props.visible}
@@ -38,7 +43,7 @@ export function VideoViewer(props: VideoViewerProps) {
       onRequestClose={props.onClose}
     >
       <StatusBar barStyle="light-content" backgroundColor="#000000" translucent={false} />
-      {props.visible ? <ActiveVideoViewer key={attempt} {...props} onRetry={() => setAttempt((value) => value + 1)} /> : null}
+      {props.visible ? <ActiveVideoViewer key={attempt} {...props} onRetry={retry} /> : null}
     </Modal>
   );
 }
@@ -142,14 +147,8 @@ function ActiveVideoViewer({ source, filename, mimeType, durationMs, onClose, on
         return;
       }
       temporaryFile = new File(Paths.cache, `snezhok-video-${Date.now()}.${videoExtension(filename, mimeType)}`);
-      const task = File.createDownloadTask(source.uri, temporaryFile, { headers: source.headers });
-      try {
-        const downloaded = await task.downloadAsync();
-        if (!downloaded?.exists) throw new Error(t("tryAgain"));
-        await MediaLibrary.Asset.create(downloaded.uri);
-      } finally {
-        task.release();
-      }
+      const downloaded = await downloadAuthorizedMedia(source.uri, temporaryFile);
+      await MediaLibrary.Asset.create(downloaded.uri);
       showDialog(t("videoSaved"));
     } catch (error) {
       showDialog(t("videoSaveFailed"), userFacingError(error, t));

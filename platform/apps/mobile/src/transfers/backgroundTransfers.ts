@@ -24,6 +24,7 @@ import {
   batchProgress,
   createAttachmentBatch,
   readyAttachmentGroups,
+  parseAttachmentResult,
   type AttachmentMessageKind,
   type QueuedAttachmentBatch,
   type QueuedAttachmentGroup,
@@ -58,7 +59,7 @@ type WakeCallback = () => void;
 const wakeCallbacks = new Set<WakeCallback>();
 let nativeSubscription: { remove(): void } | null = null;
 let appStateSubscription: { remove(): void } | null = null;
-let reconciliation: Promise<void> | null = null;
+const reconciliations = new Map<string, Promise<void>>();
 
 export function installBackgroundTransferWakeListener(callback: WakeCallback): () => void {
   wakeCallbacks.add(callback);
@@ -122,8 +123,10 @@ export async function reconcileBackgroundTransfers(input: {
   dispatchGroup: DispatchGroup;
   onProgress?: (batchId: string, progress: number) => void;
 }): Promise<void> {
-  if (reconciliation) return reconciliation;
-  reconciliation = reconcileOnce(input).finally(() => { reconciliation = null; });
+  const active = reconciliations.get(input.ownerId);
+  if (active) return active;
+  const reconciliation = reconcileOnce(input).finally(() => { reconciliations.delete(input.ownerId); });
+  reconciliations.set(input.ownerId, reconciliation);
   return reconciliation;
 }
 
@@ -303,6 +306,8 @@ async function reconcileOnce(input: {
   await Promise.all(mismatched.map((batch) => cancelBackgroundBatch(batch.id)));
   batches = (await readBackgroundTransferBatches()).filter((batch) => batch.ownerId === input.ownerId);
   const snapshots = await listNativeTransfers();
+  const invalidNativeResults = snapshots.filter((snapshot) => snapshot.status === "succeeded"
+    && (!snapshot.resultJson || !parseAttachmentResult(snapshot.resultJson)));
   const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.transferId, snapshot]));
   await mutateBackgroundTransferBatches((current) => current.map((batch) => {
     if (batch.ownerId !== input.ownerId || batchComplete(batch)) return batch;
@@ -314,11 +319,22 @@ async function reconcileOnce(input: {
     input.onProgress?.(batch.id, batchProgress(next));
     return next;
   }));
+  // A malformed terminal row must not poison every future reconciliation.
+  // Removing only the native terminal record allows the stable upload id to be
+  // recovered through the server initializer (or safely re-enqueued).
+  await Promise.all(invalidNativeResults.map((snapshot) => removeNativeTransfer(snapshot.transferId).catch(() => false)));
 
   if (input.online) {
+    const errors: unknown[] = [];
     for (const batch of (await readBackgroundTransferBatches()).filter((item) => item.ownerId === input.ownerId && !batchComplete(item))) {
-      if (batch.transfers.some((transfer) => transfer.status === "pending")) await schedulePendingTransfers(batch.id);
+      if (!batch.transfers.some((transfer) => transfer.status === "pending")) continue;
+      try {
+        await schedulePendingTransfers(batch.id);
+      } catch (error) {
+        errors.push(error);
+      }
     }
+    if (errors.length) throw new AggregateError(errors, "One or more attachment batches could not be reconciled");
   }
 
   if (!input.online) return;

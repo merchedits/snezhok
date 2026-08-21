@@ -11,7 +11,7 @@ import { PENDING_UPLOAD_KEY } from "./pendingUpload";
 import {
   cachedStreamDelta,
   clampCachePageSize,
-  decodeMessageRows,
+  decodeMessageRowsDetailed,
   importantCachedMessage,
   parseLegacyCache,
   startupStreamIds,
@@ -69,6 +69,13 @@ function database(): Promise<SQLiteDatabase> {
       );
       CREATE INDEX IF NOT EXISTS cached_messages_stream_sequence
         ON cached_messages (stream_id, sequence DESC);
+      CREATE TABLE IF NOT EXISTS quarantined_cached_messages (
+        stream_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        quarantined_at INTEGER NOT NULL,
+        PRIMARY KEY (stream_id, message_id)
+      );
     `);
     await migrateSchema(db);
     await migrateAsyncStorageCache(db);
@@ -105,7 +112,9 @@ async function migrateSchema(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(`
     CREATE INDEX IF NOT EXISTS cached_messages_important
       ON cached_messages (important, stream_id);
-    PRAGMA user_version = 2;
+    CREATE INDEX IF NOT EXISTS quarantined_cached_messages_at
+      ON quarantined_cached_messages (quarantined_at DESC);
+    PRAGMA user_version = 3;
   `);
 }
 
@@ -184,6 +193,7 @@ async function persistCacheDelta(db: SQLiteDatabase, delta: OfflineCacheDelta): 
       const delta = cachedStreamDelta(existingRows, input);
       for (const { message, payload, important } of delta.upserts) {
         await upsert.executeAsync(streamId, message.id, message.sequence, message.createdAt, important, payload);
+        await db.runAsync("DELETE FROM quarantined_cached_messages WHERE stream_id = ? AND message_id = ?", streamId, message.id);
       }
       for (const messageId of delta.removedIds) {
         await remove.executeAsync(streamId, messageId);
@@ -219,7 +229,7 @@ export async function readCache(): Promise<CachedState> {
     const ownerRow = await db.getFirstAsync<{ value: string }>("SELECT value FROM cache_metadata WHERE key = 'owner_id'");
     if (bootstrap && ownerRow?.value && ownerRow.value !== bootstrap.me.id) {
       await db.withExclusiveTransactionAsync(async (transaction) => {
-        await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
+        await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM quarantined_cached_messages; DELETE FROM cache_metadata;");
       });
       return EMPTY_CACHE;
     }
@@ -227,12 +237,12 @@ export async function readCache(): Promise<CachedState> {
 
     const selectedStreams = startupStreamIds(bootstrap);
     const [importantRows, startupRows] = await Promise.all([
-      db.getAllAsync<CachedMessageRow>("SELECT stream_id, payload FROM cached_messages WHERE important = 1 ORDER BY created_at DESC LIMIT 200"),
+      db.getAllAsync<CachedMessageRow>("SELECT stream_id, message_id, payload FROM cached_messages WHERE important = 1 ORDER BY created_at DESC LIMIT 200"),
       cachedStartupRows(db, selectedStreams, 40),
     ]);
     return {
       bootstrap,
-      messages: decodeUniqueMessageRows([...importantRows, ...startupRows]),
+      messages: await decodeAndQuarantineMessageRows(db, [...importantRows, ...startupRows]),
       cachedAt: Number(cachedAtRow?.value) || 0,
     };
   } catch (error) {
@@ -246,8 +256,8 @@ async function cachedStartupRows(db: SQLiteDatabase, streamIds: string[], limit:
   if (!streamIds.length) return [];
   const placeholders = streamIds.map(() => "?").join(", ");
   return db.getAllAsync<CachedMessageRow>(
-    `SELECT stream_id, payload FROM (
-       SELECT stream_id, payload, sequence,
+    `SELECT stream_id, message_id, payload FROM (
+       SELECT stream_id, message_id, payload, sequence,
          ROW_NUMBER() OVER (PARTITION BY stream_id ORDER BY sequence DESC) AS row_number
        FROM cached_messages WHERE stream_id IN (${placeholders})
      ) WHERE row_number <= ? ORDER BY stream_id, sequence ASC`,
@@ -259,28 +269,60 @@ async function cachedStartupRows(db: SQLiteDatabase, streamIds: string[], limit:
 async function cachedMessageRows(db: SQLiteDatabase, streamId: string, before?: number, limit?: number): Promise<CachedMessageRow[]> {
   const pageSize = clampCachePageSize(limit);
   const rows = before === undefined
-    ? await db.getAllAsync<CachedMessageRow>("SELECT stream_id, payload FROM cached_messages WHERE stream_id = ? ORDER BY sequence DESC LIMIT ?", streamId, pageSize)
-    : await db.getAllAsync<CachedMessageRow>("SELECT stream_id, payload FROM cached_messages WHERE stream_id = ? AND sequence < ? ORDER BY sequence DESC LIMIT ?", streamId, before, pageSize);
+    ? await db.getAllAsync<CachedMessageRow>("SELECT stream_id, message_id, payload FROM cached_messages WHERE stream_id = ? ORDER BY sequence DESC LIMIT ?", streamId, pageSize)
+    : await db.getAllAsync<CachedMessageRow>("SELECT stream_id, message_id, payload FROM cached_messages WHERE stream_id = ? AND sequence < ? ORDER BY sequence DESC LIMIT ?", streamId, before, pageSize);
   return [...rows].reverse();
 }
 
-function decodeUniqueMessageRows(rows: CachedMessageRow[]): Record<string, Message[]> {
-  const decoded = decodeMessageRows(rows);
+function uniqueDecodedMessages(decoded: Record<string, Message[]>): Record<string, Message[]> {
   return Object.fromEntries(Object.entries(decoded).map(([streamId, messages]) => {
     const byId = new Map(messages.map((message) => [message.id, message]));
     return [streamId, [...byId.values()].sort((left, right) => left.sequence - right.sequence || left.createdAt - right.createdAt)];
   }));
 }
 
+async function decodeAndQuarantineMessageRows(db: SQLiteDatabase, rows: CachedMessageRow[]): Promise<Record<string, Message[]>> {
+  const decoded = decodeMessageRowsDetailed(rows);
+  const rejected = decoded.rejected.filter((row): row is typeof row & { messageId: string } => Boolean(row.messageId));
+  if (rejected.length) {
+    await db.withExclusiveTransactionAsync(async (transaction) => {
+      const quarantine = await transaction.prepareAsync(
+        `INSERT INTO quarantined_cached_messages (stream_id, message_id, reason, quarantined_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(stream_id, message_id) DO UPDATE SET
+           reason = excluded.reason,
+           quarantined_at = excluded.quarantined_at`,
+      );
+      const remove = await transaction.prepareAsync("DELETE FROM cached_messages WHERE stream_id = ? AND message_id = ?");
+      try {
+        const quarantinedAt = Date.now();
+        for (const row of rejected) {
+          await quarantine.executeAsync(row.streamId, row.messageId, row.reason, quarantinedAt);
+          await remove.executeAsync(row.streamId, row.messageId);
+        }
+      } finally {
+        await Promise.allSettled([quarantine.finalizeAsync(), remove.finalizeAsync()]);
+      }
+    });
+    recordDiagnostic("warn", "storage", "Invalid cached messages were quarantined", {
+      count: rejected.length,
+      repaired: decoded.repaired,
+    });
+  } else if (decoded.repaired) {
+    recordDiagnostic("info", "storage", "Legacy cached messages were repaired", { count: decoded.repaired });
+  }
+  return uniqueDecodedMessages(decoded.messages);
+}
+
 export async function readCachedMessagePage(streamId: string, before?: number, limit?: number): Promise<Message[]> {
   const db = await database();
   const rows = await cachedMessageRows(db, streamId, before, limit);
-  if (before !== undefined) return decodeMessageRows(rows)[streamId] ?? [];
+  if (before !== undefined) return (await decodeAndQuarantineMessageRows(db, rows))[streamId] ?? [];
   const importantRows = await db.getAllAsync<CachedMessageRow>(
-    "SELECT stream_id, payload FROM cached_messages WHERE stream_id = ? AND important = 1 ORDER BY created_at DESC LIMIT 100",
+    "SELECT stream_id, message_id, payload FROM cached_messages WHERE stream_id = ? AND important = 1 ORDER BY created_at DESC LIMIT 100",
     streamId,
   );
-  return decodeUniqueMessageRows([...importantRows, ...rows])[streamId] ?? [];
+  return (await decodeAndQuarantineMessageRows(db, [...importantRows, ...rows]))[streamId] ?? [];
 }
 
 /** Restores several first pages in one SQLite query for idle inbox warmup. */
@@ -292,14 +334,14 @@ export async function readCachedMessagePages(streamIds: readonly string[], limit
   const [recentRows, importantRows] = await Promise.all([
     cachedStartupRows(db, uniqueIds, limit),
     db.getAllAsync<CachedMessageRow>(
-      `SELECT stream_id, payload FROM cached_messages
+      `SELECT stream_id, message_id, payload FROM cached_messages
        WHERE important = 1 AND stream_id IN (${placeholders})
        ORDER BY created_at DESC LIMIT ?`,
       ...uniqueIds,
       clampCachePageSize(limit) * uniqueIds.length,
     ),
   ]);
-  return decodeUniqueMessageRows([...importantRows, ...recentRows]);
+  return decodeAndQuarantineMessageRows(db, [...importantRows, ...recentRows]);
 }
 
 /** Incrementally sync only dirty streams and changed metadata. */
@@ -375,7 +417,7 @@ export async function writePendingSettingsPatch(patch: Partial<AppSettings>): Pr
 
 export async function clearLocalData(): Promise<void> {
   const clearDatabase = database().then((db) => db.withExclusiveTransactionAsync(async (transaction) => {
-    await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
+    await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM quarantined_cached_messages; DELETE FROM cache_metadata;");
   })).catch((error) => recordDiagnostic("warn", "storage", "SQLite cache clear failed", { error }));
   await Promise.all([clearDatabase, AsyncStorage.multiRemove([CACHE_KEY, LEGACY_CACHE_KEY, OUTBOX_KEY, DRAFTS_KEY, DRAFT_DIRTY_KEY, SETTINGS_DIRTY_KEY, PENDING_UPLOAD_KEY, OWNER_KEY])]);
 }
@@ -403,7 +445,7 @@ export function ensureOfflineOwner(ownerId: string): Promise<void> {
         || (storageOwner && storageOwner !== ownerId)
         || (bootstrapOwner && bootstrapOwner !== ownerId),
       );
-      if (changed) await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM cache_metadata;");
+      if (changed) await transaction.execAsync("DELETE FROM cached_messages; DELETE FROM quarantined_cached_messages; DELETE FROM cache_metadata;");
       await writeMetadata(transaction, "owner_id", ownerId);
     });
     if (changed || (storageOwner && storageOwner !== ownerId)) {

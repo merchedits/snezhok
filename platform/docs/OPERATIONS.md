@@ -116,6 +116,22 @@ Temporary, incomplete upload chunks are intentionally excluded: they are not use
 
 The repository intentionally does not include a one-command destructive production restore. The verified preparation is automated; changing live recovery units remains an explicit operator action with a preserved rollback point.
 
+## Messaging integrity audit
+
+After message/media schema changes and during post-deployment acceptance, run
+the privacy-safe aggregate audit inside the application runtime:
+
+```bash
+npm run messaging:audit --workspace=@snezhok/api
+```
+
+It prints counts only. Invalid message/attachment shapes, ready attachments
+without blob metadata, or attachment/blob byte mismatches fail the command.
+Failed linked media, stale processing attachments, and stale media jobs are
+reported as operational signals for investigation because historical failures
+can legitimately remain after a user-visible retry. The command never prints
+message content, user identifiers, filenames, URLs, or storage keys.
+
 ## Storage and release retention
 
 `prune-storage.sh` is dry-run by default. With `--apply`, it records running services, quiesces writers, refreshes database references, and deletes only:
