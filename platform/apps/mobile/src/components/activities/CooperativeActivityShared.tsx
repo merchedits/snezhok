@@ -12,6 +12,8 @@ import { Avatar } from "../Avatar";
 import { ImageViewer } from "../ImageViewer";
 import { cooperativeActivityStyles as styles } from "./cooperativeActivityStyles";
 
+const COLLAGE_ROWS = [[0, 1, 2], [3, 4, 5], [6, 7, 8]] as const;
+
 export function TerminalActivity({ state, language }: { state: string; language: "ru" | "en" }) {
   const palette = usePalette();
   const copy = state === "declined" ? (language === "ru" ? "Участие отклонено. Сохранённые материалы больше не раскрываются." : "Participation was declined. Saved contributions will not be revealed.") : state === "expired" ? (language === "ru" ? "Это действие завершилось по времени." : "This activity has expired.") : language === "ru" ? "Создатель отменил это действие для обоих." : "The creator cancelled this activity for both people.";
@@ -220,16 +222,20 @@ export function CollageGrid({ attachments }: { attachments: CooperativeActivityE
   const palette = usePalette();
   return (
     <View style={[styles.collageGrid, { backgroundColor: palette.surface }]}>
-      {Array.from({ length: 9 }, (_, index) => {
-        const attachment = attachments[index];
-        return attachment ? (
-          <AuthenticatedImage key={attachment.id} uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={attachment.thumbnailUrl ?? attachment.url} mimeType="image/webp" style={styles.collageCell} />
-        ) : (
-          <View key={`empty-${index}`} style={[styles.collageCell, styles.collageEmpty, { backgroundColor: palette.border }]}>
-            <Text style={{ color: palette.faintText, fontWeight: "800" }}>{index + 1}</Text>
-          </View>
-        );
-      })}
+      {COLLAGE_ROWS.map((indices, row) => (
+        <View key={`row-${row}`} style={styles.collageRow}>
+          {indices.map((index) => {
+            const attachment = attachments[index];
+            return attachment ? (
+              <AuthenticatedImage key={attachment.id} uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={attachment.thumbnailUrl ?? attachment.url} mimeType="image/webp" style={styles.collageCell} />
+            ) : (
+              <View key={`empty-${index}`} style={[styles.collageCell, styles.collageEmpty, { backgroundColor: palette.border }]}>
+                <Text style={{ color: palette.faintText, fontWeight: "800" }}>{index + 1}</Text>
+              </View>
+            );
+          })}
+        </View>
+      ))}
     </View>
   );
 }

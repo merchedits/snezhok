@@ -1,7 +1,7 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -153,7 +153,7 @@ export function ChatScreen({ navigation, route }: Props) {
   ];
 
   return (
-    <KeyboardAvoidingView style={[styles.screen, { backgroundColor: palette.chatCanvas }]} behavior="translate-with-padding" automaticOffset keyboardVerticalOffset={0}>
+    <View style={[styles.screen, { backgroundColor: palette.chatCanvas }]}>
       <PlayfulBackdrop variant="chat" />
       <ChatHeader
         title={title}
@@ -173,43 +173,45 @@ export function ChatScreen({ navigation, route }: Props) {
       />
       <ChatPinnedBanner message={latestPin} onPress={jumpToPinned} />
       <VoicePlaybackBanner streamId={streamId} />
-      <ChatMessageList
-        ref={timeline}
-        navigation={navigation}
-        streamId={streamId}
-        streamKind={streamKind}
-        title={title}
-        {...(route.params.openedAt !== undefined ? { openedAt: route.params.openedAt } : {})}
-        {...(route.params.targetMessageId ? { targetMessageId: route.params.targetMessageId } : {})}
-        messages={messages}
-        {...(conversation ? { conversation } : {})}
-        channelUnreadCount={channel?.unreadCount ?? 0}
-        {...(me?.id ? { meId: me.id } : {})}
-        isGroup={isGroup}
-        selectedIds={selectedIds}
-        selectionMode={selectionMode}
-        selectionProgress={selectionProgress}
-        onToggleSelection={toggleSelection}
-        onReply={setReplyingTo}
-        onOpenReactions={(message, anchorY) => setReactionTarget({ message, anchorY })}
-        onOpenActivity={setActiveActivityMessage}
-      />
-      {selection.selectionMode ? (
-        <ChatSelectionToolbar actions={selectionActions} bottomInset={insets.bottom} />
-      ) : (
-        <ChatComposer
+      <KeyboardAvoidingView style={styles.keyboardRegion} behavior="translate-with-padding" automaticOffset keyboardVerticalOffset={0}>
+        <ChatMessageList
+          ref={timeline}
+          navigation={navigation}
           streamId={streamId}
           streamKind={streamKind}
-          isGroup={isGroup}
-          participants={typingParticipants}
+          title={title}
+          {...(route.params.openedAt !== undefined ? { openedAt: route.params.openedAt } : {})}
+          {...(route.params.targetMessageId ? { targetMessageId: route.params.targetMessageId } : {})}
+          messages={messages}
+          {...(conversation ? { conversation } : {})}
+          channelUnreadCount={channel?.unreadCount ?? 0}
           {...(me?.id ? { meId: me.id } : {})}
-          replyingTo={replyingTo}
-          editingMessage={editingMessage}
-          onCancelReply={() => setReplyingTo(null)}
-          onCancelEditing={() => setEditingMessage(null)}
-          onEditingComplete={() => setEditingMessage(null)}
+          isGroup={isGroup}
+          selectedIds={selectedIds}
+          selectionMode={selectionMode}
+          selectionProgress={selectionProgress}
+          onToggleSelection={toggleSelection}
+          onReply={setReplyingTo}
+          onOpenReactions={(message, anchorY) => setReactionTarget({ message, anchorY })}
+          onOpenActivity={setActiveActivityMessage}
         />
-      )}
+        {selection.selectionMode ? (
+          <ChatSelectionToolbar actions={selectionActions} bottomInset={insets.bottom} />
+        ) : (
+          <ChatComposer
+            streamId={streamId}
+            streamKind={streamKind}
+            isGroup={isGroup}
+            participants={typingParticipants}
+            {...(me?.id ? { meId: me.id } : {})}
+            replyingTo={replyingTo}
+            editingMessage={editingMessage}
+            onCancelReply={() => setReplyingTo(null)}
+            onCancelEditing={() => setEditingMessage(null)}
+            onEditingComplete={() => setEditingMessage(null)}
+          />
+        )}
+      </KeyboardAvoidingView>
       <ReactionPicker visible={Boolean(reactionTarget)} anchorY={reactionTarget?.anchorY ?? 0} activeEmojis={activeReactionEmojis} onClose={() => setReactionTarget(null)} onSelect={selectReaction} />
       <ForwardPickerModal visible={selection.forwardPickerVisible} busy={selection.forwarding} onClose={selection.closeForwardPicker} onSelect={selection.selectForwardTarget} />
       <MessageSearchModal
@@ -268,10 +270,11 @@ export function ChatScreen({ navigation, route }: Props) {
         }}
       />
       <CooperativeActivityModal message={activeActivityMessage ? (messages.find((message) => message.id === activeActivityMessage.id) ?? activeActivityMessage) : null} onClose={() => setActiveActivityMessage(null)} />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  keyboardRegion: { flex: 1 },
 });

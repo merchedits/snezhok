@@ -123,7 +123,7 @@ Neutral canvas and rows with a Lime creation action. The small private deploymen
 
 Messages dominate. Incoming bubbles are Warm with Ink; outgoing bubbles are Violet with white. Bubbles have no normal border or shadow and use a tighter sender-side top corner. Single photo/video messages are content-first cards: no colored bubble padding, only a hairline neutral edge, the complete source aspect ratio within safe viewport bounds, and one translucent bottom-right island for time and delivery state. Media reactions occupy a matching bottom-left island. Text-message reactions and time share one compact footer row instead of stacking into separate vertical levels. Albums retain their intentional cropped mosaic, while full-screen viewers always expose the complete authenticated source. Selection adds Violet boundary/checks without permanently changing normal geometry.
 
-The composer is a calm Milk/Warm strip with a warm field, quiet attachment control, Violet send control, and existing voice gesture behavior. The sparkle cooperative launcher stays prominent in the header. Pinned/reply/edit states use compact soft group surfaces.
+The composer is a calm Milk/Warm strip with a warm field, quiet attachment control, Violet send control, and existing voice gesture behavior. The sparkle cooperative launcher stays prominent in the header. The chat identity header, pinned banner, and active voice-note controls remain outside the keyboard-translated region; opening the keyboard may move the timeline and composer but never the top actions. Pinned/reply/edit states use compact soft group surfaces.
 
 ### Profile
 
@@ -143,7 +143,7 @@ Calls remain calmer than activities: participant video dominates, dark Ink surfa
 
 ### Cooperative activities
 
-The sparkle menu may be more expressive than routine messaging while staying within the fixed families. Every activity card contains: type and icon, human prompt/title, participant state, one current action, and a compact durable result. Secret input reveals no partial answer or metadata. Activity steps update one chronological chat object rather than flooding the conversation.
+The sparkle menu may be more expressive than routine messaging while staying within the fixed families. Every activity card contains: type and icon, human prompt/title, participant state, one current action, and a compact durable result. Inside an activity sheet, the actual question or task is the primary typographic element; the activity type is a smaller orientation label. Closing the sheet is a reversible dismissal, while at most one clearly named terminal action may cancel or decline the activity. Secret input reveals no partial answer or metadata. Activity steps update one chronological chat object rather than flooding the conversation.
 
 ## Motion
 

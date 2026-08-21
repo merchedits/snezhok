@@ -77,7 +77,7 @@ export function PhotoInput({ activityType, text, onChange, onPick, busy, ownPhot
           </View>
         </View>
       ) : null}
-      <Text style={[styles.explainer, { color: palette.secondaryText }]}>{activityType === "color-hunt" ? (ownCount >= 9 ? (ownCollage ? (language === "ru" ? "Коллаж готов — его можно открыть и сохранить." : "Your collage is ready — open it to save or share.") : language === "ru" ? "Собираем PNG‑коллаж 1080×1080…" : "Building your 1080×1080 PNG collage…") : language === "ru" ? `Твоя доска: ${ownCount}/9. Можно выбрать сразу все оставшиеся снимки.` : `Your board: ${ownCount}/9. You can select all remaining photos at once.`) : language === "ru" ? "Ваши снимки откроются только после вклада обоих." : "Your photos unlock only after both people contribute."}</Text>
+      {activityType === "color-hunt" ? <Text style={[styles.explainer, { color: palette.secondaryText }]}>{ownCount >= 9 ? (ownCollage ? (language === "ru" ? "Коллаж готов — его можно открыть и сохранить." : "Your collage is ready — open it to save or share.") : language === "ru" ? "Собираем PNG‑коллаж 1080×1080…" : "Building your 1080×1080 PNG collage…") : language === "ru" ? `Твоя доска: ${ownCount}/9` : `Your board: ${ownCount}/9`}</Text> : null}
       {activityType === "color-hunt" ? (
         ownCollage ? (
           <CollagePhoto attachment={ownCollage} />

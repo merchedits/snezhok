@@ -49,6 +49,8 @@ The common lifecycle is:
 
 Optional terminal states are `declined`, `expired`, and `cancelled`. Reopening an old client must reconstruct the card from durable server state. Socket events accelerate the UI but are not the source of truth.
 
+The activity sheet uses its close control to postpone participation without changing shared state. It exposes only one additional terminal action for the current viewer: the creator may cancel the activity and the other participant may decline it. Two visually competing controls must never perform effectively the same terminal transition.
+
 Create, contribute, reveal, reroll, confirm, and complete mutations require client idempotency keys. Repeated taps, reconnects, HTTP/realtime races, and process death must never create duplicate activities or contributions.
 
 ## Privacy and consent
@@ -104,6 +106,8 @@ Launch options:
 Open answers may appear as they are submitted. Secret answers unlock atomically only when both are locked. The completed card shows both answers side by side or stacked in a consistent participant order. It can be replied to like any chat item.
 
 Prompt content is versioned and moderated as product content, not embedded ad hoc in clients. Avoid therapy diagnosis, coercive intimacy, humiliation, financial/medical advice, and questions that expose another person's secret without consent.
+
+The server-owned bilingual catalog must remain broad enough that every question category has at least 30 authored prompts, and must also maintain substantial Blitz, Tiny Quest, Song Exchange, and Draw & Guess packs. New activity creation excludes recently used prompt objects and Blitz IDs from that conversation while fresh choices remain. Russian is authored and reviewed as primary copy; English is an equivalent adaptation. Catalog tests reject blank and duplicate entries.
 
 ### 60-Second Blitz
 

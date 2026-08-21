@@ -65,8 +65,16 @@ export async function createActivity(userId: string, conversationId: string, inp
         };
     }
 
+    const recentConfigurations = (
+      await client.query<{ config: Record<string, unknown> }>(
+        `SELECT config FROM cooperative_activities
+         WHERE conversation_id=$1 AND type=$2
+         ORDER BY created_at DESC,id DESC LIMIT 24`,
+        [conversationId, input.type],
+      )
+    ).rows.map((row) => row.config);
     const activityId = newId();
-    const configuration = initialActivityConfiguration(input.type, activityOptions, conversation.participant_ids);
+    const configuration = initialActivityConfiguration(input.type, activityOptions, conversation.participant_ids, recentConfigurations);
     await client.query(
       `INSERT INTO cooperative_activities(id,conversation_id,created_by,client_id,type,config)
        VALUES ($1,$2,$3,$4,$5,$6)`,

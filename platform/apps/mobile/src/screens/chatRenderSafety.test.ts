@@ -131,6 +131,14 @@ test("chat composer follows keyboard progress without late JS visibility jumps",
   assert.doesNotMatch(composerSource, /Keyboard\.addListener|keyboardDidShow|keyboardDidHide|keyboardVisible/);
 });
 
+test("chat identity header stays outside the keyboard-translated region", () => {
+  const header = chatSource.indexOf("<ChatHeader");
+  const keyboardRegion = chatSource.indexOf("<KeyboardAvoidingView", header);
+  const timeline = chatSource.indexOf("<ChatMessageList", keyboardRegion);
+  assert.ok(header >= 0 && keyboardRegion > header && timeline > keyboardRegion);
+  assert.match(chatSource, /<KeyboardAvoidingView style=\{styles\.keyboardRegion\}/);
+});
+
 test("text-entry screens and management forms keep focused inputs above the keyboard", () => {
   assert.match(newConversationSource, /KeyboardAvoidingView[\s\S]*behavior="padding" automaticOffset/);
   assert.match(messageSearchSource, /KeyboardAvoidingView[\s\S]*behavior="padding" automaticOffset/);
@@ -152,6 +160,13 @@ test("cooperative drawing is live and color hunt resolves to generated collage m
   assert.match(activityModalSource, /emitRealtimeDrawing/);
   assert.match(activityInputsSource, /ownCollage[\s\S]{0,80}<CollagePhoto/);
   assert.match(activitySharedSource, /entry\.kind === "collage"/);
+});
+
+test("cooperative photo flows keep the prompt primary and use a seam-free three-row collage", () => {
+  assert.doesNotMatch(activityInputsSource, /Можно выбрать сразу все оставшиеся снимки|Ваши снимки откроются только после вклада обоих/);
+  assert.doesNotMatch(activityModalSource, /Не сейчас|Отменить для обоих/);
+  assert.match(activitySharedSource, /COLLAGE_ROWS = \[\[0, 1, 2\], \[3, 4, 5\], \[6, 7, 8\]\]/);
+  assert.match(activitySharedSource, /style=\{styles\.collageRow\}/);
 });
 
 test("cooperative commands reconcile one stale peer revision without losing the action", () => {

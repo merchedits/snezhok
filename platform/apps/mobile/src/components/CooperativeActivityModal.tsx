@@ -122,6 +122,9 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
   const ownParticipant = activity.participants.find((participant) => participant.user.id === meId);
   const ownSubmitted = Boolean(ownEntry) || Boolean(ownParticipant && ["submitted", "completed"].includes(ownParticipant.status));
   const needsDetail = summaryActivity.detail === "summary" && (!detailActivity || detailActivity.revision < summaryActivity.revision);
+  const activityLabel = typeLabel(activity.type, language);
+  const instruction = promptText(activity.config, language);
+  const hasInstruction = Boolean(instruction && instruction !== activityLabel);
   const run = async (action: string, payload: Record<string, unknown> = {}) => {
     if (busy) return false;
     setBusy(true);
@@ -193,8 +196,8 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
           >
             <View style={styles.header}>
               <View style={styles.headerCopy}>
-                <Text style={[styles.title, { color: palette.text }]}>{typeLabel(activity.type, language)}</Text>
-                {promptText(activity.config, language) && promptText(activity.config, language) !== typeLabel(activity.type, language) ? <Text style={[styles.headerInstruction, { color: palette.secondaryText }]}>{promptText(activity.config, language)}</Text> : null}
+                <Text style={[styles.title, !hasInstruction && styles.standaloneTitle, { color: palette.text }]}>{activityLabel}</Text>
+                {hasInstruction ? <Text style={[styles.headerInstruction, { color: palette.text }]}>{instruction}</Text> : null}
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel={language === "ru" ? "Закрыть" : "Close"} disabled={busy} onPress={onClose} style={[styles.close, { backgroundColor: palette.surface }]}>
                 <AppIcon name="close" size={21} color={palette.secondaryText} />
@@ -268,14 +271,9 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
               ) : null}
               {!["completed", "locked", "declined", "cancelled", "expired"].includes(activity.state) ? (
                 <View style={styles.quietActions}>
-                  <Pressable accessibilityRole="button" disabled={busy} onPress={() => void run("decline")}>
-                    <Text style={[styles.quietText, { color: palette.secondaryText }]}>{language === "ru" ? "Не сейчас" : "Not now"}</Text>
+                  <Pressable accessibilityRole="button" disabled={busy} onPress={() => void run(activity.createdBy === meId ? "cancel" : "decline")} style={styles.terminalAction}>
+                    <Text style={[styles.quietText, { color: palette.danger }]}>{activity.createdBy === meId ? (language === "ru" ? "Отменить игру" : "Cancel activity") : language === "ru" ? "Отклонить игру" : "Decline activity"}</Text>
                   </Pressable>
-                  {activity.createdBy === meId ? (
-                    <Pressable accessibilityRole="button" disabled={busy} onPress={() => void run("cancel")}>
-                      <Text style={[styles.quietText, { color: palette.danger }]}>{language === "ru" ? "Отменить для обоих" : "Cancel for both"}</Text>
-                    </Pressable>
-                  ) : null}
                 </View>
               ) : null}
             </ScrollView>

@@ -30,7 +30,7 @@ export const cooperativeActivityStyles = StyleSheet.create({
     borderRadius: 3,
   },
   headerCopy: { flex: 1, minWidth: 0 },
-  headerInstruction: { fontSize: 13, lineHeight: 18, marginTop: 5 },
+  headerInstruction: { fontSize: 21, lineHeight: 27, fontWeight: "800", marginTop: 8 },
   colorAssignment: {
     minHeight: 58,
     borderRadius: 16,
@@ -69,7 +69,8 @@ export const cooperativeActivityStyles = StyleSheet.create({
     gap: 12,
   },
   eyebrow: { fontSize: 12, fontWeight: "800", marginBottom: 5 },
-  title: { fontSize: 22, lineHeight: 27, fontWeight: "800", maxWidth: 300 },
+  title: { fontSize: 18, lineHeight: 23, fontWeight: "800", maxWidth: 300 },
+  standaloneTitle: { fontSize: 22, lineHeight: 27 },
   close: {
     marginLeft: "auto",
     width: 40,
@@ -106,12 +107,12 @@ export const cooperativeActivityStyles = StyleSheet.create({
   error: { fontSize: 13, lineHeight: 18, marginTop: 10 },
   quietActions: {
     minHeight: 44,
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
     marginTop: 15,
   },
   quietText: { fontSize: 13, fontWeight: "700" },
+  terminalAction: { minHeight: 44, paddingHorizontal: 18, alignItems: "center", justifyContent: "center" },
   blitzRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -195,13 +196,12 @@ export const cooperativeActivityStyles = StyleSheet.create({
   collageGrid: {
     width: "100%",
     aspectRatio: 1,
-    flexDirection: "row",
-    flexWrap: "wrap",
     overflow: "hidden",
     borderRadius: 20,
     marginTop: 12,
   },
-  collageCell: { width: "33.3333%", height: "33.3333%" },
+  collageRow: { flex: 1, flexDirection: "row" },
+  collageCell: { flex: 1 },
   collagePhoto: {
     width: "100%",
     aspectRatio: 1,
