@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseArguments, parseArchitectures, parseCertificateDigest, resolveCertificateDigest, validatePublicationManifest } from "./verify-release-artifact.mjs";
+import { parseArguments, parseArchitectures, parseCertificateDigest, resolveCertificateDigest, validateCertificateDigest, validatePublicationManifest } from "./verify-release-artifact.mjs";
 
 test("parses release verifier arguments", () => {
   assert.deepEqual(parseArguments(["--apk", "release.apk", "--version-code", "42"]), { apk: "release.apk", "version-code": "42" });
@@ -24,6 +24,13 @@ test("falls back to the dedicated certificate report", () => {
     ),
     "abcd02",
   );
+});
+
+test("requires a readable certificate only when an identity is asserted", () => {
+  assert.deepEqual(validateCertificateDigest(null, ""), []);
+  assert.deepEqual(validateCertificateDigest(null, "aa"), ["APK signing certificate could not be read"]);
+  assert.deepEqual(validateCertificateDigest("bb", "aa"), ["signing certificate is bb, expected aa"]);
+  assert.deepEqual(validateCertificateDigest("aa", "aa"), []);
 });
 
 test("validates updater publication manifests", () => {

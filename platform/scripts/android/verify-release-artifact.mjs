@@ -39,6 +39,13 @@ export function resolveCertificateDigest(primaryOutput, certificateOutput = "") 
   return parseCertificateDigest(primaryOutput) ?? parseCertificateDigest(certificateOutput);
 }
 
+export function validateCertificateDigest(certificate, expectedCertificate) {
+  if (!expectedCertificate) return [];
+  if (!certificate) return ["APK signing certificate could not be read"];
+  if (certificate !== expectedCertificate) return [`signing certificate is ${certificate}, expected ${expectedCertificate}`];
+  return [];
+}
+
 export function parseArchitectures(fileList) {
   return [...new Set([...fileList.matchAll(/^\/lib\/([^/\r\n]+)\/[^/\r\n]+/gm)].map((match) => match[1]))].sort();
 }
@@ -191,10 +198,9 @@ async function main() {
       failures.push(`packaged Android dependency evidence cannot be read: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (!certificate) failures.push("APK signing certificate could not be read");
   if (!/Verified using v(?:2|3|3\.1) scheme[^:]*:\s*true/i.test(signatureOutput)) failures.push("APK has no verified modern v2/v3 signing scheme");
   if (!/Number of signers:\s*1\b/i.test(signatureOutput)) failures.push("APK must have exactly one signer");
-  if (expectedCertificate && certificate !== expectedCertificate) failures.push(`signing certificate is ${certificate}, expected ${expectedCertificate}`);
+  failures.push(...validateCertificateDigest(certificate, expectedCertificate));
   if (manifest) {
     const digest = await sha256(apk);
     if (apkInfo.size !== manifest.bytes) failures.push(`APK byte count is ${apkInfo.size}, expected ${manifest.bytes}`);
@@ -202,7 +208,7 @@ async function main() {
   }
 
   if (failures.length) throw new Error(`release artifact verification failed:\n- ${failures.join("\n- ")}`);
-  process.stdout.write(`verified release APK ${actualVersion} (${actualVersionCode}), ${architectures.join(", ")}, certificate ${certificate}\n`);
+  process.stdout.write(`verified release APK ${actualVersion} (${actualVersionCode}), ${architectures.join(", ")}${certificate ? `, certificate ${certificate}` : ""}\n`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
