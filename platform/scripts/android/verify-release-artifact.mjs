@@ -35,6 +35,10 @@ export function parseCertificateDigest(output) {
   return match?.[1].replaceAll(":", "").toLowerCase() ?? null;
 }
 
+export function resolveCertificateDigest(primaryOutput, certificateOutput = "") {
+  return parseCertificateDigest(primaryOutput) ?? parseCertificateDigest(certificateOutput);
+}
+
 export function parseArchitectures(fileList) {
   return [...new Set([...fileList.matchAll(/^\/lib\/([^/\r\n]+)\/[^/\r\n]+/gm)].map((match) => match[1]))].sort();
 }
@@ -81,13 +85,15 @@ function findAndroidTool(name) {
   throw new Error(`Android SDK tool was not found: ${name}`);
 }
 
-function run(tool, args) {
+function run(tool, args, { includeStderr = false } = {}) {
   const result = process.platform === "win32"
     ? spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", tool, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
     : spawnSync(tool, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${path.basename(tool)} failed: ${(result.stderr || result.stdout).trim()}`);
-  return result.stdout.trim();
+  const stdout = result.stdout.trim();
+  if (!includeStderr) return stdout;
+  return [stdout, result.stderr.trim()].filter(Boolean).join("\n");
 }
 
 function equalSets(actual, expected) {
@@ -140,8 +146,15 @@ async function main() {
   const files = run(apkanalyzer, ["files", "list", apk]);
   const architectures = parseArchitectures(files);
   const packages = run(apkanalyzer, ["dex", "packages", "--defined-only", apk]);
-  const signatureOutput = run(apksigner, ["verify", "--verbose", "--print-certs", apk]);
-  const certificate = parseCertificateDigest(signatureOutput);
+  const signatureOutput = run(apksigner, ["verify", "--verbose", "--print-certs", apk], { includeStderr: true });
+  // Some Android Build Tools/runner combinations keep the verbose verification
+  // summary and certificate report on different streams. If the combined
+  // invocation still omits the fingerprint, request the certificate report
+  // independently instead of rejecting a correctly signed APK.
+  const certificateOutput = parseCertificateDigest(signatureOutput)
+    ? ""
+    : run(apksigner, ["verify", "--print-certs", apk], { includeStderr: true });
+  const certificate = resolveCertificateDigest(signatureOutput, certificateOutput);
 
   const failures = [];
   if (actualPackage !== expectedPackage) failures.push(`applicationId is ${actualPackage}, expected ${expectedPackage}`);

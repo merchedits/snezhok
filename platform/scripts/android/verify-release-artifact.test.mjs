@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseArguments, parseArchitectures, parseCertificateDigest, validatePublicationManifest } from "./verify-release-artifact.mjs";
+import { parseArguments, parseArchitectures, parseCertificateDigest, resolveCertificateDigest, validatePublicationManifest } from "./verify-release-artifact.mjs";
 
 test("parses release verifier arguments", () => {
   assert.deepEqual(parseArguments(["--apk", "release.apk", "--version-code", "42"]), { apk: "release.apk", "version-code": "42" });
@@ -14,6 +14,16 @@ test("extracts unique sorted APK architectures", () => {
 test("normalizes the signing certificate SHA-256 digest", () => {
   assert.equal(parseCertificateDigest("Signer #1 certificate SHA-256 digest: AA:bb:01"), "aabb01");
   assert.equal(parseCertificateDigest("no digest"), null);
+});
+
+test("falls back to the dedicated certificate report", () => {
+  assert.equal(
+    resolveCertificateDigest(
+      "Verified using v2 scheme (APK Signature Scheme v2): true",
+      "Signer #1 certificate SHA-256 digest: AB:cd:02",
+    ),
+    "abcd02",
+  );
 });
 
 test("validates updater publication manifests", () => {
