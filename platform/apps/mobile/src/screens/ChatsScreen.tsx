@@ -123,7 +123,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   }, [deleteConversation, deleting, selectedConversation, showDialog, t]);
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.background }]}> 
+    <View testID="messaging_e2e_v1" style={[styles.screen, { backgroundColor: palette.background }]}>
       <PlayfulBackdrop variant="chats" />
       <ScreenHeader prominent title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
       <FlatList

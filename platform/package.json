@@ -24,6 +24,9 @@
     "release:verify-production-env": "node scripts/android/verify-production-environment.mjs",
     "release:verify-media": "npm run verify:toolchain --workspace=@snezhok/media-worker",
     "release:verify-android-physical": "node scripts/android/run-physical-release-gate.mjs --require-model SM-A125F",
+    "e2e:android:prepare": "node scripts/android/run-messaging-e2e.mjs --prepare-only",
+    "e2e:android:messaging": "node scripts/android/run-messaging-e2e.mjs",
+    "e2e:android:voice": "node scripts/android/run-messaging-e2e.mjs --include-voice",
     "release:verify-apk": "node scripts/android/verify-release-artifact.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"

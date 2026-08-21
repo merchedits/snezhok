@@ -216,6 +216,7 @@ export function VoiceRecorderControl({ command, quality, microphoneMode, onRecor
 }
 
 interface GestureProps {
+  testID?: string;
   command: VoiceRecordCommand;
   disabled: boolean;
   onStart: () => void;
@@ -224,7 +225,7 @@ interface GestureProps {
   onFinish: () => void;
 }
 
-export function VoiceGestureButton({ command, disabled, onStart, onLock, onCancel, onFinish }: GestureProps) {
+export function VoiceGestureButton({ testID, command, disabled, onStart, onLock, onCancel, onFinish }: GestureProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const reducedMotion = useAppStore((state) => state.settings.reducedMotion);
@@ -283,6 +284,7 @@ export function VoiceGestureButton({ command, disabled, onStart, onLock, onCance
   };
   return (
     <Animated.View
+      testID={testID}
       {...responder.panHandlers}
       accessible
       accessibilityActions={[{ name: "activate" }, { name: "escape" }]}

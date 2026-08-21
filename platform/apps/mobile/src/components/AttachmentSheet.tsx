@@ -204,6 +204,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
               ]}
             >
               <Pressable
+                testID="attachment_send"
                 disabled={busy || resolving}
                 onPress={() => void sendSelection()}
                 style={({ pressed }) => [

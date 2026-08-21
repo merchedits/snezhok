@@ -1,0 +1,233 @@
+package xyz.merchedits.snezhok.e2e
+
+import android.content.Context
+import android.content.Intent
+import android.os.SystemClock
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiObject2
+import androidx.test.uiautomator.Until
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class MessagingSmokeTests {
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+    private val device = UiDevice.getInstance(instrumentation)
+
+    @Before
+    fun openSavedMessages() {
+        launchApp()
+        enterSavedMessages()
+    }
+
+    @Test
+    fun sendTextSurvivesProcessRestart() {
+        val marker = "snezhok-e2e-${System.currentTimeMillis()}"
+        val composer = requireObject(By.res(PACKAGE_NAME, CHAT_COMPOSER_ID), "chat composer")
+        composer.text = marker
+        requireObject(By.res(PACKAGE_NAME, CHAT_SEND_ID), "send button").click()
+        await(By.text(marker), MESSAGE_TIMEOUT_MS, "sent marker")
+        awaitAncestorResource(By.text(marker), MESSAGE_COMMITTED_ID, MESSAGE_TIMEOUT_MS, "server-committed marker")
+
+        val wifiWasEnabled = device.executeShellCommand("settings get global wifi_on").trim() == "1"
+        val mobileDataWasEnabled = device.executeShellCommand("settings get global mobile_data").trim() == "1"
+        try {
+            device.executeShellCommand("svc wifi disable")
+            device.executeShellCommand("svc data disable")
+            device.executeShellCommand("am force-stop $PACKAGE_NAME")
+            launchApp()
+            enterSavedMessages(CACHE_TIMEOUT_MS)
+            await(By.text(marker), CACHE_TIMEOUT_MS, "cached marker after offline process restart")
+        } finally {
+            device.executeShellCommand("svc wifi ${if (wifiWasEnabled) "enable" else "disable"}")
+            device.executeShellCommand("svc data ${if (mobileDataWasEnabled) "enable" else "disable"}")
+        }
+        println("SNEZHOK_E2E text-cache PASS")
+    }
+
+    @Test
+    fun attachmentDrawerOpens() {
+        requireObject(By.res(PACKAGE_NAME, CHAT_ATTACH_ID), "attachment button").click()
+        await(By.res(PACKAGE_NAME, ATTACHMENT_SHEET_ID), DRAWER_TIMEOUT_MS, "attachment drawer")
+        device.pressBack()
+        check(device.wait(Until.gone(By.res(PACKAGE_NAME, ATTACHMENT_SHEET_ID)), DRAWER_TIMEOUT_MS)) {
+            "Attachment drawer did not close"
+        }
+        println("SNEZHOK_E2E attachment-drawer PASS")
+    }
+
+    @Test
+    fun sendPhotoAndOpenViewer() {
+        val filename = InstrumentationRegistry.getArguments().getString("photoFilename")
+            ?.takeIf { it.matches(Regex("[A-Za-z0-9._-]{1,120}")) }
+            ?: error("photoFilename instrumentation argument is missing or unsafe")
+        val before = objects(By.res(PACKAGE_NAME, MESSAGE_IMAGE_ID)).size
+        requireObject(By.res(PACKAGE_NAME, CHAT_ATTACH_ID), "attachment button").click()
+        await(By.res(PACKAGE_NAME, ATTACHMENT_SHEET_ID), DRAWER_TIMEOUT_MS, "attachment drawer")
+        await(By.desc(filename), MEDIA_DISCOVERY_TIMEOUT_MS, "prepared photo $filename").click()
+        requireObject(By.res(PACKAGE_NAME, ATTACHMENT_SEND_ID), "attachment send button").click()
+        check(device.wait(Until.gone(By.res(PACKAGE_NAME, ATTACHMENT_SHEET_ID)), UPLOAD_TIMEOUT_MS)) {
+            "Attachment drawer stayed open after the upload timeout"
+        }
+        val photo = awaitObjectCountGrowth(By.res(PACKAGE_NAME, MESSAGE_IMAGE_ID), before, UPLOAD_TIMEOUT_MS, "new image message")
+        photo.click()
+        val close = awaitAny(
+            listOf(By.desc(CLOSE_PHOTO_RU), By.desc(CLOSE_PHOTO_EN)),
+            VIEWER_TIMEOUT_MS,
+            "photo viewer close action",
+        )
+        close.click()
+        println("SNEZHOK_E2E photo-upload-viewer PASS")
+    }
+
+    @Test
+    fun sendVideoAndOpenViewer() {
+        val filename = InstrumentationRegistry.getArguments().getString("videoFilename")
+            ?.takeIf { it.matches(Regex("[A-Za-z0-9._-]{1,120}")) }
+            ?: error("videoFilename instrumentation argument is missing or unsafe")
+        val before = objects(By.res(PACKAGE_NAME, MESSAGE_VIDEO_ID)).size
+        requireObject(By.res(PACKAGE_NAME, CHAT_ATTACH_ID), "attachment button").click()
+        await(By.res(PACKAGE_NAME, ATTACHMENT_SHEET_ID), DRAWER_TIMEOUT_MS, "attachment drawer")
+        await(By.desc(filename), MEDIA_DISCOVERY_TIMEOUT_MS, "prepared video $filename").click()
+        requireObject(By.res(PACKAGE_NAME, ATTACHMENT_SEND_ID), "attachment send button").click()
+        check(device.wait(Until.gone(By.res(PACKAGE_NAME, ATTACHMENT_SHEET_ID)), UPLOAD_TIMEOUT_MS)) {
+            "Attachment drawer stayed open after the video upload timeout"
+        }
+        val video = awaitObjectCountGrowth(By.res(PACKAGE_NAME, MESSAGE_VIDEO_ID), before, UPLOAD_TIMEOUT_MS, "new video message")
+        video.click()
+        val close = awaitAny(
+            listOf(By.desc(CLOSE_VIDEO_RU), By.desc(CLOSE_VIDEO_EN)),
+            VIEWER_TIMEOUT_MS,
+            "video viewer close action",
+        )
+        close.click()
+        println("SNEZHOK_E2E video-upload-viewer PASS")
+    }
+
+    @Test
+    fun recordSendAndStartVoicePlayback() {
+        val before = objects(By.res(PACKAGE_NAME, MESSAGE_VOICE_ID)).size
+        val voice = requireObject(By.res(PACKAGE_NAME, CHAT_VOICE_ID), "voice record button")
+        val bounds = voice.visibleBounds
+        check(device.swipe(bounds.centerX(), bounds.centerY(), bounds.centerX(), bounds.centerY(), VOICE_HOLD_STEPS)) {
+            "Could not perform the voice recording gesture"
+        }
+        val sent = awaitObjectCountGrowth(By.res(PACKAGE_NAME, MESSAGE_VOICE_ID), before, UPLOAD_TIMEOUT_MS, "new voice message")
+        sent.click()
+        check(device.hasObject(By.res(PACKAGE_NAME, MESSAGE_VOICE_ID))) { "Chat disappeared after voice playback started" }
+        println("SNEZHOK_E2E voice-record-playback PASS")
+    }
+
+    private fun launchApp() {
+        val intent = context.packageManager.getLaunchIntentForPackage(PACKAGE_NAME)
+            ?: error("Snezhok is not installed")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        check(device.wait(Until.hasObject(By.pkg(PACKAGE_NAME).depth(0)), APP_START_TIMEOUT_MS)) {
+            "Snezhok did not reach the foreground"
+        }
+    }
+
+    private fun enterSavedMessages(timeoutMs: Long = INBOX_TIMEOUT_MS) {
+        check(device.wait(Until.hasObject(By.res(PACKAGE_NAME, E2E_PROTOCOL_ID)), timeoutMs)) {
+            "Installed Snezhok does not expose messaging E2E protocol v1; install a candidate built from the current source"
+        }
+        if (device.wait(Until.hasObject(By.res(PACKAGE_NAME, CHAT_TIMELINE_ID)), SHORT_TIMEOUT_MS)) return
+        val saved = awaitAny(
+            listOf(By.res(PACKAGE_NAME, SAVED_MESSAGES_ID), By.text(SAVED_MESSAGES_RU), By.text(SAVED_MESSAGES_EN)),
+            timeoutMs,
+            "Saved Messages row; sign in once before running the autonomous suite",
+        )
+        saved.click()
+        await(By.res(PACKAGE_NAME, CHAT_TIMELINE_ID), minOf(timeoutMs, CHAT_OPEN_TIMEOUT_MS), "chat timeline")
+    }
+
+    private fun requireObject(selector: BySelector, description: String): UiObject2 =
+        device.findObject(selector) ?: await(selector, SHORT_TIMEOUT_MS, description)
+
+    private fun await(selector: BySelector, timeoutMs: Long, description: String): UiObject2 =
+        checkNotNull(device.wait(Until.findObject(selector), timeoutMs)) { "Timed out waiting for $description" }
+
+    private fun awaitAny(selectors: List<BySelector>, timeoutMs: Long, description: String): UiObject2 {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        do {
+            selectors.firstNotNullOfOrNull { device.findObject(it) }?.let { return it }
+            SystemClock.sleep(POLL_INTERVAL_MS)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        error("Timed out waiting for $description")
+    }
+
+    private fun objects(selector: BySelector): List<UiObject2> =
+        device.findObjects(selector) ?: emptyList()
+
+    private fun awaitObjectCountGrowth(
+        selector: BySelector,
+        baseline: Int,
+        timeoutMs: Long,
+        description: String,
+    ): UiObject2 {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        do {
+            val current = objects(selector)
+            if (current.size > baseline) return current.last()
+            SystemClock.sleep(POLL_INTERVAL_MS)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        error("Timed out waiting for $description")
+    }
+
+    private fun awaitAncestorResource(selector: BySelector, resourceId: String, timeoutMs: Long, description: String) {
+        val expected = "$PACKAGE_NAME:id/$resourceId"
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        do {
+            var current: UiObject2? = device.findObject(selector)
+            repeat(8) {
+                if (current?.resourceName == expected) return
+                current = current?.parent
+            }
+            SystemClock.sleep(POLL_INTERVAL_MS)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        error("Timed out waiting for $description")
+    }
+
+    private companion object {
+        const val PACKAGE_NAME = "xyz.merchedits.snezhok"
+        const val SAVED_MESSAGES_ID = "conversation_saved"
+        const val E2E_PROTOCOL_ID = "messaging_e2e_v1"
+        const val CHAT_TIMELINE_ID = "chat_timeline"
+        const val CHAT_ATTACH_ID = "chat_attach"
+        const val CHAT_COMPOSER_ID = "chat_composer"
+        const val CHAT_SEND_ID = "chat_send"
+        const val CHAT_VOICE_ID = "chat_voice"
+        const val ATTACHMENT_SHEET_ID = "attachment_sheet"
+        const val ATTACHMENT_SEND_ID = "attachment_send"
+        const val MESSAGE_IMAGE_ID = "message_image"
+        const val MESSAGE_VIDEO_ID = "message_video"
+        const val MESSAGE_VOICE_ID = "message_voice"
+        const val MESSAGE_COMMITTED_ID = "message_committed"
+        const val SAVED_MESSAGES_RU = "\u0421\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f"
+        const val SAVED_MESSAGES_EN = "Saved Messages"
+        const val CLOSE_PHOTO_RU = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u0444\u043e\u0442\u043e"
+        const val CLOSE_PHOTO_EN = "Close photo"
+        const val CLOSE_VIDEO_RU = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u0432\u0438\u0434\u0435\u043e"
+        const val CLOSE_VIDEO_EN = "Close video"
+        const val POLL_INTERVAL_MS = 100L
+        const val SHORT_TIMEOUT_MS = 2_000L
+        const val APP_START_TIMEOUT_MS = 15_000L
+        const val INBOX_TIMEOUT_MS = 20_000L
+        const val CHAT_OPEN_TIMEOUT_MS = 8_000L
+        const val DRAWER_TIMEOUT_MS = 5_000L
+        const val MEDIA_DISCOVERY_TIMEOUT_MS = 15_000L
+        const val MESSAGE_TIMEOUT_MS = 20_000L
+        const val CACHE_TIMEOUT_MS = 4_000L
+        const val UPLOAD_TIMEOUT_MS = 120_000L
+        const val VIEWER_TIMEOUT_MS = 8_000L
+        const val VOICE_HOLD_STEPS = 420
+    }
+}

@@ -86,7 +86,7 @@ function attachmentComponentName(componentStack?: string | null): string {
 
 function AlbumMediaTile({ attachment, onOpen }: { attachment: Attachment; onOpen: () => void }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onOpen} style={styles.albumTile}>
+    <Pressable testID={attachment.kind === "video" ? "message_video" : "message_image"} accessibilityRole="button" onPress={onOpen} style={styles.albumTile}>
       <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </Pressable>
@@ -103,7 +103,7 @@ function AlbumAttachmentViewer({ attachments, index, onIndex, onClose }: { attac
 function AttachmentView({ attachment, streamId, mine, foreground, mutedForeground }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string }) {
   if (attachment.kind === "image") return <ImageAttachment attachment={attachment} />;
   if (attachment.kind === "video") return <InlineVideo attachment={attachment} />;
-  if (attachment.kind === "audio") return <VoiceMessageAttachment attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
+  if (attachment.kind === "audio") return <VoiceMessageAttachment testID="message_voice" attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
   if (attachment.kind === "document") return <DocumentAttachment attachment={attachment} />;
   return null;
 }
@@ -145,13 +145,13 @@ function DocumentAttachment({ attachment }: { attachment: Attachment }) {
 function ImageAttachment({ attachment }: { attachment: Attachment }) {
   const [open, setOpen] = useState(false);
   const [size, onIntrinsicSize] = useMediaFrame(attachment);
-  return <><Pressable onPress={() => setOpen(true)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} resizeMode="contain" showLoader onIntrinsicSize={onIntrinsicSize} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
+  return <><Pressable testID="message_image" onPress={() => setOpen(true)}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} resizeMode="contain" showLoader onIntrinsicSize={onIntrinsicSize} style={[styles.photo, size]} /></Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
 }
 
 function InlineVideo({ attachment }: { attachment: Attachment }) {
   const [open, setOpen] = useState(false);
   const [size, onIntrinsicSize] = useMediaFrame(attachment);
-  return <><Pressable accessibilityRole="button" onPress={() => setOpen(true)} style={[styles.videoPreview, size]}>{attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" onIntrinsicSize={onIntrinsicSize} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}<View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>{attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
+  return <><Pressable testID="message_video" accessibilityRole="button" onPress={() => setOpen(true)} style={[styles.videoPreview, size]}>{attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" onIntrinsicSize={onIntrinsicSize} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}<View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>{attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</Pressable>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
 }
 
 function useMediaFrame(attachment: Attachment): [ReturnType<typeof messageMediaSize>, (width: number, height: number) => void] {

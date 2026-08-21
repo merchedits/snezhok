@@ -28,3 +28,16 @@ budgets. Results and Perfetto traces are copied to
 `runtime/evidence/android/<revision>/<timestamp>/` with a privacy-safe manifest
 and hashes. Runtime upload, navigation, and media timings are also retained in
 the app's redacted diagnostics report.
+
+Before the numerical gate, run the functional installed-app journeys:
+
+```powershell
+npm run e2e:android:messaging
+npm run e2e:android:voice
+```
+
+These commands validate text/offline-cache recovery, the attachment drawer,
+real photo and generated-video upload/viewer cycles, and microphone
+record/send/playback start. Their
+privacy-safe evidence is stored separately under
+`runtime/evidence/android-e2e/`.

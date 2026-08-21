@@ -95,3 +95,9 @@ Before publishing an APK:
 4. Verify resumable HTTP range delivery from the public endpoint.
 5. Confirm API health, domain job-worker heartbeat/revision, database latency,
    realtime reconnect, LiveKit reachability, and media-worker queue health.
+
+Functional Android automation is documented in
+[ANDROID_E2E.md](./ANDROID_E2E.md). Its messaging and voice journeys exercise
+the installed app without storing account credentials or introducing a server
+test backdoor. Emulator evidence supplements but never replaces the physical
+SM-A125F performance gate.

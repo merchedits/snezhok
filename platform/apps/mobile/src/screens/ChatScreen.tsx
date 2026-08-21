@@ -153,7 +153,7 @@ export function ChatScreen({ navigation, route }: Props) {
   ];
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.chatCanvas }]}>
+    <View testID="messaging_e2e_v1" style={[styles.screen, { backgroundColor: palette.chatCanvas }]}>
       <PlayfulBackdrop variant="chat" />
       <ChatHeader
         title={title}

@@ -46,6 +46,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     "./plugins/withReleaseSigning.cjs",
     "./plugins/withLegalAssets.cjs",
     "./plugins/withAndroidPerformance.cjs",
+    "./plugins/withAndroidMessagingE2E.cjs",
     "expo-image",
     "expo-audio",
     [

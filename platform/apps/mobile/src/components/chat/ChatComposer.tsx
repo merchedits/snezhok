@@ -115,6 +115,7 @@ export function ChatComposer({
           <View style={styles.composerButton}><ActivityIndicator color={palette.accent} /></View>
         ) : text.trim() ? (
           <Pressable
+            testID="chat_send"
             delayLongPress={320}
             onPress={() => void sendText()}
             onLongPress={showSendOptions}
@@ -124,7 +125,7 @@ export function ChatComposer({
             <AppIcon name="arrow-up" size={21} color={palette.onAccent} strokeWidth={2} />
           </Pressable>
         ) : capabilities.uploads ? (
-          <VoiceGestureButton command={voiceCommand} disabled={uploading} onStart={startVoiceRecording} onLock={() => updateVoiceCommand("locked")} onCancel={() => updateVoiceCommand("cancel")} onFinish={() => updateVoiceCommand("finish")} />
+          <VoiceGestureButton testID="chat_voice" command={voiceCommand} disabled={uploading} onStart={startVoiceRecording} onLock={() => updateVoiceCommand("locked")} onCancel={() => updateVoiceCommand("cancel")} onFinish={() => updateVoiceCommand("finish")} />
         ) : (
           <View style={styles.composerButton} />
         )}

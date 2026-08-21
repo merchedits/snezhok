@@ -115,6 +115,7 @@ export const MessageBubble = memo(
           <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
           <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
             <Pressable
+              testID={message.failed ? "message_failed" : message.pending ? "message_pending" : "message_committed"}
               delayLongPress={240}
               onPress={handlePress}
               onLongPress={handleLongPress}

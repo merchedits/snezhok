@@ -17,6 +17,7 @@ const DEFAULT_WAVEFORM_WIDTH = 176;
 const SEEK_STEP_SECONDS = 5;
 
 export interface VoiceMessageAttachmentProps {
+  testID?: string | undefined;
   attachment: Attachment;
   streamId: string;
   mine: boolean;
@@ -30,19 +31,20 @@ export interface VoiceMessageAttachmentProps {
  * The native audio player is only allocated after the first play request. That
  * matters in long chat lists and on memory-constrained devices such as the A12.
  */
-export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ attachment, streamId, mine, foreground, mutedForeground }: VoiceMessageAttachmentProps) {
+export const VoiceMessageAttachment = memo(function VoiceMessageAttachment({ testID, attachment, streamId, mine, foreground, mutedForeground }: VoiceMessageAttachmentProps) {
   const playback = useSyncExternalStore(subscribeVoicePlayback, voicePlaybackSnapshot, voicePlaybackSnapshot);
   const activated = playback.requestedKey === `${streamId}:${attachment.id}`;
   const bars = useMemo(() => voiceWaveformBars(attachment.waveform), [attachment.waveform]);
   const source = useAuthorizedMedia(attachment.url);
 
   if (activated) {
-    return <ActiveVoiceMessage attachment={attachment} bars={bars} source={source} speed={playback.speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
+    return <ActiveVoiceMessage testID={testID} attachment={attachment} bars={bars} source={source} speed={playback.speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />;
   }
-  return <VoiceMessageFrame bars={bars} currentSeconds={attachmentDuration(attachment)} durationSeconds={attachmentDuration(attachment)} loading={false} playing={false} progress={0} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onToggle={() => requestVoicePlayback(streamId, attachment.id)} />;
+  return <VoiceMessageFrame testID={testID} bars={bars} currentSeconds={attachmentDuration(attachment)} durationSeconds={attachmentDuration(attachment)} loading={false} playing={false} progress={0} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onToggle={() => requestVoicePlayback(streamId, attachment.id)} />;
 });
 
 interface ActiveVoiceMessageProps {
+  testID?: string | undefined;
   attachment: Attachment;
   bars: readonly number[];
   speed: VoicePlaybackSpeed;
@@ -53,14 +55,14 @@ interface ActiveVoiceMessageProps {
   source: AuthenticatedMediaSource;
 }
 
-function ActiveVoiceMessage({ attachment, bars, source, speed, streamId, mine, foreground, mutedForeground }: ActiveVoiceMessageProps) {
+function ActiveVoiceMessage({ testID, attachment, bars, source, speed, streamId, mine, foreground, mutedForeground }: ActiveVoiceMessageProps) {
   const [attempt, setAttempt] = useState(0);
-  return <LoadedVoiceMessage key={attempt} attachment={attachment} bars={bars} source={source} speed={speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onRetry={() => {
+  return <LoadedVoiceMessage key={attempt} testID={testID} attachment={attachment} bars={bars} source={source} speed={speed} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onRetry={() => {
     void refreshAuthorizedMediaSession().finally(() => setAttempt((current) => current + 1));
   }} />;
 }
 
-function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, foreground, mutedForeground, onRetry }: ActiveVoiceMessageProps & { onRetry: () => void }) {
+function LoadedVoiceMessage({ testID, attachment, bars, source, speed, streamId, mine, foreground, mutedForeground, onRetry }: ActiveVoiceMessageProps & { onRetry: () => void }) {
   // 120ms is smooth enough for a continuously clipped fill without making a
   // low-end device reconcile the entire message row every animation frame.
   const player = useAudioPlayer(source, { updateInterval: 120 });
@@ -169,10 +171,11 @@ function LoadedVoiceMessage({ attachment, bars, source, speed, streamId, mine, f
   };
 
   const displayedTime = status.didJustFinish || currentTime <= 0 ? duration : currentTime;
-  return <VoiceMessageFrame bars={bars} currentSeconds={displayedTime} durationSeconds={duration} loading={!status.error && (!status.isLoaded || (status.isBuffering && !status.playing))} failed={Boolean(status.error) || playbackFailed} playing={status.playing} progress={progress} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onSeek={seekToProgress} onToggle={toggle} />;
+  return <VoiceMessageFrame testID={testID} bars={bars} currentSeconds={displayedTime} durationSeconds={duration} loading={!status.error && (!status.isLoaded || (status.isBuffering && !status.playing))} failed={Boolean(status.error) || playbackFailed} playing={status.playing} progress={progress} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onSeek={seekToProgress} onToggle={toggle} />;
 }
 
 interface VoiceMessageFrameProps {
+  testID?: string | undefined;
   bars: readonly number[];
   currentSeconds: number;
   durationSeconds: number;
@@ -187,7 +190,7 @@ interface VoiceMessageFrameProps {
   onSeek?: (progress: number) => void;
 }
 
-function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, failed = false, playing, progress, mine, mutedForeground, onToggle, onSeek }: VoiceMessageFrameProps) {
+function VoiceMessageFrame({ testID, bars, currentSeconds, durationSeconds, loading, failed = false, playing, progress, mine, mutedForeground, onToggle, onSeek }: VoiceMessageFrameProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const [waveformWidth, setWaveformWidth] = useState(DEFAULT_WAVEFORM_WIDTH);
@@ -207,7 +210,7 @@ function VoiceMessageFrame({ bars, currentSeconds, durationSeconds, loading, fai
   };
 
   return (
-    <View style={styles.container}>
+    <View testID={testID} style={styles.container}>
       <Pressable accessibilityLabel={t("voiceMessage")} accessibilityRole="button" onPress={onToggle} style={[styles.playButton, { backgroundColor: controlColor }]}>
         {loading ? <ActivityIndicator color={controlForeground} size="small" /> : <AppIcon name={failed ? "refresh-outline" : playing ? "pause" : "play"} size={19} color={controlForeground} />}
       </Pressable>
