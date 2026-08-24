@@ -99,6 +99,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   const [historyState, setHistoryState] = useState<"waiting" | "loading" | "ready" | "error">("waiting");
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
   const userDraggedHistory = useRef(false);
+  const initialBottomAnchored = useRef(false);
   const loadingOlder = useRef(false);
   const firstPaintRecorded = useRef(false);
   const cachedMessageCountAtOpen = useRef(messages.length);
@@ -150,6 +151,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   }, [isFocused, routeSettled, streamId]);
   useEffect(() => {
     userDraggedHistory.current = false;
+    initialBottomAnchored.current = false;
     loadingOlder.current = false;
     firstPaintRecorded.current = false;
     cachedMessageCountAtOpen.current = useAppStore.getState().messages[streamId]?.length ?? 0;
@@ -169,6 +171,14 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     .filter((attachment) => attachment.kind === "audio")
     .map((attachment) => attachment.id)), [displayMessages]);
   const voiceAttachmentKey = voiceAttachmentIds.join(",");
+
+  useEffect(() => {
+    if (initialBottomAnchored.current || targetMessageId || userDraggedHistory.current || renderedMessages.length === 0) return;
+    initialBottomAnchored.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      list.current?.scrollToEnd({ animated: false });
+    }));
+  }, [renderedMessages.length, streamId, targetMessageId]);
 
   useEffect(() => { setVoicePlaybackQueue(streamId, voiceAttachmentIds); }, [streamId, voiceAttachmentKey]);
   useEffect(() => () => clearVoicePlaybackQueue(streamId), [streamId]);

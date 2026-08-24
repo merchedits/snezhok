@@ -46,15 +46,14 @@ async function main() {
   const photoFilename = "snezhok-e2e-photo.png";
   const videoFilename = "snezhok-e2e-video.mp4";
   const photoDeviceDirectory = "/sdcard/Pictures/SnezhokE2E";
-  const photoDevicePath = `${photoDeviceDirectory}/${photoFilename}`;
   const videoDevicePath = `${photoDeviceDirectory}/${videoFilename}`;
 
   await adbCommand(adb, serial, ["install", "-r", "-t", testApk], { inherit: true });
   await adbCommand(adb, serial, ["shell", "mkdir", "-p", photoDeviceDirectory]);
-  await adbCommand(adb, serial, ["push", photoSource, photoDevicePath], { inherit: true });
-  await adbCommand(adb, serial, ["shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", `file://${photoDevicePath}`], { allowFailure: true });
+  await removeMediaFixtures(adb, serial, photoFilename, "images");
   await adbCommand(adb, serial, ["shell", "rm", "-f", videoDevicePath]);
   await adbCommand(adb, serial, ["shell", "am", "start", "-W", "-n", `${testNamespace}/.FixtureActivity`]);
+  await waitForMediaFixture(adb, serial, photoFilename, "images");
   await adbCommand(adb, serial, ["shell", "screenrecord", "--time-limit", "2", "--size", "320x480", "--bit-rate", "500000", videoDevicePath]);
   await adbCommand(adb, serial, ["shell", "am", "force-stop", testNamespace]);
   await adbCommand(adb, serial, ["shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", `file://${videoDevicePath}`], { allowFailure: true });
@@ -63,8 +62,9 @@ async function main() {
   }
 
   const instrumentation = await findInstrumentation(adb, serial);
+  const textMarker = `snezhok-e2e-${Date.now()}`;
   const scenarios = [
-    { name: "text-cache", method: "sendTextSurvivesProcessRestart" },
+    { name: "text-cache", method: "sendTextForCacheProbe", arguments: { textMarker }, textCacheMarker: textMarker },
     { name: "attachment-drawer", method: "attachmentDrawerOpens" },
     { name: "photo-upload-viewer", method: "sendPhotoAndOpenViewer", arguments: { photoFilename } },
     { name: "video-upload-viewer", method: "sendVideoAndOpenViewer", arguments: { videoFilename } },
@@ -75,7 +75,9 @@ async function main() {
   for (const scenario of scenarios) {
     const startedAt = Date.now();
     try {
-      const output = await runScenario(adb, serial, instrumentation, scenario);
+      const output = scenario.textCacheMarker
+        ? await runTextCacheScenario(adb, serial, instrumentation, scenario, scenario.textCacheMarker)
+        : await runScenario(adb, serial, instrumentation, scenario);
       results.push({ name: scenario.name, status: "passed", durationMs: Date.now() - startedAt, output: sanitizeEvidence(output) });
       process.stdout.write(`PASS ${scenario.name} (${Date.now() - startedAt} ms)\n`);
     } catch (error) {
@@ -83,7 +85,6 @@ async function main() {
       results.push({ name: scenario.name, status: "failed", durationMs: Date.now() - startedAt, failure: sanitizeEvidence(failure.message) });
       suiteFailure = failure;
       process.stderr.write(`FAIL ${scenario.name}: ${sanitizeEvidence(failure.message)}\n`);
-      break;
     }
   }
 
@@ -148,11 +149,114 @@ async function runScenario(adb, serial, instrumentation, scenario) {
   return output;
 }
 
+async function runTextCacheScenario(adb, serial, instrumentation, scenario, marker) {
+  const sendOutput = await runScenario(adb, serial, instrumentation, scenario);
+  await awaitMarker(adb, serial, marker, true);
+  const wifiWasEnabled = (await adbCommand(adb, serial, ["shell", "settings", "get", "global", "wifi_on"])).trim() === "1";
+  const mobileDataWasEnabled = (await adbCommand(adb, serial, ["shell", "settings", "get", "global", "mobile_data"])).trim() === "1";
+  try {
+    await adbCommand(adb, serial, ["shell", "svc", "wifi", "disable"]);
+    await adbCommand(adb, serial, ["shell", "svc", "data", "disable"]);
+    const cacheOutput = await runScenario(adb, serial, instrumentation, {
+      method: "openSavedMessagesForCacheProbe",
+    });
+    await awaitMarker(adb, serial, marker, false);
+    return `${sendOutput}\n${cacheOutput}`;
+  } finally {
+    await adbCommand(adb, serial, ["shell", "svc", "wifi", wifiWasEnabled ? "enable" : "disable"], { allowFailure: true });
+    await adbCommand(adb, serial, ["shell", "svc", "data", mobileDataWasEnabled ? "enable" : "disable"], { allowFailure: true });
+  }
+}
+
 async function remoteSha256(adb, serial, remotePath) {
   const output = await adbCommand(adb, serial, ["shell", "sha256sum", remotePath]);
   const digest = output.match(/^([0-9a-f]{64})\b/i)?.[1]?.toLowerCase();
   if (!digest) throw new Error("Could not hash the generated Android video fixture");
   return digest;
+}
+
+async function awaitMarker(adb, serial, marker, committed, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const hierarchy = await adbCommand(adb, serial, ["exec-out", "uiautomator", "dump", "/dev/tty"], { allowFailure: true });
+    if (committed ? isMarkerCommitted(hierarchy, marker) : isMarkerVisible(hierarchy, marker)) return;
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  } while (Date.now() < deadline);
+  throw new Error(committed
+    ? "The test message was not externally observed in the committed state"
+    : "The test message was not externally observed after an offline process restart");
+}
+
+export function isMarkerCommitted(hierarchy, marker) {
+  const stack = [];
+  const tags = String(hierarchy).match(/<\/?node\b[^>]*>/g) ?? [];
+  for (const tag of tags) {
+    if (tag.startsWith("</")) {
+      stack.pop();
+      continue;
+    }
+    const resourceId = decodeXmlAttribute(tag.match(/\bresource-id="([^"]*)"/)?.[1] ?? "");
+    const text = decodeXmlAttribute(tag.match(/\btext="([^"]*)"/)?.[1] ?? "");
+    const current = { committed: resourceId === "message_committed" || resourceId.endsWith(":id/message_committed") };
+    if (text === marker && [...stack, current].some((node) => node.committed)) return true;
+    if (!tag.endsWith("/>")) stack.push(current);
+  }
+  return false;
+}
+
+export function isMarkerVisible(hierarchy, marker) {
+  return hierarchyTextValues(hierarchy).includes(marker);
+}
+
+function hierarchyTextValues(hierarchy) {
+  return [...String(hierarchy).matchAll(/\btext="([^"]*)"/g)].map((match) => decodeXmlAttribute(match[1]));
+}
+
+async function waitForMediaFixture(adb, serial, filename, collection) {
+  const deadline = Date.now() + 8_000;
+  do {
+    const output = await queryMediaStore(adb, serial, collection);
+    const mediaId = mediaStoreIdForFilename(output, filename);
+    if (mediaId) return mediaId;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  } while (Date.now() < deadline);
+  throw new Error("The private-safe photo fixture was not indexed by Android MediaStore");
+}
+
+async function removeMediaFixtures(adb, serial, filename, collection) {
+  const output = await queryMediaStore(adb, serial, collection);
+  for (const mediaId of mediaStoreIdsForFilename(output, filename)) {
+    await adbCommand(adb, serial, ["shell", "content", "delete", "--uri", `content://media/external/${collection}/media/${mediaId}`], { allowFailure: true });
+  }
+}
+
+function queryMediaStore(adb, serial, collection) {
+  return adbCommand(adb, serial, [
+    "shell", "content", "query", "--uri", `content://media/external/${collection}/media`, "--projection", "_id:_display_name",
+  ], { allowFailure: true });
+}
+
+export function mediaStoreIdForFilename(output, filename) {
+  return mediaStoreIdsForFilename(output, filename).at(-1) ?? null;
+}
+
+export function mediaStoreIdsForFilename(output, filename) {
+  const ids = [];
+  for (const line of String(output).split(/\r?\n/)) {
+    const id = line.match(/\b_id=(\d+)\b/)?.[1];
+    const name = line.match(/\b_display_name=([^,]+)(?:,|$)/)?.[1];
+    if (id && name === filename) ids.push(id);
+  }
+  return ids;
+}
+
+function decodeXmlAttribute(value) {
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
 }
 
 function instrumentationPassed(output) {

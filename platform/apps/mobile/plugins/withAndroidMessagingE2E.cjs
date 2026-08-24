@@ -16,11 +16,14 @@ module.exports = function withAndroidMessagingE2E(config) {
     const sourceRoot = path.join(moduleRoot, "src", "main");
     const kotlinRoot = path.join(sourceRoot, "java", "xyz", "merchedits", "snezhok", "e2e");
     const resourceRoot = path.join(sourceRoot, "res", "values");
+    const rawResourceRoot = path.join(sourceRoot, "res", "raw");
     fs.mkdirSync(kotlinRoot, { recursive: true });
     fs.mkdirSync(resourceRoot, { recursive: true });
+    fs.mkdirSync(rawResourceRoot, { recursive: true });
     fs.copyFileSync(path.join(templateRoot, "messaging-e2e.gradle"), path.join(moduleRoot, "build.gradle"));
     fs.copyFileSync(path.join(templateRoot, "AndroidManifest.xml"), path.join(sourceRoot, "AndroidManifest.xml"));
     fs.copyFileSync(path.join(templateRoot, "strings.xml"), path.join(resourceRoot, "strings.xml"));
+    fs.copyFileSync(path.join(dangerousConfig.modRequest.projectRoot, "assets", "snezhok-flower-icon.png"), path.join(rawResourceRoot, "snezhok_e2e_photo.png"));
     for (const filename of ["FixtureActivity.kt", "MessagingSmokeTests.kt"]) {
       fs.copyFileSync(path.join(templateRoot, filename), path.join(kotlinRoot, filename));
     }

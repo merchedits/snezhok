@@ -66,8 +66,9 @@ The runner may optionally install an exact candidate before testing:
 node scripts/android/run-messaging-e2e.mjs --apk 'F:\path\to\candidate.apk'
 ```
 
-It pushes `snezhok-e2e-photo.png` and records a two-second solid-color frame
-from a test-only activity into the dedicated `Pictures/SnezhokE2E/` directory.
+The test-only activity publishes the bundled `snezhok-e2e-photo.png` through
+Android MediaStore and records a two-second solid-color frame into the dedicated
+`Pictures/SnezhokE2E/` directory.
 No Snezhok or device content enters that fixture. The runner requests only the runtime permissions needed
 by the journeys, and uses observable UI state instead of fixed synchronization
 sleeps. The only duration-based operation is holding the microphone long enough
@@ -75,7 +76,8 @@ to create a valid voice note.
 
 ## Results
 
-The command fails on the first broken journey and writes a private report to:
+The command runs every independent journey, fails if any journey is broken,
+and writes one private report to:
 
 ```text
 runtime/evidence/android-e2e/<source-revision>/<timestamp>/report.json

@@ -104,6 +104,8 @@ test("cached chats use one bottom-anchor mechanism without a duplicate overlay",
   assert.match(timelineSource, /onLoad=\{recordFirstPaint\}/);
   assert.doesNotMatch(timelineSource, /FIRST_FRAME_MESSAGES|firstFrameMessages|onContentSizeChange=/);
   assert.match(timelineSource, /onScrollBeginDrag=\{\(\) => \{[\s\S]{0,40}userDraggedHistory\.current = true/);
+  assert.match(timelineSource, /initialBottomAnchored\.current = true;[\s\S]{0,160}scrollToEnd\(\{ animated: false \}\)/);
+  assert.match(timelineSource, /targetMessageId \|\| userDraggedHistory\.current \|\| renderedMessages\.length === 0/);
 });
 
 test("conversation touch warms SQLite without pre-mounting the native route", () => {
