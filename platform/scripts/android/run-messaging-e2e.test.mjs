@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { isMarkerCommitted, isMarkerVisible, mediaStoreIdForFilename, mediaStoreIdsForFilename, parseAdbDevices, parsePackageVersion, sanitizeEvidence, selectDevice } from "./run-messaging-e2e.mjs";
+import { mediaStoreIdForFilename, mediaStoreIdsForFilename, parseAdbDevices, parsePackageVersion, sanitizeEvidence, selectDevice } from "./run-messaging-e2e.mjs";
 
 const runnerSource = readFileSync(new URL("./run-messaging-e2e.mjs", import.meta.url), "utf8");
 
@@ -39,6 +39,8 @@ test("uses React Native raw testID resource names for UIAutomator selectors", ()
   assert.match(source, /am force-stop \$PACKAGE_NAME/);
   assert.match(source, /private fun resourcePrefix\(prefix: String\): BySelector = By\.res/);
   assert.match(source, /awaitNewResource\(MESSAGE_VIDEO_PREFIX/);
+  assert.match(source, /awaitNewResource\(MESSAGE_COMMITTED_PREFIX/);
+  assert.match(source, /device\.pressBack\(\)/);
 });
 
 test("installs the gallery fixture through MediaStore and continues collecting independent failures", () => {
@@ -50,15 +52,9 @@ test("installs the gallery fixture through MediaStore and continues collecting i
   assert.doesNotMatch(runnerSource, /suiteFailure = failure;[\s\S]{0,120}\bbreak;/);
 });
 
-test("detects a marker only beneath a committed message without retaining chat content", () => {
-  const marker = "snezhok-e2e-1720000000000";
-  const committed = `<hierarchy><node resource-id="message_committed"><node text="${marker}" resource-id="" /></node></hierarchy>`;
-  const pending = `<hierarchy><node resource-id="message_pending"><node text="${marker}" resource-id="" /></node></hierarchy>`;
-  assert.equal(isMarkerCommitted(committed, marker), true);
-  assert.equal(isMarkerCommitted(pending, marker), false);
-  assert.equal(isMarkerCommitted(committed, "another-marker"), false);
-  assert.equal(isMarkerVisible(pending, marker), true);
-  assert.equal(isMarkerVisible(pending, "another-marker"), false);
+test("keeps text verification inside private-safe instrumentation", () => {
+  assert.doesNotMatch(runnerSource, /uiautomator[\s\S]{0,40}dump/);
+  assert.match(runnerSource, /openSavedMessagesForCacheProbe[\s\S]{0,120}textMarker: marker/);
 });
 
 test("finds the exact private-safe fixture row in MediaStore output", () => {

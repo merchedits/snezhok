@@ -91,7 +91,11 @@ export function createMessageMutationDomain<Guard>({ set, get, persist, persistN
           messages: { ...state.messages, [streamId]: (state.messages[streamId] ?? []).map((message) => message.id === clientId ? { ...message, pending: false, failed: true } : message) },
         }));
       }
-      if (guardIsCurrent(guard)) persist({ bootstrap: true, outbox: true, streamIds: [streamId] });
+      // The optimistic write is durable before the request. Once the server has
+      // acknowledged (or definitively rejected) it, persist that terminal state
+      // before resolving as well. A process death immediately after Send must
+      // never resurrect a stale pending bubble or an already-delivered outbox job.
+      if (guardIsCurrent(guard)) await persistNow({ bootstrap: true, outbox: true, streamIds: [streamId] });
     },
 
     forwardMessage: async (messageId, targetStreamId) => {

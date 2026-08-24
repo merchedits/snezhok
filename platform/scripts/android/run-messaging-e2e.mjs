@@ -153,8 +153,8 @@ async function runTextCacheScenario(adb, serial, instrumentation, scenario, mark
   const sendOutput = await runScenario(adb, serial, instrumentation, scenario);
   const committedReopenOutput = await runScenario(adb, serial, instrumentation, {
     method: "openSavedMessagesForCacheProbe",
+    arguments: { textMarker: marker },
   });
-  await awaitMarker(adb, serial, marker, true);
   const wifiWasEnabled = (await adbCommand(adb, serial, ["shell", "settings", "get", "global", "wifi_on"])).trim() === "1";
   const mobileDataWasEnabled = (await adbCommand(adb, serial, ["shell", "settings", "get", "global", "mobile_data"])).trim() === "1";
   try {
@@ -162,8 +162,8 @@ async function runTextCacheScenario(adb, serial, instrumentation, scenario, mark
     await adbCommand(adb, serial, ["shell", "svc", "data", "disable"]);
     const cacheOutput = await runScenario(adb, serial, instrumentation, {
       method: "openSavedMessagesForCacheProbe",
+      arguments: { textMarker: marker },
     });
-    await awaitMarker(adb, serial, marker, false);
     return `${sendOutput}\n${committedReopenOutput}\n${cacheOutput}`;
   } finally {
     await adbCommand(adb, serial, ["shell", "svc", "wifi", wifiWasEnabled ? "enable" : "disable"], { allowFailure: true });
@@ -176,43 +176,6 @@ async function remoteSha256(adb, serial, remotePath) {
   const digest = output.match(/^([0-9a-f]{64})\b/i)?.[1]?.toLowerCase();
   if (!digest) throw new Error("Could not hash the generated Android video fixture");
   return digest;
-}
-
-async function awaitMarker(adb, serial, marker, committed, timeoutMs = 20_000) {
-  const deadline = Date.now() + timeoutMs;
-  do {
-    const hierarchy = await adbCommand(adb, serial, ["exec-out", "uiautomator", "dump", "/dev/tty"], { allowFailure: true });
-    if (committed ? isMarkerCommitted(hierarchy, marker) : isMarkerVisible(hierarchy, marker)) return;
-    await new Promise((resolve) => setTimeout(resolve, 750));
-  } while (Date.now() < deadline);
-  throw new Error(committed
-    ? "The test message was not externally observed in the committed state"
-    : "The test message was not externally observed after an offline process restart");
-}
-
-export function isMarkerCommitted(hierarchy, marker) {
-  const stack = [];
-  const tags = String(hierarchy).match(/<\/?node\b[^>]*>/g) ?? [];
-  for (const tag of tags) {
-    if (tag.startsWith("</")) {
-      stack.pop();
-      continue;
-    }
-    const resourceId = decodeXmlAttribute(tag.match(/\bresource-id="([^"]*)"/)?.[1] ?? "");
-    const text = decodeXmlAttribute(tag.match(/\btext="([^"]*)"/)?.[1] ?? "");
-    const current = { committed: resourceId === "message_committed" || resourceId.endsWith(":id/message_committed") };
-    if (text === marker && [...stack, current].some((node) => node.committed)) return true;
-    if (!tag.endsWith("/>")) stack.push(current);
-  }
-  return false;
-}
-
-export function isMarkerVisible(hierarchy, marker) {
-  return hierarchyTextValues(hierarchy).includes(marker);
-}
-
-function hierarchyTextValues(hierarchy) {
-  return [...String(hierarchy).matchAll(/\btext="([^"]*)"/g)].map((match) => decodeXmlAttribute(match[1]));
 }
 
 async function waitForMediaFixture(adb, serial, filename, collection) {
@@ -251,15 +214,6 @@ export function mediaStoreIdsForFilename(output, filename) {
     if (id && name === filename) ids.push(id);
   }
   return ids;
-}
-
-function decodeXmlAttribute(value) {
-  return value
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&");
 }
 
 function instrumentationPassed(output) {

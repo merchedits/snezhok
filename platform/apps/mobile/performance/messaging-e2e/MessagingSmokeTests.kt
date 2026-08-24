@@ -34,17 +34,23 @@ class MessagingSmokeTests {
         val marker = InstrumentationRegistry.getArguments().getString("textMarker")
             ?.takeIf { it.matches(Regex("snezhok-e2e-[0-9]{10,20}")) }
             ?: error("textMarker instrumentation argument is missing or unsafe")
+        val committedBefore = resourceNames(MESSAGE_COMMITTED_PREFIX)
         val composer = requireObject(resource(CHAT_COMPOSER_ID), "chat composer")
         composer.text = marker
         requireObject(resource(CHAT_SEND_ID), "send button").click()
+        awaitComposerCleared(marker)
         await(By.text(marker), MESSAGE_TIMEOUT_MS, "sent marker")
-        SystemClock.sleep(SERVER_SETTLE_DELAY_MS)
+        awaitNewResource(MESSAGE_COMMITTED_PREFIX, committedBefore, MESSAGE_TIMEOUT_MS, "server-acknowledged text message")
         println("SNEZHOK_E2E text-send PASS")
     }
 
     @Test
     fun openSavedMessagesForCacheProbe() {
+        val marker = InstrumentationRegistry.getArguments().getString("textMarker")
+            ?.takeIf { it.matches(Regex("snezhok-e2e-[0-9]{10,20}")) }
+            ?: error("textMarker instrumentation argument is missing or unsafe")
         check(device.hasObject(resource(CHAT_TIMELINE_ID))) { "Cached chat timeline is not visible" }
+        await(By.text(marker), MESSAGE_TIMEOUT_MS, "cached text marker")
         println("SNEZHOK_E2E cache-open PASS")
     }
 
@@ -152,7 +158,12 @@ class MessagingSmokeTests {
         check(device.wait(Until.hasObject(resource(E2E_PROTOCOL_ID)), timeoutMs)) {
             "Installed Snezhok does not expose messaging E2E protocol v1; install a candidate built from the current source"
         }
-        if (device.wait(Until.hasObject(resource(CHAT_TIMELINE_ID)), SHORT_TIMEOUT_MS)) return
+        if (device.wait(Until.hasObject(resource(CHAT_TIMELINE_ID)), SHORT_TIMEOUT_MS)) {
+            device.pressBack()
+        }
+        if (!device.wait(Until.hasObject(resource(SAVED_MESSAGES_ID)), SHORT_TIMEOUT_MS)) {
+            awaitAny(listOf(By.desc(CHATS_RU), By.desc(CHATS_EN)), timeoutMs, "Chats tab").click()
+        }
         val saved = awaitAny(
             listOf(resource(SAVED_MESSAGES_ID), By.text(SAVED_MESSAGES_RU), By.text(SAVED_MESSAGES_EN)),
             timeoutMs,
@@ -160,6 +171,15 @@ class MessagingSmokeTests {
         )
         saved.click()
         await(resource(CHAT_TIMELINE_ID), minOf(timeoutMs, CHAT_OPEN_TIMEOUT_MS), "chat timeline")
+    }
+
+    private fun awaitComposerCleared(marker: String) {
+        val deadline = SystemClock.elapsedRealtime() + SHORT_TIMEOUT_MS
+        do {
+            if (device.findObject(resource(CHAT_COMPOSER_ID))?.text != marker) return
+            SystemClock.sleep(POLL_INTERVAL_MS)
+        } while (SystemClock.elapsedRealtime() < deadline)
+        error("Composer did not clear after Send")
     }
 
     private fun requireObject(selector: BySelector, description: String): UiObject2 =
@@ -218,6 +238,9 @@ class MessagingSmokeTests {
         const val MESSAGE_IMAGE_PREFIX = "message_image_"
         const val MESSAGE_VIDEO_PREFIX = "message_video_"
         const val MESSAGE_VOICE_PREFIX = "message_voice_"
+        const val MESSAGE_COMMITTED_PREFIX = "message_committed_"
+        const val CHATS_RU = "\u0427\u0430\u0442\u044b"
+        const val CHATS_EN = "Chats"
         const val SAVED_MESSAGES_RU = "\u0421\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f"
         const val SAVED_MESSAGES_EN = "Saved Messages"
         const val CLOSE_PHOTO_RU = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u0444\u043e\u0442\u043e"
@@ -225,7 +248,6 @@ class MessagingSmokeTests {
         const val CLOSE_VIDEO_RU = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u0432\u0438\u0434\u0435\u043e"
         const val CLOSE_VIDEO_EN = "Close video"
         const val POLL_INTERVAL_MS = 100L
-        const val SERVER_SETTLE_DELAY_MS = 2_000L
         const val SHORT_TIMEOUT_MS = 2_000L
         const val APP_START_TIMEOUT_MS = 15_000L
         const val INBOX_TIMEOUT_MS = 20_000L

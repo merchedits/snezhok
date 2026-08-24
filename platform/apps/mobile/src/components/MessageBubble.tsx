@@ -37,7 +37,7 @@ export const MessageBubble = memo(
     const ui = useUiPreferences();
     const displayAttachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
     const mediaOnly = !message.activity && !message.text && !message.replyTo && !message.forwardedFrom && displayAttachments.length > 0 && displayAttachments.every((attachment) => attachment.kind === "image" || attachment.kind === "video") && variant === "bubble";
-    const stateTestId = message.failed ? "message_failed" : message.pending ? "message_pending" : "message_committed";
+    const stateTestId = `${message.failed ? "message_failed" : message.pending ? "message_pending" : "message_committed"}_${message.id}`;
     const lastTapAt = useRef(0);
     const tapAnchorY = useRef(0);
     const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

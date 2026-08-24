@@ -24,6 +24,17 @@ test("offline send durably persists the optimistic message and outbox before res
   assert.equal(fixture.persistedNow[0]?.outbox, true);
 });
 
+test("online send durably persists both optimistic and acknowledged states", async () => {
+  const fixture = createFixture();
+
+  await fixture.domain.actions.sendMessage("chat", { text: "hello", kind: "text", replyToId: null, attachmentIds: [], silent: false });
+
+  assert.equal(fixture.state.messages.chat?.[0]?.pending, false);
+  assert.equal(fixture.state.outbox.length, 0);
+  assert.equal(fixture.persistedNow.length, 2);
+  assert.equal(fixture.persistedNow[1]?.outbox, true);
+});
+
 test("delete for me uses the non-destructive hide endpoint", async () => {
   let hidden = 0;
   let deleted = 0;

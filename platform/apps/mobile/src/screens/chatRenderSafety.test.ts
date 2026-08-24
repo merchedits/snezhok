@@ -80,7 +80,7 @@ test("chat media uses native bounded caches and lazy audio players", () => {
 });
 
 test("direct and channel message rows expose the same delivery-state selector", () => {
-  assert.match(messageBubbleSource, /const stateTestId = message\.failed \? "message_failed" : message\.pending \? "message_pending" : "message_committed"/);
+  assert.match(messageBubbleSource, /const stateTestId = `\$\{message\.failed \? "message_failed" : message\.pending \? "message_pending" : "message_committed"\}_\$\{message\.id\}`/);
   assert.equal(messageBubbleSource.match(/testID=\{stateTestId\}/g)?.length, 2);
 });
 
