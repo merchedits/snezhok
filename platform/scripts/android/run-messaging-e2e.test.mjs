@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { parseAdbDevices, parsePackageVersion, sanitizeEvidence, selectDevice } from "./run-messaging-e2e.mjs";
@@ -16,4 +17,20 @@ test("redacts credentials and private identifiers from E2E evidence", () => {
 
 test("extracts installed package version without retaining dumpsys output", () => {
   assert.deepEqual(parsePackageVersion("versionCode=44 minSdk=24 targetSdk=36\nversionName=4.5.2"), { versionName: "4.5.2", versionCode: 44 });
+});
+
+test("packages the Android instrumentation runner explicitly", () => {
+  const gradle = readFileSync(new URL("../../apps/mobile/performance/messaging-e2e/messaging-e2e.gradle", import.meta.url), "utf8");
+  assert.match(gradle, /implementation 'androidx\.test:runner:[^']+'/);
+});
+
+test("declares package visibility for the separately installed Snezhok app", () => {
+  const manifest = readFileSync(new URL("../../apps/mobile/performance/messaging-e2e/AndroidManifest.xml", import.meta.url), "utf8");
+  assert.match(manifest, /<queries>[\s\S]*<package android:name="xyz\.merchedits\.snezhok"\s*\/>[\s\S]*<\/queries>/);
+});
+
+test("uses React Native raw testID resource names for UIAutomator selectors", () => {
+  const source = readFileSync(new URL("../../apps/mobile/performance/messaging-e2e/MessagingSmokeTests.kt", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /By\.res\(PACKAGE_NAME,/);
+  assert.match(source, /private fun resource\(id: String\): BySelector = By\.res\(id\)/);
 });

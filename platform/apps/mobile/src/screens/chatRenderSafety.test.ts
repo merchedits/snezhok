@@ -74,6 +74,11 @@ test("chat media uses native bounded caches and lazy audio players", () => {
   assert.match(voiceAttachmentSource, /idleWaveform = mine \? "rgba\(255,255,255,0\.72\)"/);
 });
 
+test("direct and channel message rows expose the same delivery-state selector", () => {
+  assert.match(messageBubbleSource, /const stateTestId = message\.failed \? "message_failed" : message\.pending \? "message_pending" : "message_committed"/);
+  assert.equal(messageBubbleSource.match(/testID=\{stateTestId\}/g)?.length, 2);
+});
+
 test("fixed visual language removes configurable density, contrast, motion, and radii", () => {
   assert.doesNotMatch(settingsSource, /compactSpacing|highContrast|reduceMotion|messageCorners|bubbleRadiusOptions/);
   assert.doesNotMatch(bottomNavigationSource, /android_ripple|shadowOpacity|elevation/);
