@@ -151,6 +151,9 @@ async function runScenario(adb, serial, instrumentation, scenario) {
 
 async function runTextCacheScenario(adb, serial, instrumentation, scenario, marker) {
   const sendOutput = await runScenario(adb, serial, instrumentation, scenario);
+  const committedReopenOutput = await runScenario(adb, serial, instrumentation, {
+    method: "openSavedMessagesForCacheProbe",
+  });
   await awaitMarker(adb, serial, marker, true);
   const wifiWasEnabled = (await adbCommand(adb, serial, ["shell", "settings", "get", "global", "wifi_on"])).trim() === "1";
   const mobileDataWasEnabled = (await adbCommand(adb, serial, ["shell", "settings", "get", "global", "mobile_data"])).trim() === "1";
@@ -161,7 +164,7 @@ async function runTextCacheScenario(adb, serial, instrumentation, scenario, mark
       method: "openSavedMessagesForCacheProbe",
     });
     await awaitMarker(adb, serial, marker, false);
-    return `${sendOutput}\n${cacheOutput}`;
+    return `${sendOutput}\n${committedReopenOutput}\n${cacheOutput}`;
   } finally {
     await adbCommand(adb, serial, ["shell", "svc", "wifi", wifiWasEnabled ? "enable" : "disable"], { allowFailure: true });
     await adbCommand(adb, serial, ["shell", "svc", "data", mobileDataWasEnabled ? "enable" : "disable"], { allowFailure: true });

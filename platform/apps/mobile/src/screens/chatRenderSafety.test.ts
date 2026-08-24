@@ -72,6 +72,11 @@ test("chat media uses native bounded caches and lazy audio players", () => {
   assert.match(voiceAttachmentSource, /if \(status\.error \|\| playbackFailed\) \{\s+onRetry\(\)/);
   assert.doesNotMatch(voiceAttachmentSource, /useCachedAuthorizedMedia|File\.createDownloadTask/);
   assert.match(voiceAttachmentSource, /idleWaveform = mine \? "rgba\(255,255,255,0\.72\)"/);
+  assert.match(messageMediaSource, /message_image_\$\{attachment\.id\}/);
+  assert.match(messageMediaSource, /message_video_\$\{attachment\.id\}/);
+  assert.match(messageMediaSource, /message_voice_\$\{attachment\.id\}/);
+  assert.match(deviceMediaSource, /AssetField\.MODIFICATION_TIME/);
+  assert.doesNotMatch(deviceMediaSource, /orderBy\(\{ key: MediaLibrary\.AssetField\.CREATION_TIME/);
 });
 
 test("direct and channel message rows expose the same delivery-state selector", () => {

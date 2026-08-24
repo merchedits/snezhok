@@ -34,7 +34,10 @@ class DeviceMediaLibrary {
     if (!permission.granted) return { status: "permission-denied" };
     const rows = await new MediaLibrary.Query()
       .within(MediaLibrary.AssetField.MEDIA_TYPE, imagesOnly ? [MediaLibrary.MediaType.IMAGE] : [MediaLibrary.MediaType.IMAGE, MediaLibrary.MediaType.VIDEO])
-      .orderBy({ key: MediaLibrary.AssetField.CREATION_TIME, ascending: false })
+      // DATE_TAKEN is legitimately null for many Android PNGs and screenshots.
+      // MediaStore modification time reliably keeps newly captured/imported
+      // assets at the front instead of silently pushing them beyond our limit.
+      .orderBy({ key: MediaLibrary.AssetField.MODIFICATION_TIME, ascending: false })
       .limit(MAX_RECENT_ASSETS)
       .exeForMetadata();
     this.recent = rows.flatMap((asset) => {

@@ -14,6 +14,7 @@ import androidx.test.uiautomator.Until
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.regex.Pattern
 
 @RunWith(AndroidJUnit4::class)
 class MessagingSmokeTests {
@@ -63,7 +64,7 @@ class MessagingSmokeTests {
         val filename = InstrumentationRegistry.getArguments().getString("photoFilename")
             ?.takeIf { it.matches(Regex("[A-Za-z0-9._-]{1,120}")) }
             ?: error("photoFilename instrumentation argument is missing or unsafe")
-        val before = objects(resource(MESSAGE_IMAGE_ID)).size
+        val before = resourceNames(MESSAGE_IMAGE_PREFIX)
         requireObject(resource(CHAT_ATTACH_ID), "attachment button").click()
         await(resource(ATTACHMENT_SHEET_ID), DRAWER_TIMEOUT_MS, "attachment drawer")
         await(By.desc(filename), MEDIA_DISCOVERY_TIMEOUT_MS, "prepared photo $filename").click()
@@ -71,7 +72,7 @@ class MessagingSmokeTests {
         check(device.wait(Until.gone(resource(ATTACHMENT_SHEET_ID)), UPLOAD_TIMEOUT_MS)) {
             "Attachment drawer stayed open after the upload timeout"
         }
-        val photo = awaitObjectCountGrowth(resource(MESSAGE_IMAGE_ID), before, UPLOAD_TIMEOUT_MS, "new image message")
+        val photo = awaitNewResource(MESSAGE_IMAGE_PREFIX, before, UPLOAD_TIMEOUT_MS, "new image message")
         photo.click()
         val close = awaitAny(
             listOf(By.desc(CLOSE_PHOTO_RU), By.desc(CLOSE_PHOTO_EN)),
@@ -87,7 +88,7 @@ class MessagingSmokeTests {
         val filename = InstrumentationRegistry.getArguments().getString("videoFilename")
             ?.takeIf { it.matches(Regex("[A-Za-z0-9._-]{1,120}")) }
             ?: error("videoFilename instrumentation argument is missing or unsafe")
-        val before = objects(resource(MESSAGE_VIDEO_ID)).size
+        val before = resourceNames(MESSAGE_VIDEO_PREFIX)
         requireObject(resource(CHAT_ATTACH_ID), "attachment button").click()
         await(resource(ATTACHMENT_SHEET_ID), DRAWER_TIMEOUT_MS, "attachment drawer")
         await(By.desc(filename), MEDIA_DISCOVERY_TIMEOUT_MS, "prepared video $filename").click()
@@ -95,7 +96,7 @@ class MessagingSmokeTests {
         check(device.wait(Until.gone(resource(ATTACHMENT_SHEET_ID)), UPLOAD_TIMEOUT_MS)) {
             "Attachment drawer stayed open after the video upload timeout"
         }
-        val video = awaitObjectCountGrowth(resource(MESSAGE_VIDEO_ID), before, UPLOAD_TIMEOUT_MS, "new video message")
+        val video = awaitNewResource(MESSAGE_VIDEO_PREFIX, before, UPLOAD_TIMEOUT_MS, "new video message")
         video.click()
         val close = awaitAny(
             listOf(By.desc(CLOSE_VIDEO_RU), By.desc(CLOSE_VIDEO_EN)),
@@ -108,15 +109,15 @@ class MessagingSmokeTests {
 
     @Test
     fun recordSendAndStartVoicePlayback() {
-        val before = objects(resource(MESSAGE_VOICE_ID)).size
+        val before = resourceNames(MESSAGE_VOICE_PREFIX)
         val voice = requireObject(resource(CHAT_VOICE_ID), "voice record button")
         val bounds = voice.visibleBounds
         check(device.swipe(bounds.centerX(), bounds.centerY(), bounds.centerX(), bounds.centerY(), VOICE_HOLD_STEPS)) {
             "Could not perform the voice recording gesture"
         }
-        val sent = awaitObjectCountGrowth(resource(MESSAGE_VOICE_ID), before, UPLOAD_TIMEOUT_MS, "new voice message")
+        val sent = awaitNewResource(MESSAGE_VOICE_PREFIX, before, UPLOAD_TIMEOUT_MS, "new voice message")
         sent.click()
-        check(device.hasObject(resource(MESSAGE_VOICE_ID))) { "Chat disappeared after voice playback started" }
+        check(device.hasObject(resourcePrefix(MESSAGE_VOICE_PREFIX))) { "Chat disappeared after voice playback started" }
         println("SNEZHOK_E2E voice-record-playback PASS")
     }
 
@@ -181,16 +182,23 @@ class MessagingSmokeTests {
 
     private fun resource(id: String): BySelector = By.res(id)
 
-    private fun awaitObjectCountGrowth(
-        selector: BySelector,
-        baseline: Int,
+    private fun resourcePrefix(prefix: String): BySelector = By.res(
+        Pattern.compile("^(?:${Pattern.quote(PACKAGE_NAME)}:id/)?${Pattern.quote(prefix)}.+$"),
+    )
+
+    private fun resourceNames(prefix: String): Set<String> =
+        objects(resourcePrefix(prefix)).mapNotNull { it.resourceName }.toSet()
+
+    private fun awaitNewResource(
+        prefix: String,
+        baseline: Set<String>,
         timeoutMs: Long,
         description: String,
     ): UiObject2 {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs
         do {
-            val current = objects(selector)
-            if (current.size > baseline) return current.last()
+            val current = objects(resourcePrefix(prefix))
+            current.lastOrNull { it.resourceName !in baseline }?.let { return it }
             SystemClock.sleep(POLL_INTERVAL_MS)
         } while (SystemClock.elapsedRealtime() < deadline)
         error("Timed out waiting for $description")
@@ -207,9 +215,9 @@ class MessagingSmokeTests {
         const val CHAT_VOICE_ID = "chat_voice"
         const val ATTACHMENT_SHEET_ID = "attachment_sheet"
         const val ATTACHMENT_SEND_ID = "attachment_send"
-        const val MESSAGE_IMAGE_ID = "message_image"
-        const val MESSAGE_VIDEO_ID = "message_video"
-        const val MESSAGE_VOICE_ID = "message_voice"
+        const val MESSAGE_IMAGE_PREFIX = "message_image_"
+        const val MESSAGE_VIDEO_PREFIX = "message_video_"
+        const val MESSAGE_VOICE_PREFIX = "message_voice_"
         const val SAVED_MESSAGES_RU = "\u0421\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u044f"
         const val SAVED_MESSAGES_EN = "Saved Messages"
         const val CLOSE_PHOTO_RU = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c \u0444\u043e\u0442\u043e"

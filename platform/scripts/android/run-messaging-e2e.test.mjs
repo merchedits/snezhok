@@ -37,6 +37,8 @@ test("uses React Native raw testID resource names for UIAutomator selectors", ()
   assert.match(source, /private fun resource\(id: String\): BySelector = By\.res\(id\)/);
   assert.match(source, /tapBackdropAbove\(sheet\)/);
   assert.match(source, /am force-stop \$PACKAGE_NAME/);
+  assert.match(source, /private fun resourcePrefix\(prefix: String\): BySelector = By\.res/);
+  assert.match(source, /awaitNewResource\(MESSAGE_VIDEO_PREFIX/);
 });
 
 test("installs the gallery fixture through MediaStore and continues collecting independent failures", () => {
