@@ -14,9 +14,9 @@ import { ImageViewer } from "../ImageViewer";
 import { cooperativeActivityStyles as styles } from "./cooperativeActivityStyles";
 
 const COLLAGE_TILES = [
-  { top: "0%", left: "0%" }, { top: "0%", left: "33.15%" }, { top: "0%", right: "0%" },
-  { top: "33.15%", left: "0%" }, { top: "33.15%", left: "33.15%" }, { top: "33.15%", right: "0%" },
-  { bottom: "0%", left: "0%" }, { bottom: "0%", left: "33.15%" }, { bottom: "0%", right: "0%" },
+  { top: "0%", left: "0%" }, { top: "0%", left: "32.9%" }, { top: "0%", right: "0%" },
+  { top: "32.9%", left: "0%" }, { top: "32.9%", left: "32.9%" }, { top: "32.9%", right: "0%" },
+  { bottom: "0%", left: "0%" }, { bottom: "0%", left: "32.9%" }, { bottom: "0%", right: "0%" },
 ] as const;
 
 export interface PendingCollagePhoto {

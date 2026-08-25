@@ -68,7 +68,8 @@ test("color hunt processing turns nine photos into one 3 by 3 image", async () =
     }));
     const output = await processMedia({ id: crypto.randomUUID(), attachmentId: crypto.randomUUID(), ownerId: crypto.randomUUID(), profile: "high", purpose: "standard", operation: "color-collage", sourceStorageKeys: [], kind: "image", originalMimeType: "image/webp", originalStorageKey: null, originalFilename: "collage.webp", originalBytes: 0, attempts: 1, maxAttempts: 4 }, "", directory, { signal: new AbortController().signal, heartbeat: async () => undefined, collageInputs: inputs });
     assert.deepEqual(output.map((item) => item.role), ["primary", "thumbnail"]);
-    assert.deepEqual([output[0]?.width, output[0]?.height], [1080, 1080]);
+    assert.deepEqual([output[0]?.width, output[0]?.height], [2160, 2160]);
+    assert.equal(output[0]?.profile, "color-collage-2160");
     assert.equal(output[0]?.mimeType, "image/png");
     assert.deepEqual([output[1]?.width, output[1]?.height], [320, 320]);
   } finally { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }

@@ -202,8 +202,8 @@ export const cooperativeActivityStyles = StyleSheet.create({
   },
   collageCell: {
     position: "absolute",
-    width: "33.7%",
-    height: "33.7%",
+    width: "34.2%",
+    height: "34.2%",
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",

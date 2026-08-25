@@ -178,11 +178,20 @@ test("cooperative photo flows keep the prompt primary and use an overlapping sea
   assert.doesNotMatch(activityInputsSource, /Можно выбрать сразу все оставшиеся снимки|Ваши снимки откроются только после вклада обоих/);
   assert.doesNotMatch(activityModalSource, /Не сейчас|Отменить для обоих/);
   assert.match(activitySharedSource, /COLLAGE_TILES/);
-  assert.match(activitySharedSource, /left: "33\.15%"/);
+  assert.match(activitySharedSource, /left: "32\.9%"/);
   assert.match(activitySharedSource, /pending = \[\]/);
   assert.match(activitySharedSource, /ActivityIndicator/);
   assert.match(activityModalSource, /processColorHuntBatch/);
   assert.match(activityModalSource, /attachmentIds: \[attachmentId\]/);
+  assert.doesNotMatch(activityModalSource, /setDetailActivity\(null\)/);
+  assert.match(activityModalSource, /entries: detailActivity\.entries, detail: "full" as const/);
+});
+
+test("compact message metadata reserves text space and shares the voice-note footer", () => {
+  assert.match(messageBubbleSource, /!message\.editedAt && !message\.pinnedAt/);
+  assert.match(messageBubbleSource, /voiceOnly/);
+  assert.match(messageBubbleSource, /styles\.voiceMetaOverlay/);
+  assert.match(messageBubbleSource, /00:00/);
 });
 
 test("cooperative commands reconcile one stale peer revision without losing the action", () => {

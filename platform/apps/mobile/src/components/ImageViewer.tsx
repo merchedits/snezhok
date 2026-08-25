@@ -12,6 +12,7 @@ import { userFacingError } from "../lib/userFacingError";
 import { useAppDialog } from "./AppDialogProvider";
 import { AuthenticatedImage } from "./AuthenticatedImage";
 import { downloadAuthorizedMedia } from "../lib/authorizedMediaDownload";
+import { clampImageTranslation, doubleTapImageTranslation, imagePanBounds } from "../lib/imageViewerMath";
 
 type AuthorizedImageSource = {
   uri: string;
@@ -31,6 +32,10 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
   const savedTranslateY = useSharedValue(0);
   const viewportWidth = useSharedValue(0);
   const viewportHeight = useSharedValue(0);
+  const imageWidth = useSharedValue(0);
+  const imageHeight = useSharedValue(0);
+  const pinchFocalX = useSharedValue(0);
+  const pinchFocalY = useSharedValue(0);
 
   useEffect(() => {
     if (!visible) return;
@@ -40,23 +45,31 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
     translateY.value = 0;
     savedTranslateX.value = 0;
     savedTranslateY.value = 0;
-  }, [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, visible]);
+    imageWidth.value = 0;
+    imageHeight.value = 0;
+  }, [imageHeight, imageWidth, savedScale, savedTranslateX, savedTranslateY, scale, source.uri, translateX, translateY, visible]);
 
   const pinch = useMemo(
     () =>
       Gesture.Pinch()
-        .onBegin(() => {
+        .onStart((event) => {
           savedScale.value = scale.value;
           savedTranslateX.value = translateX.value;
           savedTranslateY.value = translateY.value;
+          pinchFocalX.value = event.focalX;
+          pinchFocalY.value = event.focalY;
         })
         .onUpdate((event) => {
           const nextScale = Math.max(1, Math.min(6, savedScale.value * event.scale));
-          const maxX = Math.max(0, (viewportWidth.value * (nextScale - 1)) / (2 * nextScale));
-          const maxY = Math.max(0, (viewportHeight.value * (nextScale - 1)) / (2 * nextScale));
+          const bounds = imagePanBounds(viewportWidth.value, viewportHeight.value, imageWidth.value, imageHeight.value, nextScale);
+          const ratio = nextScale / Math.max(1, savedScale.value);
+          const centerX = viewportWidth.value / 2;
+          const centerY = viewportHeight.value / 2;
+          const nextX = savedTranslateX.value * ratio + (pinchFocalX.value - centerX) * (1 - ratio) + (event.focalX - pinchFocalX.value);
+          const nextY = savedTranslateY.value * ratio + (pinchFocalY.value - centerY) * (1 - ratio) + (event.focalY - pinchFocalY.value);
           scale.value = nextScale;
-          translateX.value = Math.max(-maxX, Math.min(maxX, savedTranslateX.value));
-          translateY.value = Math.max(-maxY, Math.min(maxY, savedTranslateY.value));
+          translateX.value = clampImageTranslation(nextX, bounds.x);
+          translateY.value = clampImageTranslation(nextY, bounds.y);
         })
         .onEnd(() => {
           savedScale.value = scale.value;
@@ -70,7 +83,7 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
             savedTranslateY.value = translateY.value;
           }
         }),
-    [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
+    [imageHeight, imageWidth, pinchFocalX, pinchFocalY, savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
   );
 
   const pan = useMemo(
@@ -88,10 +101,9 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
             if (onNext || onPrevious) translateX.value = event.translationX;
             return;
           }
-          const maxX = Math.max(0, (viewportWidth.value * (scale.value - 1)) / (2 * scale.value));
-          const maxY = Math.max(0, (viewportHeight.value * (scale.value - 1)) / (2 * scale.value));
-          translateX.value = Math.max(-maxX, Math.min(maxX, savedTranslateX.value + event.translationX));
-          translateY.value = Math.max(-maxY, Math.min(maxY, savedTranslateY.value + event.translationY));
+          const bounds = imagePanBounds(viewportWidth.value, viewportHeight.value, imageWidth.value, imageHeight.value, scale.value);
+          translateX.value = clampImageTranslation(savedTranslateX.value + event.translationX, bounds.x);
+          translateY.value = clampImageTranslation(savedTranslateY.value + event.translationY, bounds.y);
         })
         .onEnd(() => {
           if (scale.value <= 1 && Math.abs(savedTranslateX.value) < 1) {
@@ -102,7 +114,7 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
           savedTranslateX.value = translateX.value;
           savedTranslateY.value = translateY.value;
         }),
-    [onNext, onPrevious, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
+    [imageHeight, imageWidth, onNext, onPrevious, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
   );
 
   const doubleTap = useMemo(
@@ -120,8 +132,9 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
             savedTranslateY.value = 0;
           } else {
             const targetScale = 2.5;
-            const targetX = (viewportWidth.value / 2 - event.x) * ((targetScale - 1) / targetScale);
-            const targetY = (viewportHeight.value / 2 - event.y) * ((targetScale - 1) / targetScale);
+            const bounds = imagePanBounds(viewportWidth.value, viewportHeight.value, imageWidth.value, imageHeight.value, targetScale);
+            const targetX = doubleTapImageTranslation(viewportWidth.value, event.x, targetScale, bounds.x);
+            const targetY = doubleTapImageTranslation(viewportHeight.value, event.y, targetScale, bounds.y);
             scale.value = withTiming(targetScale);
             savedScale.value = targetScale;
             translateX.value = withTiming(targetX);
@@ -130,7 +143,7 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
             savedTranslateY.value = targetY;
           }
         }),
-    [savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
+    [imageHeight, imageWidth, savedScale, savedTranslateX, savedTranslateY, scale, translateX, translateY, viewportHeight, viewportWidth],
   );
 
   const gesture = useMemo(() => Gesture.Race(doubleTap, Gesture.Simultaneous(pinch, pan)), [doubleTap, pan, pinch]);
@@ -177,7 +190,18 @@ export function ImageViewer({ visible, source, filename, mimeType, onClose, onNe
         >
           <GestureDetector gesture={gesture}>
             <Animated.View collapsable={false} style={[styles.imageStage, imageStyle]}>
-              <AuthenticatedImage uri={source.uri} cacheKey={`${filename}-viewer`} mimeType={mimeType} resizeMode="contain" showLoader style={styles.image} />
+              <AuthenticatedImage
+                uri={source.uri}
+                cacheKey={`${filename}-viewer`}
+                mimeType={mimeType}
+                resizeMode="contain"
+                showLoader
+                onIntrinsicSize={(width, height) => {
+                  imageWidth.value = width;
+                  imageHeight.value = height;
+                }}
+                style={styles.image}
+              />
             </Animated.View>
           </GestureDetector>
           <Pressable accessibilityRole="button" accessibilityLabel={t("closePhoto")} onPress={onClose} style={[styles.control, styles.close, { top: insets.top + 10 }]}>

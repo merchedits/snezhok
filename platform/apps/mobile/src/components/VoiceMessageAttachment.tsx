@@ -310,8 +310,8 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   meta: {
-    minHeight: 15,
-    marginTop: 1,
+    minHeight: 13,
+    marginTop: -1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

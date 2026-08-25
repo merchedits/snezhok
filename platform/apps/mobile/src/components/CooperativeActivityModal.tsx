@@ -48,7 +48,11 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
   const [detailActivity, setDetailActivity] = useState(summaryActivity?.detail === "full" ? summaryActivity : null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailReload, setDetailReload] = useState(0);
-  const activity = summaryActivity && detailActivity?.id === summaryActivity.id && detailActivity.revision >= summaryActivity.revision ? detailActivity : summaryActivity;
+  const activity = summaryActivity && detailActivity?.id === summaryActivity.id
+    ? detailActivity.revision >= summaryActivity.revision
+      ? detailActivity
+      : { ...detailActivity, ...summaryActivity, entries: detailActivity.entries, detail: "full" as const }
+    : summaryActivity;
   const drawingActivityId = summaryActivity?.type === "draw-guess" ? summaryActivity.id : null;
   const expectedCollages = activity?.type === "color-hunt" ? activity.participants.filter((participant) => participant.contributionCount >= 9 || ["submitted", "completed"].includes(participant.status)).length : 0;
   const readyCollages = activity?.type === "color-hunt" ? activity.entries.filter((entry) => entry.kind === "collage" && entry.attachments.length > 0).length : 0;
@@ -103,12 +107,14 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
       return;
     }
     let current = true;
-    setDetailActivity(null);
-    setDetailLoading(true);
+    // Keep the last complete activity mounted while a newer chat-summary
+    // revision is fetched. Replacing it with an initial loader made Color
+    // Hunt flash once for every committed photo in a batch.
+    setDetailLoading((current) => current || detailActivity?.id !== summaryActivity.id);
     void activityQueries
       .detail(summaryActivity.id)
       .then((detail) => {
-        if (current && detail.revision === summaryActivity.revision) setDetailActivity(detail);
+        if (current && detail.revision >= summaryActivity.revision) setDetailActivity(detail);
       })
       .catch((next) => {
         if (current) setError(userFacingError(next, t));
@@ -125,7 +131,7 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
   const ownEntry = activity.entries.find((entry) => entry.createdBy === meId);
   const ownParticipant = activity.participants.find((participant) => participant.user.id === meId);
   const ownSubmitted = Boolean(ownEntry) || Boolean(ownParticipant && ["submitted", "completed"].includes(ownParticipant.status));
-  const needsDetail = summaryActivity.detail === "summary" && (!detailActivity || detailActivity.revision < summaryActivity.revision);
+  const needsDetail = summaryActivity.detail === "summary" && detailActivity?.id !== summaryActivity.id;
   const activityLabel = typeLabel(activity.type, language);
   const instruction = distinctActivityCopy(activityLabel, promptText(activity.config, language));
   const hasInstruction = Boolean(instruction);

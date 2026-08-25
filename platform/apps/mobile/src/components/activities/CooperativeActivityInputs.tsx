@@ -80,7 +80,7 @@ export function PhotoInput({ activityType, text, onChange, onPick, onRetry, busy
           </View>
         </View>
       ) : null}
-      {activityType === "color-hunt" ? <Text style={[styles.explainer, { color: palette.secondaryText }]}>{ownCount >= 9 ? (ownCollage ? (language === "ru" ? "Коллаж готов — его можно открыть и сохранить." : "Your collage is ready — open it to save or share.") : language === "ru" ? "Собираем PNG‑коллаж 1080×1080…" : "Building your 1080×1080 PNG collage…") : language === "ru" ? `Твоя доска: ${ownCount}/9` : `Your board: ${ownCount}/9`}</Text> : null}
+      {activityType === "color-hunt" ? <Text style={[styles.explainer, { color: palette.secondaryText }]}>{ownCount >= 9 ? (ownCollage ? (language === "ru" ? "Коллаж готов — его можно открыть и сохранить." : "Your collage is ready — open it to save or share.") : language === "ru" ? "Собираем PNG‑коллаж 2160×2160…" : "Building your 2160×2160 PNG collage…") : language === "ru" ? `Твоя доска: ${ownCount}/9` : `Your board: ${ownCount}/9`}</Text> : null}
       {activityType === "color-hunt" ? (
         ownCollage ? (
           <CollagePhoto attachment={ownCollage} />

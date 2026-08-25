@@ -223,10 +223,11 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
   const showMeta = showTime || Boolean(message.editedAt) || Boolean(message.pinnedAt) || (mine && Boolean(message.pending || message.failed));
   const metadata = showMeta ? <MessageMetadata message={message} mine={mine} showTime={showTime} foreground={mediaOnly ? "white" : foreground} mutedForeground={mediaOnly ? "rgba(255,255,255,0.94)" : mutedForeground} overlay={mediaOnly} /> : null;
   const reactionBar = reactions.length > 0 ? <ReactionBar reactions={reactions} overlay={mediaOnly} onReact={onReact} /> : null;
-  const inlineMetadata = Boolean(message.text && !attachments.length && !message.replyTo && !message.forwardedFrom && !reactionBar && metadata);
+  const inlineMetadata = Boolean(message.text && !attachments.length && !message.replyTo && !message.forwardedFrom && !message.editedAt && !message.pinnedAt && !reactionBar && metadata);
+  const voiceOnly = Boolean(!message.text && !message.replyTo && !message.forwardedFrom && !reactionBar && metadata && attachments.length === 1 && attachments[0]?.kind === "audio");
   if (message.activity) return <CooperativeActivityCard activity={message.activity} onOpen={() => onOpenActivity?.()} />;
   return (
-    <View pointerEvents={interactionDisabled ? "none" : "auto"}>
+    <View pointerEvents={interactionDisabled ? "none" : "auto"} style={voiceOnly ? styles.voiceContentRoot : undefined}>
       {showSender && !mediaOnly ? (
         <Text
           style={[
@@ -296,12 +297,13 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
             ]}
           >
             {message.text}
-            {inlineMetadata ? <Text style={styles.inlineMetaSpacer}>        </Text> : null}
+            {inlineMetadata ? <Text style={styles.inlineMetaSpacer}>{mine ? "  00:00 ✓✓" : "  00:00"}</Text> : null}
           </Text>
           {inlineMetadata ? <View style={styles.inlineMeta}>{metadata}</View> : null}
         </View>
       ) : null}
-      {!mediaOnly && !inlineMetadata && (reactionBar || metadata) ? (
+      {voiceOnly ? <View style={styles.voiceMetaOverlay}>{metadata}</View> : null}
+      {!mediaOnly && !inlineMetadata && !voiceOnly && (reactionBar || metadata) ? (
         <View style={[styles.footer, !showTime && styles.channelFooter]}>
           {reactionBar}
           <View style={styles.footerSpacer} />

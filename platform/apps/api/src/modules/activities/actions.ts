@@ -110,7 +110,7 @@ async function enqueueColorCollage(client: DbClient, activityId: string, userId:
   const entryId = newId();
   await client.query(
     `INSERT INTO attachments(id,owner_id,blob_id,filename,kind,mime_type,bytes,width,height,quality,status)
-     VALUES ($1,$2,NULL,$3,'image','image/png',0,1080,1080,'high','processing')`,
+     VALUES ($1,$2,NULL,$3,'image','image/png',0,2160,2160,'high','processing')`,
     [attachmentId, userId, `snezhok-color-hunt-${activityId}.png`],
   );
   await client.query("INSERT INTO cooperative_activity_entries(id,activity_id,created_by,kind,payload) VALUES ($1,$2,$3,'collage',$4)", [entryId, activityId, userId, { sourceCount: 9 }]);

@@ -80,7 +80,7 @@ export async function processMedia(job: MediaJob, input: string, directory: stri
 
 async function processColorCollage(inputs: string[], directory: string, context: ProcessContext): Promise<OutputVariant[]> {
   if (inputs.length !== 9) throw new Error("Color collage requires exactly nine source images");
-  const tileSize = 360;
+  const tileSize = 720;
   const tiles: Buffer[] = [];
   // Decode one source at a time. Nine concurrent phone photos can otherwise
   // exceed the small production host's memory even though each output tile is bounded.
@@ -101,7 +101,7 @@ async function processColorCollage(inputs: string[], directory: string, context:
   const primary = path.join(directory, "color-collage.png");
   const thumbnail = path.join(directory, "thumbnail.webp");
   const primaryMeta = await sharp({
-    create: { width: 1080, height: 1080, channels: 3, background: "#121218" },
+    create: { width: 2160, height: 2160, channels: 3, background: "#121218" },
   })
     .composite(
       tiles.map((input, index) => ({
@@ -116,7 +116,7 @@ async function processColorCollage(inputs: string[], directory: string, context:
     .resize(320, 320, { fit: "cover" })
     .webp({ quality: 76, effort: 4 })
     .toFile(thumbnail);
-  return [variant("primary", "color-collage-1080", primary, "image/png", primaryMeta.width, primaryMeta.height), variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", thumbnailMeta.width, thumbnailMeta.height)];
+  return [variant("primary", "color-collage-2160", primary, "image/png", primaryMeta.width, primaryMeta.height), variant("thumbnail", "thumbnail-320", thumbnail, "image/webp", thumbnailMeta.width, thumbnailMeta.height)];
 }
 
 async function processOriginal(job: MediaJob, input: string, directory: string, context: ProcessContext): Promise<OutputVariant[]> {
