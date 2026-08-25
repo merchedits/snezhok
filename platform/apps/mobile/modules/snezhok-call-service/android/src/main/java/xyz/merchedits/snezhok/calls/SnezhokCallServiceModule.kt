@@ -1,11 +1,16 @@
 package xyz.merchedits.snezhok.calls
 
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -120,6 +125,78 @@ class SnezhokCallServiceModule : Module() {
         if (!partial.renameTo(destination)) throw IOException("Cannot finalize the downloaded update")
         mapOf("uri" to Uri.fromFile(destination).toString(), "bytes" to expectedBytes.toDouble(), "sha256" to digest)
       }
+    }
+
+    AsyncFunction("installUpdate") Coroutine {
+        destinationUri: String,
+        expectedBytesValue: Double,
+        expectedSha256: String ->
+      val context = applicationContext() ?: throw IllegalStateException("Android application context is unavailable")
+      val expectedBytes = expectedBytesValue.toLong()
+      require(expectedBytes in MIN_UPDATE_BYTES..MAX_UPDATE_BYTES) { "Invalid update byte count" }
+      require(SHA256_PATTERN.matches(expectedSha256)) { "Invalid update digest" }
+      val apk = requireCacheApk(context, destinationUri)
+
+      withContext(Dispatchers.IO) {
+        if (!apk.isFile || apk.length() != expectedBytes || sha256(apk) != expectedSha256) {
+          apk.delete()
+          throw IOException("Downloaded update is no longer valid")
+        }
+      }
+
+      withContext(Dispatchers.Main) {
+        requestUpdateInstallation(context, apk)
+      }
+    }
+  }
+
+  private fun requestUpdateInstallation(context: Context, apk: File): Map<String, String> {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+      val opened = launchExternalActivity(
+        context,
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")),
+      )
+      return mapOf("status" to if (opened) "permission-required" else "settings-unavailable")
+    }
+
+    val contentUri = FileProvider.getUriForFile(
+      context,
+      "${context.packageName}.FileSystemFileProvider",
+      apk,
+    )
+    val installerIntents = listOf(
+      Intent(Intent.ACTION_INSTALL_PACKAGE),
+      Intent(Intent.ACTION_VIEW),
+    )
+    installerIntents.forEach { intent ->
+      intent.setDataAndType(contentUri, APK_MIME_TYPE)
+      intent.clipData = ClipData.newRawUri("Snezhok update", contentUri)
+      intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      intent.putExtra(Intent.EXTRA_RETURN_RESULT, false)
+      if (launchExternalActivity(context, intent)) return mapOf("status" to "launched")
+    }
+
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+      val opened = launchExternalActivity(context, Intent(Settings.ACTION_SECURITY_SETTINGS))
+      if (opened) return mapOf("status" to "permission-required")
+    }
+    return mapOf("status" to "installer-unavailable")
+  }
+
+  private fun launchExternalActivity(context: Context, intent: Intent): Boolean {
+    return try {
+      val activity = appContext.currentActivity
+      if (activity != null) {
+        activity.startActivity(intent)
+      } else {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
+      true
+    } catch (_: ActivityNotFoundException) {
+      false
+    } catch (_: SecurityException) {
+      false
     }
   }
 
@@ -261,6 +338,7 @@ class SnezhokCallServiceModule : Module() {
 
   private companion object {
     const val UPDATE_DOWNLOAD_EVENT = "onUpdateDownloadProgress"
+    const val APK_MIME_TYPE = "application/vnd.android.package-archive"
     const val DEFAULT_HASH_BUFFER_BYTES = 64 * 1024
     const val HASH_BUFFER_BYTES = 1024 * 1024
     const val DOWNLOAD_BUFFER_BYTES = 256 * 1024

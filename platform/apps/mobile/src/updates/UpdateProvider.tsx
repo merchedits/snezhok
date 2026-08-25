@@ -2,24 +2,22 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import * as Application from "expo-application";
 import { File, Paths } from "expo-file-system";
-import * as IntentLauncher from "expo-intent-launcher";
 import type { ReactNode } from "react";
 import { AppState, BackHandler, Platform, View } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AndroidReleaseManifest } from "../types";
+import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { api, resolveApiResource } from "../infrastructure/http/apiClient";
 import { userFacingError } from "../lib/userFacingError";
 import { useTranslation } from "../i18n";
 import { UpdateBanner } from "./UpdateBanner";
 import { blocksApplicationForUpdate, isNewerRelease, isRequired, monotonicDownloadProgress } from "./updatePolicy";
 import { downloadAndroidUpdate } from "./nativeUpdateDownload";
+import { requestAndroidUpdateInstallation } from "./nativeUpdateInstaller";
 
 const AUTO_UPDATE_KEY = "snezhok.android.auto-update.v1";
 const CHECK_INTERVAL_MS = 15 * 60 * 1_000;
-const APK_MIME_TYPE = "application/vnd.android.package-archive";
-const FLAG_GRANT_READ_URI_PERMISSION = 1;
-
 class LocalizedUpdateError extends Error {}
 
 export type UpdatePhase = "idle" | "checking" | "up-to-date" | "available" | "downloading" | "verifying" | "ready" | "error";
@@ -58,28 +56,29 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
   const activeDownloadId = useRef(0);
   const lastCheck = useRef(0);
   const downloadedFile = useRef<File | null>(null);
+  const downloadedRelease = useRef<AndroidReleaseManifest | null>(null);
   const autoUpdateWriteQueue = useRef<Promise<void>>(Promise.resolve());
 
   const openInstaller = useCallback(async () => {
     const file = downloadedFile.current;
-    if (!file?.exists) throw new LocalizedUpdateError(t("updateFileUnavailable"));
-    setState((current) => ({ ...current, phase: "ready", message: t("updateConfirmInstaller") }));
+    const manifest = downloadedRelease.current;
+    if (!file || !manifest) {
+      setState((current) => ({ ...current, phase: "error", message: t("updateFileUnavailable") }));
+      return;
+    }
     try {
-      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-        data: file.contentUri,
-        type: APK_MIME_TYPE,
-        flags: FLAG_GRANT_READ_URI_PERMISSION,
-      });
-    } catch {
-      if (Number(Platform.Version) >= 26) {
-        await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.MANAGE_UNKNOWN_APP_SOURCES, {
-          data: `package:${Application.applicationId}`,
-        });
+      const status = await requestAndroidUpdateInstallation(file.uri, manifest.bytes, manifest.sha256);
+      if (status === "launched") {
+        setState((current) => ({ ...current, phase: "ready", message: t("updateConfirmInstaller") }));
+      } else if (status === "permission-required") {
         setState((current) => ({ ...current, phase: "ready", message: t("updateAllowSource") }));
       } else {
-        await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.SECURITY_SETTINGS);
-        setState((current) => ({ ...current, phase: "ready", message: t("updateAllowLegacySource") }));
+        throw new LocalizedUpdateError(status === "settings-unavailable" ? t("updateSettingsUnavailable") : t("updateInstallerUnavailable"));
       }
+    } catch (error) {
+      recordUpdateFailure("installer", error);
+      const message = error instanceof LocalizedUpdateError ? error.message : t("updateInstallFailed");
+      setState((current) => ({ ...current, phase: "error", message }));
     }
   }, [t]);
 
@@ -96,6 +95,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
       // and resumes it with a validated Range request on the next attempt.
       const destination = new File(Paths.cache, `snezhok-${manifest.versionCode}-${manifest.sha256.slice(0, 12)}.apk`);
       setState({ phase: "downloading", manifest, progress: 0, message: t("downloading"), required: isRequired(manifest, currentVersionCode) });
+      const nativePhase: { current: "downloading" | "retrying" | "verifying" } = { current: "downloading" };
       try {
         const downloadUrls = [
           resolveApiResource(manifest.downloadUrl),
@@ -103,6 +103,7 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
         ];
         await downloadAndroidUpdate(downloadUrls, destination.uri, manifest.bytes, manifest.sha256, (event) => {
           if (activeDownloadId.current !== downloadId) return;
+          nativePhase.current = event.phase;
           const progress = monotonicDownloadProgress(event.bytesWritten, manifest.bytes, lastProgress);
           lastProgress = progress;
           if (event.phase === "verifying") {
@@ -116,17 +117,25 @@ export function AndroidUpdateProvider({ children }: { children: ReactNode }) {
             }));
           }
         });
-        if (!destination.exists || destination.size !== manifest.bytes) throw new LocalizedUpdateError(t("updateBadSize"));
 
         const previousFile = downloadedFile.current;
-        if (previousFile?.exists && previousFile.uri !== destination.uri) previousFile.delete();
+        if (previousFile && previousFile.uri !== destination.uri) {
+          try {
+            if (previousFile.exists) previousFile.delete();
+          } catch {
+            // Android owns its cache lifecycle; stale cleanup must never block
+            // installation of the newly verified artifact.
+          }
+        }
         downloadedFile.current = destination;
+        downloadedRelease.current = manifest;
         setState((current) => ({ ...current, phase: "ready", message: t("updateReady"), progress: 1 }));
         await openInstaller();
       } catch (error) {
         // Keep the native `.part` file. Retry and a future process can continue
         // from its durable byte offset instead of restarting at zero.
-        throw error;
+        recordUpdateFailure(nativePhase.current === "verifying" ? "verification" : "download", error);
+        throw new LocalizedUpdateError(nativePhase.current === "verifying" ? t("updateVerificationFailed") : t("updateDownloadFailed"));
       }
     })();
 
@@ -251,4 +260,12 @@ export function useAndroidUpdate() {
   const value = useContext(UpdateContext);
   if (!value) throw new Error("useAndroidUpdate must be used inside AndroidUpdateProvider");
   return value;
+}
+
+function recordUpdateFailure(stage: "download" | "verification" | "installer", error: unknown): void {
+  recordDiagnostic("error", "lifecycle", "Android update failed", {
+    stage,
+    errorName: error instanceof Error ? error.name : "unknown",
+    reason: error instanceof Error ? error.message : String(error),
+  });
 }

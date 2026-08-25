@@ -16,7 +16,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // EAS identifies this existing project by its immutable project ID. The
   // dashboard slug is internal and does not affect the installed app name.
   slug: "merch",
-  version: "4.5.3",
+  version: "4.5.4",
   description: "Private messages, shared moments, files and calls.",
   platforms: ["android"],
   orientation: "portrait",
@@ -91,7 +91,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   android: {
     package: "xyz.merchedits.snezhok",
-    versionCode: 45,
+    versionCode: 46,
     // Messages, drafts and the durable outbox are private local data. They
     // must never leave the app sandbox through Android cloud/ADB backup.
     allowBackup: false,

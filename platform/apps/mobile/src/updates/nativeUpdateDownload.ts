@@ -50,7 +50,11 @@ export async function downloadAndroidUpdate(
   });
   try {
     const result = await nativeModule.downloadUpdate(urls, destinationUri, expectedBytes, expectedSha256.toLowerCase());
-    if (result.uri !== destinationUri || result.bytes !== expectedBytes || result.sha256 !== expectedSha256.toLowerCase()) {
+    // The requested destination is already constrained to the application
+    // cache by the native module. URI text may be canonicalized differently
+    // across Android/Expo versions, so integrity is established by bytes and
+    // digest rather than fragile string equality.
+    if (result.bytes !== expectedBytes || result.sha256 !== expectedSha256.toLowerCase()) {
       throw new Error("Native Android update verification returned an invalid result");
     }
     return result;

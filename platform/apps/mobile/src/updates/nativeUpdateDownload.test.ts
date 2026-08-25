@@ -22,3 +22,21 @@ test("Android updates are bounded, hashed natively, and finalized atomically", a
   assert.match(source, /partial\.renameTo\(destination\)/);
   assert.match(source, /urls\[\(attempt - 1\) % urls\.size\]/);
 });
+
+test("Android update installation uses a verified FileProvider URI and explicit source permission", async () => {
+  const source = await readFile(nativeSource, "utf8");
+  assert.match(source, /packageManager\.canRequestPackageInstalls\(\)/);
+  assert.match(source, /Settings\.ACTION_MANAGE_UNKNOWN_APP_SOURCES/);
+  assert.match(source, /FileProvider\.getUriForFile/);
+  assert.match(source, /Intent\.FLAG_GRANT_READ_URI_PERMISSION/);
+  assert.match(source, /ClipData\.newRawUri/);
+  assert.match(source, /Intent\.ACTION_INSTALL_PACKAGE/);
+  assert.match(source, /Intent\.ACTION_VIEW/);
+  assert.match(source, /sha256\(apk\) != expectedSha256/);
+});
+
+test("JavaScript delegates installation to the native module without awaiting Expo IntentLauncher", async () => {
+  const providerSource = await readFile(new URL("./UpdateProvider.tsx", import.meta.url), "utf8");
+  assert.match(providerSource, /requestAndroidUpdateInstallation/);
+  assert.doesNotMatch(providerSource, /expo-intent-launcher|IntentLauncher/);
+});

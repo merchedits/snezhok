@@ -31,6 +31,15 @@ application. Android does not permit an ordinary sideloaded app to install an
 APK silently: the user must allow Snezhok as an installation source once and
 confirm each package update.
 
+The final handoff is native rather than a generic JavaScript intent call. The
+client rechecks the cached artifact natively, checks Android's per-source
+installation permission before opening the installer, shares the APK through
+the application's read-only `FileProvider` grant, and returns to JavaScript as
+soon as the system installer is launched. Permission, installer availability,
+download, and verification failures remain distinct states in the UI and in
+redacted diagnostics; an external installer result is never mistaken for a
+failed download.
+
 The manifest publishes the stable domain route first. Nginx redirects it to
 the current GitHub Release CDN asset, while the manifest also lists the direct
 origin and immutable versioned GitHub asset as fallbacks. A retry rotates
