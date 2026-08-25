@@ -151,7 +151,7 @@ export const MessageBubble = memo(
                     </Text>
                   </View>
                 ) : null}
-                <MessageContent streamId={streamId} message={message} mine={mine} foreground={palette.text} mutedForeground={palette.secondaryText} showSender={false} showTime={false} mediaOnly={false} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+                <MessageContent streamId={streamId} message={message} mine={mine} foreground={palette.text} mutedForeground={palette.secondaryText} showSender={false} showTime={false} mediaOnly={false} interactionDisabled={selectionMode} onReact={onReact} onOpenReactions={onOpenReactions} onSelectMessage={onLongPress} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
               </View>
             </Pressable>
           </Animated.View>
@@ -166,7 +166,7 @@ export const MessageBubble = memo(
             <Pressable
               testID={stateTestId}
               delayLongPress={240}
-              onPress={message.activity ? undefined : handlePress}
+              onPress={message.activity ? (selectionMode ? handlePress : undefined) : handlePress}
               onLongPress={handleLongPress}
               style={({ pressed }) => [
                 styles.bubble,
@@ -184,7 +184,7 @@ export const MessageBubble = memo(
                 },
               ]}
             >
-              <MessageContent streamId={streamId} message={message} mine={mine} foreground={selected || !mine ? palette.text : palette.onAccent} mutedForeground={selected || !mine ? palette.secondaryText : "rgba(255,255,255,0.76)"} showSender={showSender && !mine} showTime mediaOnly={mediaOnly} interactionDisabled={selectionMode} onReact={onReact} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
+              <MessageContent streamId={streamId} message={message} mine={mine} foreground={selected || !mine ? palette.text : palette.onAccent} mutedForeground={selected || !mine ? palette.secondaryText : "rgba(255,255,255,0.76)"} showSender={showSender && !mine} showTime mediaOnly={mediaOnly} interactionDisabled={selectionMode} onReact={onReact} onOpenReactions={onOpenReactions} onSelectMessage={onLongPress} onReplyPress={onReplyPress} onOpenActivity={onOpenActivity} />
             </Pressable>
           </View>
         </Animated.View>
@@ -213,7 +213,7 @@ function SelectionMarker({ selected, animatedStyle }: { selected: boolean; anima
   );
 }
 
-function MessageContent({ streamId, message, mine, foreground, mutedForeground, showSender, showTime, mediaOnly, interactionDisabled, onReact, onReplyPress, onOpenActivity }: { streamId: string; message: Message; mine: boolean; foreground: string; mutedForeground: string; showSender: boolean; showTime: boolean; mediaOnly: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined; onOpenActivity?: (() => void) | undefined }) {
+function MessageContent({ streamId, message, mine, foreground, mutedForeground, showSender, showTime, mediaOnly, interactionDisabled, onReact, onOpenReactions, onSelectMessage, onReplyPress, onOpenActivity }: { streamId: string; message: Message; mine: boolean; foreground: string; mutedForeground: string; showSender: boolean; showTime: boolean; mediaOnly: boolean; interactionDisabled: boolean; onReact?: ((emoji: string) => void) | undefined; onOpenReactions?: ((anchorY: number) => void) | undefined; onSelectMessage?: (() => void) | undefined; onReplyPress?: ((messageId: string) => void) | undefined; onOpenActivity?: (() => void) | undefined }) {
   const palette = usePalette();
   const ui = useUiPreferences();
   const attachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
@@ -225,7 +225,13 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
   const reactionBar = reactions.length > 0 ? <ReactionBar reactions={reactions} overlay={mediaOnly} onReact={onReact} /> : null;
   const inlineMetadata = Boolean(message.text && !attachments.length && !message.replyTo && !message.forwardedFrom && !message.editedAt && !message.pinnedAt && !reactionBar && metadata);
   const voiceOnly = Boolean(!message.text && !message.replyTo && !message.forwardedFrom && !reactionBar && metadata && attachments.length === 1 && attachments[0]?.kind === "audio");
-  if (message.activity) return <CooperativeActivityCard activity={message.activity} onOpen={() => onOpenActivity?.()} />;
+  if (message.activity) {
+    return (
+      <View pointerEvents={interactionDisabled ? "none" : "auto"}>
+        <CooperativeActivityCard activity={message.activity} onOpen={() => onOpenActivity?.()} />
+      </View>
+    );
+  }
   return (
     <View pointerEvents={interactionDisabled ? "none" : "auto"} style={voiceOnly ? styles.voiceContentRoot : undefined}>
       {showSender && !mediaOnly ? (
@@ -261,9 +267,9 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
       ) : null}
       {mediaOnly ? (
         <View style={styles.mediaStage}>
-          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
+          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} /> : null}
           {otherAttachments.map((attachment) => (
-            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />
+            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} />
           ))}
           {showSender ? (
             <View style={[styles.mediaSenderOverlay, styles.overlayIsland]}>
@@ -277,9 +283,9 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
         </View>
       ) : (
         <>
-          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} /> : null}
+          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} /> : null}
           {otherAttachments.map((attachment) => (
-            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} />
+            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} />
           ))}
         </>
       )}
@@ -289,6 +295,7 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
             selectable={false}
             style={[
               styles.text,
+              inlineMetadata && styles.inlineMessageText,
               {
                 color: foreground,
                 fontSize: ui.font(16),
@@ -297,7 +304,6 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
             ]}
           >
             {message.text}
-            {inlineMetadata ? <Text style={styles.inlineMetaSpacer}>{mine ? "  00:00 ✓✓" : "  00:00"}</Text> : null}
           </Text>
           {inlineMetadata ? <View style={styles.inlineMeta}>{metadata}</View> : null}
         </View>

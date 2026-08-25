@@ -69,6 +69,7 @@ export interface AppState {
   editMessage: (message: Message, text: string) => Promise<void>;
   toggleReaction: (message: Message, emoji: string) => Promise<void>;
   deleteMessage: (message: Message, scope: "me" | "everyone") => Promise<void>;
+  deleteMessages: (messages: Message[], scope: "me" | "everyone") => Promise<void>;
   setMessagePinned: (message: Message, pinned: boolean) => Promise<void>;
   createActivity: (conversationId: string, type: CooperativeActivityType, options?: Record<string, unknown>) => Promise<Message>;
   commandActivity: (message: Message, action: string, payload?: Record<string, unknown>) => Promise<Message>;

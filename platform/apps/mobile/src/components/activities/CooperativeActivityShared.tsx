@@ -59,9 +59,24 @@ export function ResultView({ message }: { message: Message }) {
         {activity.participants.map((participant) => {
           const collage = activity.entries.find((entry) => entry.createdBy === participant.user.id && entry.kind === "collage")?.attachments[0];
           const photos = activity.entries.filter((entry) => entry.createdBy === participant.user.id && entry.kind === "photo").flatMap((entry) => entry.attachments);
+          const revealedColor = participant.revealedState?.color && typeof participant.revealedState.color === "object"
+            ? participant.revealedState.color as { hex?: unknown; name?: unknown }
+            : null;
+          const colorName = localized(revealedColor?.name, language) || (typeof revealedColor?.hex === "string" ? revealedColor.hex : "");
           return (
             <View key={participant.user.id} style={styles.collageResult}>
-              <Text style={[styles.itemTitle, { color: palette.text }]}>{participant.user.displayName}</Text>
+              <View style={styles.collageOwnerLine}>
+                <Avatar uri={participant.user.avatarUrl} label={participant.user.displayName} color={participant.user.avatarColor} size={30} />
+                <View style={styles.flex}>
+                  <Text style={[styles.itemTitle, { color: palette.text }]}>{participant.user.displayName}</Text>
+                  {revealedColor ? (
+                    <View style={styles.collageColorLine}>
+                      <View style={[styles.collageColorDot, { backgroundColor: typeof revealedColor.hex === "string" ? revealedColor.hex : palette.accent }]} />
+                      <Text style={[styles.itemMeta, { color: palette.secondaryText }]}>{colorName}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
               {collage ? <CollagePhoto attachment={collage} /> : <CollageGrid attachments={photos} />}
             </View>
           );
@@ -111,7 +126,6 @@ export function ResultView({ message }: { message: Message }) {
     const strokes = Array.isArray(drawing?.payload.strokes) ? (drawing.payload.strokes as number[][][]) : [];
     return (
       <>
-        <Text style={[styles.resultTitle, { color: palette.text }]}>{language === "ru" ? "Угадано!" : "Guessed!"}</Text>
         <ReadOnlyDrawing strokes={strokes} />
         {activity.entries
           .filter((entry) => entry.kind === "guess")
@@ -190,9 +204,24 @@ function BlitzResult({ entries, participants, prompts, language }: { entries: Co
         const secondChoice = second[index] === "left" ? localized(prompt.left, language) : localized(prompt.right, language);
         return (
           <View key={String(prompt.id ?? index)} style={[styles.blitzResult, { backgroundColor: same ? palette.accentSoft : palette.surface }]}>
-            <AvatarStack users={same ? [firstUser, secondUser] : [firstUser]} />
-            <Text style={[styles.flex, styles.itemTitle, { color: palette.text }]}>{same ? firstChoice : `${firstChoice} · ${secondChoice}`}</Text>
-            {!same ? <AvatarStack users={[secondUser]} /> : null}
+            {same ? (
+              <>
+                <AvatarStack users={[firstUser, secondUser]} />
+                <Text style={[styles.flex, styles.itemTitle, { color: palette.text }]}>{firstChoice}</Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.blitzAnswer}>
+                  <AvatarStack users={[firstUser]} />
+                  <Text numberOfLines={2} style={[styles.blitzAnswerText, { color: palette.text }]}>{firstChoice}</Text>
+                </View>
+                <Text style={[styles.blitzSeparator, { color: palette.faintText }]}>·</Text>
+                <View style={styles.blitzAnswer}>
+                  <AvatarStack users={[secondUser]} />
+                  <Text numberOfLines={2} style={[styles.blitzAnswerText, { color: palette.text }]}>{secondChoice}</Text>
+                </View>
+              </>
+            )}
           </View>
         );
       })}

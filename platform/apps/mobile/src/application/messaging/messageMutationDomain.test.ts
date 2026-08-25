@@ -53,6 +53,25 @@ test("delete for me uses the non-destructive hide endpoint", async () => {
   assert.equal(fixture.state.outbox.length, 0);
 });
 
+test("batch deletion removes every selected message in one optimistic projection", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fixture = createFixture({
+    deleteMessage: async (id) => { await gate; return message({ id, deletedAt: Date.now() }); },
+  });
+  const first = message({ id: "first", sequence: 1 });
+  const second = message({ id: "second", sequence: 2 });
+  fixture.state.messages = { chat: [first, second] };
+
+  const deleting = fixture.domain.actions.deleteMessages([first, second], "everyone");
+
+  assert.deepEqual(fixture.state.messages.chat?.map((item) => Boolean(item.deletedAt)), [true, true]);
+  assert.equal(fixture.state.outbox.length, 2);
+  release();
+  await deleting;
+  assert.equal(fixture.state.outbox.length, 0);
+});
+
 test("a lower-revision edit response cannot overwrite newer realtime state", async () => {
   const current = message({ revision: 3, text: "old" });
   let releaseResponse!: () => void;

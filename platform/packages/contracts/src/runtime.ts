@@ -69,6 +69,7 @@ export const cooperativeActivityParticipantSchema = z.object({
   status: z.enum(["invited", "active", "submitted", "completed", "declined"]),
   contributionCount: z.number().int().nonnegative(),
   submittedAt: nullableTimestampSchema,
+  revealedState: jsonObjectSchema.optional(),
 });
 
 export const cooperativeActivityEntrySchema = z.object({

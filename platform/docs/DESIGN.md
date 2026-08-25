@@ -127,7 +127,7 @@ The composer is a calm Milk/Warm strip with a warm field, quiet attachment contr
 
 ### Profile
 
-Milk canvas with one Pink identity/portrait stage as the dominant expressive area. Supporting photo collections use Soft Violet; contacts return to neutral Warm rows. It is a personal identity page, not a social feed or collage of colored cards.
+Milk canvas with one large Pink identity/portrait stage as the dominant expressive area. Profile photos form a swipeable, edge-to-edge hero gallery with a quiet position counter; tapping any photo opens the authenticated full-screen viewer with previous/next navigation. The identity card overlaps the lower edge of the hero so name and biography remain anchored while photos stay visually primary. Owners manage the same gallery below the identity card; contacts return to neutral Warm rows. It is a personal identity page, not a social feed or collage of colored cards.
 
 ### Settings
 

@@ -27,6 +27,15 @@ test("a one-stream update preserves entities and arrays in unrelated streams", (
   assert.equal(after.repository.byId[second.id], second);
 });
 
+test("repository accepts a same-revision optimistic deletion tombstone", () => {
+  const durable = message("10000000-0000-4000-8000-000000000001", { revision: 7, pending: false });
+  const before = reconcileMessageProjection({ stream: [durable] }, {}, emptyMessageRepository);
+  const tombstone = { ...durable, text: "", deletedAt: 10, pending: true };
+  const after = reconcileMessageProjection({ stream: [tombstone] }, before.messages, before.repository);
+  assert.equal(messagesForStream(after.repository, "stream")[0]?.deletedAt, 10);
+  assert.equal(messagesForStream(after.repository, "stream")[0]?.pending, true);
+});
+
 function message(id: string, patch: Partial<Message> = {}): Message {
   return {
     id, streamId: "stream", streamKind: "conversation", sequence: 1,

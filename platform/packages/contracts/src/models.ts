@@ -235,6 +235,8 @@ export interface CooperativeActivityParticipant {
   status: "invited" | "active" | "submitted" | "completed" | "declined";
   contributionCount: number;
   submittedAt: Timestamp | null;
+  /** Activity-specific state revealed to both people only after completion. */
+  revealedState?: Record<string, unknown>;
 }
 
 export interface CooperativeActivityEntry {

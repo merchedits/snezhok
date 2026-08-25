@@ -23,7 +23,7 @@ interface Dependencies<Guard> {
 
 type MessageMutationActions = Pick<AppState,
   "sendMessage" | "forwardMessage" | "editMessage" | "toggleReaction" |
-  "deleteMessage" | "setMessagePinned" | "retryOutbox">;
+  "deleteMessage" | "deleteMessages" | "setMessagePinned" | "retryOutbox">;
 
 export interface MessageMutationDomain {
   actions: MessageMutationActions;
@@ -36,6 +36,93 @@ export function createMessageMutationDomain<Guard>({ set, get, persist, persistN
   const reactionSyncQueues = new Map<string, Promise<void>>();
   const retryScheduler = new MutationRetryScheduler();
   let outboxRetry: Promise<void> | null = null;
+
+  const deleteMessages = async (messages: Message[], scope: "me" | "everyone") => {
+    const snapshot = [...new Map(messages.map((message) => [message.id, message])).values()];
+    if (!snapshot.length) return;
+    const guard = captureGuard();
+    const deletedAt = Date.now();
+    const entries = snapshot.map((message): Extract<OutboxEntry, { kind: "delete" }> => ({
+      kind: "delete",
+      id: createId(),
+      streamId: message.streamId,
+      messageId: message.id,
+      scope,
+      previous: message,
+      queuedAt: deletedAt,
+      attempts: 0,
+    }));
+    const affectedStreams = [...new Set(snapshot.map((message) => message.streamId))];
+    const idsByStream = new Map<string, Set<string>>();
+    for (const message of snapshot) {
+      const ids = idsByStream.get(message.streamId) ?? new Set<string>();
+      ids.add(message.id);
+      idsByStream.set(message.streamId, ids);
+    }
+
+    // One projection update removes the entire selection in the same frame.
+    // Network acknowledgements may arrive individually, but the timeline never
+    // animates a batch away message by message.
+    set((state) => {
+      const nextMessages = { ...state.messages };
+      for (const streamId of affectedStreams) {
+        const ids = idsByStream.get(streamId)!;
+        nextMessages[streamId] = scope === "me"
+          ? (state.messages[streamId] ?? []).filter((message) => !ids.has(message.id))
+          : [...ids].reduce((current, id) => markMessageDeleted(current, id, deletedAt, true), state.messages[streamId] ?? []);
+      }
+      return {
+        messages: nextMessages,
+        outbox: entries.reduce((outbox, entry) => enqueueOutbox(outbox, entry), state.outbox),
+      };
+    });
+    await persistNow({
+      outbox: true,
+      streamIds: affectedStreams,
+      ...(scope === "me" ? { removedMessages: snapshot.map((message) => ({ streamId: message.streamId, messageId: message.id })) } : {}),
+    });
+    if (!guardIsCurrent(guard) || !get().online) return;
+
+    const outcomes = await Promise.all(snapshot.map(async (message, index) => {
+      const entry = entries[index]!;
+      try {
+        const saved = scope === "me" ? null : await transport.deleteMessage(message.id);
+        if (scope === "me") await transport.hideMessage(message.id);
+        return { entry, message, saved, error: null as unknown };
+      } catch (error) {
+        return { entry, message, saved: null, error };
+      }
+    }));
+    if (!guardIsCurrent(guard)) return;
+
+    let permanentFailure: unknown = null;
+    set((state) => {
+      let nextMessages = state.messages;
+      let conversations = state.conversations;
+      let outbox = state.outbox;
+      for (const outcome of outcomes) {
+        if (!outcome.error) {
+          outbox = outbox.filter((item) => item.id !== outcome.entry.id);
+          if (outcome.saved) {
+            conversations = applyConversationPreview(conversations, outcome.saved);
+            nextMessages = { ...nextMessages, [outcome.message.streamId]: mergeMessageWindow(nextMessages[outcome.message.streamId] ?? [], [outcome.saved]) };
+          }
+          continue;
+        }
+        if (isRetryable(outcome.error)) {
+          outbox = outbox.map((item) => item.id === outcome.entry.id ? { ...item, attempts: 1 } : item);
+          continue;
+        }
+        permanentFailure ??= outcome.error;
+        outbox = outbox.filter((item) => item.id !== outcome.entry.id);
+        nextMessages = { ...nextMessages, [outcome.message.streamId]: mergeMessageWindow(nextMessages[outcome.message.streamId] ?? [], [outcome.message]) };
+      }
+      return { conversations, messages: nextMessages, outbox };
+    });
+    persist({ bootstrap: true, outbox: true, streamIds: affectedStreams });
+    void get().refreshBootstrap({ force: true, silent: true });
+    if (permanentFailure) throw permanentFailure;
+  };
 
   const actions: MessageMutationActions = {
     sendMessage: async (streamId, partial, optimisticAttachments = []) => {
@@ -229,37 +316,8 @@ export function createMessageMutationDomain<Guard>({ set, get, persist, persistN
       await operation;
     },
 
-    deleteMessage: async (message, scope) => {
-      const guard = captureGuard();
-      const entry: OutboxEntry = { kind: "delete", id: createId(), streamId: message.streamId, messageId: message.id, scope, previous: message, queuedAt: Date.now(), attempts: 0 };
-      set((state) => ({
-        outbox: enqueueOutbox(state.outbox, entry),
-        messages: { ...state.messages, [message.streamId]: scope === "me" ? (state.messages[message.streamId] ?? []).filter((item) => item.id !== message.id) : markMessageDeleted(state.messages[message.streamId] ?? [], message.id, Date.now(), true) },
-      }));
-      await persistNow({ outbox: true, streamIds: [message.streamId], ...(scope === "me" ? { removedMessages: [{ streamId: message.streamId, messageId: message.id }] } : {}) });
-      if (!guardIsCurrent(guard) || !get().online) return;
-      try {
-        const saved = scope === "me" ? null : await transport.deleteMessage(message.id);
-        if (scope === "me") await transport.hideMessage(message.id);
-        if (!guardIsCurrent(guard)) return;
-        set((state) => ({
-          ...(saved ? { conversations: applyConversationPreview(state.conversations, saved), messages: { ...state.messages, [message.streamId]: mergeMessageWindow(state.messages[message.streamId] ?? [], [saved]) } } : {}),
-          outbox: state.outbox.filter((item) => item.id !== entry.id),
-        }));
-        persist({ ...(saved ? { bootstrap: true } : {}), outbox: true, streamIds: [message.streamId] });
-        void get().refreshBootstrap({ force: true, silent: true });
-      } catch (error) {
-        if (!guardIsCurrent(guard)) return;
-        if (isRetryable(error)) {
-          set((state) => ({ outbox: state.outbox.map((item) => item.id === entry.id ? { ...item, attempts: 1 } : item) }));
-          persist({ outbox: true, streamIds: [message.streamId] });
-          return;
-        }
-        set((state) => ({ messages: { ...state.messages, [message.streamId]: mergeMessageWindow(state.messages[message.streamId] ?? [], [message]) }, outbox: state.outbox.filter((item) => item.id !== entry.id) }));
-        persist({ outbox: true, streamIds: [message.streamId] });
-        throw error;
-      }
-    },
+    deleteMessage: async (message, scope) => deleteMessages([message], scope),
+    deleteMessages,
 
     setMessagePinned: async (message, pinned) => {
       const guard = captureGuard();

@@ -25,7 +25,7 @@ export function useChatSelection({ streamId, streamKind, isGroup, messages, meId
   const { t } = useTranslation();
   const showDialog = useAppDialog();
   const forwardMessage = useAppStore((state) => state.forwardMessage);
-  const deleteMessage = useAppStore((state) => state.deleteMessage);
+  const deleteMessages = useAppStore((state) => state.deleteMessages);
   const setMessagePinned = useAppStore((state) => state.setMessagePinned);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [forwardPickerVisible, setForwardPickerVisible] = useState(false);
@@ -90,7 +90,7 @@ export function useChatSelection({ streamId, streamKind, isGroup, messages, meId
     const remove = async (scope: "me" | "everyone") => {
       clear();
       try {
-        await Promise.all(snapshot.map((message) => deleteMessage(message, scope)));
+        await deleteMessages(snapshot, scope);
       } catch (error) {
         showDialog(t("requestFailed"), userFacingError(error, t));
       }
@@ -101,7 +101,7 @@ export function useChatSelection({ streamId, streamKind, isGroup, messages, meId
       { text: t("deleteForMe"), onPress: () => void remove("me") },
       ...(canDeleteForEveryone ? [{ text: t("deleteForEveryone"), style: "destructive" as const, onPress: () => void remove("everyone") }] : []),
     ]);
-  }, [clear, deleteMessage, isGroup, meId, selectedMessages, showDialog, streamKind, t]);
+  }, [clear, deleteMessages, isGroup, meId, selectedMessages, showDialog, streamKind, t]);
 
   const selectForwardTarget = useCallback(async (target: { id: string }) => {
     const snapshot = selectedMessages;

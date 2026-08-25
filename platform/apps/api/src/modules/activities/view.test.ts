@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { entryVisibleToViewer, participantDetailsArePrivate } from "./view.js";
+import { entryVisibleToViewer, participantDetailsArePrivate, participantPrivateStateIsRevealed } from "./view.js";
 
 const owner = "10000000-0000-4000-8000-000000000001";
 const other = "10000000-0000-4000-8000-000000000002";
@@ -29,6 +29,12 @@ test("paired secrets omit peer counts and exact submission timing before reveal"
   assert.equal(participantDetailsArePrivate({ type: "question", state: "waiting", config: { secret: true } }), true);
   assert.equal(participantDetailsArePrivate({ type: "question", state: "waiting", config: { secret: false } }), false);
   assert.equal(participantDetailsArePrivate({ type: "blitz", state: "completed", config: {} }), false);
+});
+
+test("Color Hunt reveals both assigned colours only with the completed result", () => {
+  assert.equal(participantPrivateStateIsRevealed({ type: "color-hunt", state: "active" }), false);
+  assert.equal(participantPrivateStateIsRevealed({ type: "color-hunt", state: "completed" }), true);
+  assert.equal(participantPrivateStateIsRevealed({ type: "blitz", state: "completed" }), false);
 });
 
 test("cancel and decline never reveal paired or capsule contributions", () => {

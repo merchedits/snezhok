@@ -55,6 +55,9 @@ export const cooperativeActivityStyles = StyleSheet.create({
     gap: 9,
   },
   avatarStack: { flexDirection: "row", alignItems: "center", minWidth: 27 },
+  collageOwnerLine: { flexDirection: "row", alignItems: "center", gap: 9, marginBottom: 8 },
+  collageColorLine: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  collageColorDot: { width: 11, height: 11, borderRadius: 6, borderWidth: 1, borderColor: "rgba(255,255,255,0.5)" },
   root: { flex: 1, justifyContent: "flex-end" },
   sheet: {
     maxHeight: "92%",
@@ -294,4 +297,7 @@ export const cooperativeActivityStyles = StyleSheet.create({
     gap: 9,
     marginBottom: 6,
   },
+  blitzAnswer: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 },
+  blitzAnswerText: { flex: 1, minWidth: 0, fontSize: 14, lineHeight: 18, fontWeight: "800" },
+  blitzSeparator: { flexShrink: 0, fontSize: 18, fontWeight: "900" },
 });

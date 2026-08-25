@@ -52,7 +52,10 @@ function compareMessages(left: Message, right: Message): number {
 export function reconcileMessageVersion(previous: Message, incoming: Message): Message {
   if (previous.id === incoming.id && previous.revision !== undefined && incoming.revision !== undefined) {
     if (incoming.revision < previous.revision) return mergeMonotonicDeliveryState(previous, incoming);
-    if (incoming.revision === previous.revision && !previous.pending && incoming.pending) return previous;
+    // Optimistic delete tombstones intentionally keep the durable revision and
+    // add pending=true. They must win locally so a batch disappears in one
+    // frame; ordinary stale pending projections must still be rejected.
+    if (incoming.revision === previous.revision && !previous.pending && incoming.pending && incoming.deletedAt === null) return previous;
   }
   if (previous.id === incoming.id && previous.deletedAt !== null && !previous.pending && incoming.deletedAt === null) {
     return mergeMonotonicDeliveryState(previous, incoming);

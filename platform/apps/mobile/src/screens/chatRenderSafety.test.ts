@@ -172,6 +172,13 @@ test("cooperative drawing is live and color hunt resolves to generated collage m
   assert.match(activityModalSource, /emitRealtimeDrawing/);
   assert.match(activityInputsSource, /ownCollage[\s\S]{0,80}<CollagePhoto/);
   assert.match(activitySharedSource, /entry\.kind === "collage"/);
+  assert.match(activitySharedSource, /participant\.revealedState\?\.color/);
+  assert.doesNotMatch(activitySharedSource, />\{language === "ru" \? "Угадано!"/);
+});
+
+test("different Blitz answers keep each avatar adjacent to that person's answer", () => {
+  assert.match(activitySharedSource, /styles\.blitzAnswer/);
+  assert.match(activitySharedSource, /firstUser[\s\S]{0,180}firstChoice[\s\S]{0,220}secondUser[\s\S]{0,180}secondChoice/);
 });
 
 test("cooperative photo flows keep the prompt primary and use an overlapping seam-free collage", () => {
@@ -187,11 +194,25 @@ test("cooperative photo flows keep the prompt primary and use an overlapping sea
   assert.match(activityModalSource, /entries: detailActivity\.entries, detail: "full" as const/);
 });
 
-test("compact message metadata reserves text space and shares the voice-note footer", () => {
+test("compact message metadata uses real layout without a visible fake timestamp and shares the voice-note footer", () => {
   assert.match(messageBubbleSource, /!message\.editedAt && !message\.pinnedAt/);
   assert.match(messageBubbleSource, /voiceOnly/);
   assert.match(messageBubbleSource, /styles\.voiceMetaOverlay/);
-  assert.match(messageBubbleSource, /00:00/);
+  assert.match(messageBubbleSource, /styles\.inlineMessageText/);
+  assert.doesNotMatch(messageBubbleSource, /00:00/);
+});
+
+test("activities and media participate in the same message selection gestures", () => {
+  assert.match(messageBubbleSource, /message\.activity \? \(selectionMode \? handlePress : undefined\)/);
+  assert.match(messageBubbleSource, /onMessageLongPress=\{onSelectMessage\}/);
+});
+
+test("profiles use a large swipeable hero gallery with a fullscreen viewer", () => {
+  assert.match(profileSource, /horizontal[\s\S]{0,80}pagingEnabled/);
+  assert.match(profileSource, /setViewerIndex\(index\)/);
+  assert.match(profileSource, /ProfileGalleryViewer/);
+  assert.match(profileSource, /onPrevious/);
+  assert.match(profileSource, /onNext/);
 });
 
 test("cooperative commands reconcile one stale peer revision without losing the action", () => {

@@ -53,11 +53,14 @@ export async function getActivityViews(client: Pick<DbClient, "query">, activity
   const visibleIds = activities.rows.map((row) => row.id);
 
   const participants = await client.query<ParticipantRow>(
-    `SELECT cap.activity_id,cap.status,CASE WHEN cap.user_id=$2 THEN cap.private_state ELSE '{}'::jsonb END private_state,
+    `SELECT cap.activity_id,cap.status,
+      CASE WHEN cap.user_id=$2 OR (activity.type='color-hunt' AND activity.state='completed') THEN cap.private_state ELSE '{}'::jsonb END private_state,
       CASE WHEN cap.submitted_at IS NULL THEN NULL ELSE (extract(epoch from cap.submitted_at)*1000)::bigint::float8 END submitted_at_ms,
       (SELECT count(*)::int FROM cooperative_activity_entries cae WHERE cae.activity_id=cap.activity_id AND cae.created_by=cap.user_id) contribution_count,
       ${publicUserSelect}
-     FROM cooperative_activity_participants cap JOIN users u ON u.id=cap.user_id
+     FROM cooperative_activity_participants cap
+     JOIN cooperative_activities activity ON activity.id=cap.activity_id
+     JOIN users u ON u.id=cap.user_id
      WHERE cap.activity_id=ANY($1::uuid[]) ORDER BY cap.activity_id,u.id`,
     [visibleIds, viewerId],
   );
@@ -117,6 +120,7 @@ export async function getActivityViews(client: Pick<DbClient, "query">, activity
         user: mapUser(participant), status: participant.status,
         contributionCount: concealPeerContributionDetails && participant.id !== viewerId ? 0 : participant.contribution_count,
         submittedAt: concealPeerContributionDetails && participant.id !== viewerId ? null : participant.submitted_at_ms === null ? null : Number(participant.submitted_at_ms),
+        ...(participantPrivateStateIsRevealed(row) ? { revealedState: participant.private_state } : {}),
       })),
       entries: activityEntries,
       createdAt: Number(row.created_at_ms),
@@ -152,6 +156,10 @@ export function participantDetailsArePrivate(activity: Pick<ActivityRow, "type" 
     (activity.type === "question" && activity.config.secret === true)
     || ["blitz", "tiny-quest", "color-hunt", "song-exchange", "memory-capsule"].includes(activity.type)
   );
+}
+
+export function participantPrivateStateIsRevealed(activity: Pick<ActivityRow, "type" | "state">) {
+  return activity.type === "color-hunt" && activity.state === "completed";
 }
 
 function resultVisibleToViewer(activity: Pick<ActivityRow, "type" | "state">) {

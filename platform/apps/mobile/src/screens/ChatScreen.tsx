@@ -1,7 +1,7 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { BackHandler, StyleSheet, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -88,6 +88,14 @@ export function ChatScreen({ navigation, route }: Props) {
     onEdit: beginEditing,
   });
   const { selectedIds, selectionMode, selectionProgress, toggle: toggleSelection } = selection;
+  useEffect(() => {
+    if (!selectionMode) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      selection.clear();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [selection.clear, selectionMode]);
   const latestPin = useMemo(() => {
     let latest: Message | undefined;
     for (const message of messages) {
