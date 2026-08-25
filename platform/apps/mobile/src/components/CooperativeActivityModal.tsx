@@ -17,7 +17,8 @@ import { useAppDialog } from "./AppDialogProvider";
 import { AuthenticatedImage } from "./AuthenticatedImage";
 import { AttachmentSheet } from "./AttachmentSheet";
 import { BlitzInput, DrawGuess, IdeasJar, MemoryInput, MovieList, PhotoInput, QuestionInput, SongInput } from "./activities/CooperativeActivityInputs";
-import { localized, Primary, ResultView, TerminalActivity, Waiting } from "./activities/CooperativeActivityShared";
+import { localized, Primary, ResultView, TerminalActivity, Waiting, type PendingCollagePhoto } from "./activities/CooperativeActivityShared";
+import { canTerminateActivity, distinctActivityCopy } from "./activities/activityPresentation";
 import { cooperativeActivityStyles as styles } from "./activities/cooperativeActivityStyles";
 import { ImageViewer } from "./ImageViewer";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
@@ -31,7 +32,9 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
   const meId = useAppStore((state) => state.me?.id);
   const command = useAppStore((state) => state.commandActivity);
   const upload = useAppStore((state) => state.uploadAttachment);
+  const showDialog = useAppDialog();
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [colorHuntUploads, setColorHuntUploads] = useState<Array<PendingCollagePhoto & { input: UploadInput }>>([]);
   const [busy, setBusy] = useState(false);
   const [picker, setPicker] = useState(false);
   const [text, setText] = useState("");
@@ -64,6 +67,7 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
     setDrawing([]);
     setLiveDrawing([]);
     setError(null);
+    setColorHuntUploads([]);
     const count = Array.isArray(activity?.config.prompts) ? activity.config.prompts.length : 0;
     setAnswers(Array.from({ length: count }, () => null));
   }, [summaryActivity?.id]);
@@ -123,8 +127,8 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
   const ownSubmitted = Boolean(ownEntry) || Boolean(ownParticipant && ["submitted", "completed"].includes(ownParticipant.status));
   const needsDetail = summaryActivity.detail === "summary" && (!detailActivity || detailActivity.revision < summaryActivity.revision);
   const activityLabel = typeLabel(activity.type, language);
-  const instruction = promptText(activity.config, language);
-  const hasInstruction = Boolean(instruction && instruction !== activityLabel);
+  const instruction = distinctActivityCopy(activityLabel, promptText(activity.config, language));
+  const hasInstruction = Boolean(instruction);
   const run = async (action: string, payload: Record<string, unknown> = {}) => {
     if (busy) return false;
     setBusy(true);
@@ -148,6 +152,47 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
     }
   };
 
+  const processColorHuntBatch = async (initialItems: Array<PendingCollagePhoto & { input: UploadInput }>) => {
+    if (busy || activity.type !== "color-hunt") return;
+    let items: Array<PendingCollagePhoto & { input: UploadInput }> = initialItems.map((item) => ({ ...item, status: item.status === "failed" ? "queued" : item.status }));
+    let activityForCommand = activity;
+    const updateItem = (id: string, patch: Partial<PendingCollagePhoto>) => {
+      items = items.map((item) => item.id === id ? { ...item, ...patch } : item);
+      setColorHuntUploads(items);
+    };
+    setColorHuntUploads(items);
+    setBusy(true);
+    setError(null);
+    try {
+      for (const item of items) {
+        if (item.status === "done") continue;
+        let attachmentId = item.attachmentId;
+        try {
+          if (!attachmentId) {
+            updateItem(item.id, { status: "preparing", progress: 0 });
+            const attachment = await upload(item.input, (progress) => updateItem(item.id, { status: "uploading", progress }));
+            attachmentId = attachment.id;
+            updateItem(item.id, { status: "saving", progress: 100, attachmentId });
+          }
+          const saved = await command({ ...message, activity: activityForCommand }, "add-item", { attachmentIds: [attachmentId] });
+          if (saved.activity) activityForCommand = saved.activity;
+          updateItem(item.id, { status: "done", progress: 100, attachmentId });
+        } catch (next) {
+          updateItem(item.id, { status: "failed", ...(attachmentId ? { attachmentId } : {}) });
+          throw next;
+        }
+      }
+      setDetailActivity(await activityQueries.detail(activity.id));
+      setColorHuntUploads([]);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    } catch (next) {
+      setError(userFacingError(next, t));
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const uploadSelection = async (inputs: UploadInput[]) => {
     setPicker(false);
     setBusy(true);
@@ -157,21 +202,32 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
       const ownPhotoCount = activity.type === "color-hunt" ? activity.entries.filter((entry) => entry.createdBy === meId && entry.kind === "photo").flatMap((entry) => entry.attachments).length : 0;
       const limit = activity.type === "color-hunt" ? Math.max(0, 9 - ownPhotoCount) : activity.type === "memory-capsule" ? 4 : 1;
       const selected = inputs.slice(0, limit);
+      if (activity.type === "color-hunt") {
+        const staged = selected.map((input, index) => ({
+          id: `${Date.now()}-${index}-${input.filename}`,
+          uri: input.uri,
+          input,
+          progress: 0,
+          status: "queued" as const,
+        }));
+        setBusy(false);
+        setColorHuntUploads(staged);
+        await processColorHuntBatch(staged);
+        return;
+      }
       setUploadProgress(0);
       for (const [index, input] of selected.entries()) {
         attachments.push(await upload(input, (progress) => {
           setUploadProgress(Math.round(((index + progress / 100) / selected.length) * 100));
         }));
       }
-      const action = activity.type === "color-hunt" ? "add-item" : "submit";
-      const saved = await command({ ...message, activity }, action, {
+      await command({ ...message, activity }, "submit", {
         attachmentIds: attachments.map((attachment) => attachment.id),
         ...(text.trim() ? { caption: text.trim(), text: text.trim() } : {}),
         ...(activity.type === "memory-capsule" && secondary.trim() ? { songUrl: secondary.trim() } : {}),
       });
-      if (activity.type === "color-hunt" && saved.activity) setDetailActivity(await activityQueries.detail(saved.activity.id));
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-      if (activity.type !== "color-hunt") onClose();
+      onClose();
     } catch (next) {
       setError(userFacingError(next, t));
     } finally {
@@ -180,9 +236,21 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
     }
   };
 
+  const confirmTerminalAction = () => {
+    const creator = activity.createdBy === meId;
+    showDialog(
+      creator ? (language === "ru" ? "Завершить игру для обоих?" : "End this game for both?") : (language === "ru" ? "Отклонить игру?" : "Decline this game?"),
+      language === "ru" ? "Текущая сессия завершится и продолжить её будет нельзя." : "The current session will end and cannot be resumed.",
+      [
+        { text: language === "ru" ? "Продолжить игру" : "Keep playing", style: "cancel" },
+        { text: creator ? (language === "ru" ? "Завершить" : "End game") : (language === "ru" ? "Отклонить" : "Decline"), style: "destructive", onPress: () => void run(creator ? "cancel" : "decline") },
+      ],
+    );
+  };
+
   return (
     <>
-      <Modal transparent visible statusBarTranslucent animationType="slide" onRequestClose={onClose}>
+      <Modal transparent visible statusBarTranslucent animationType="slide" onRequestClose={busy ? () => undefined : onClose}>
         <KeyboardAvoidingView style={styles.root} behavior="translate-with-padding" automaticOffset>
           <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: palette.overlay }]} onPress={busy ? undefined : onClose} />
           <View
@@ -229,7 +297,7 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
                 activity.type === "tiny-quest" && ownSubmitted ? (
                   <Waiting text={language === "ru" ? "Твой снимок сохранён и пока скрыт. Ждём второй." : "Your photo is saved and stays hidden. Waiting for the other one."} />
                 ) : (
-                  <PhotoInput activityType={activity.type} text={text} onChange={setText} onPick={() => setPicker(true)} busy={busy} ownPhotos={activity.entries.filter((entry) => entry.createdBy === meId && entry.kind !== "collage").flatMap((entry) => entry.attachments)} ownCollage={activity.entries.find((entry) => entry.createdBy === meId && entry.kind === "collage")?.attachments[0]} assignedColor={activity.privateState.color} language={language} />
+                  <PhotoInput activityType={activity.type} text={text} onChange={setText} onPick={() => setPicker(true)} onRetry={() => void processColorHuntBatch(colorHuntUploads)} busy={busy} ownPhotos={activity.entries.filter((entry) => entry.createdBy === meId && entry.kind !== "collage").flatMap((entry) => entry.attachments)} ownCollage={activity.entries.find((entry) => entry.createdBy === meId && entry.kind === "collage")?.attachments[0]} pendingPhotos={colorHuntUploads} assignedColor={activity.privateState.color} language={language} />
                 )
               ) : activity.type === "song-exchange" ? (
                 ownSubmitted ? (
@@ -269,9 +337,9 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
                   {error}
                 </Text>
               ) : null}
-              {!["completed", "locked", "declined", "cancelled", "expired"].includes(activity.state) ? (
+              {canTerminateActivity(activity.type, activity.state) ? (
                 <View style={styles.quietActions}>
-                  <Pressable accessibilityRole="button" disabled={busy} onPress={() => void run(activity.createdBy === meId ? "cancel" : "decline")} style={styles.terminalAction}>
+                  <Pressable accessibilityRole="button" disabled={busy} onPress={confirmTerminalAction} style={styles.terminalAction}>
                     <Text style={[styles.quietText, { color: palette.danger }]}>{activity.createdBy === meId ? (language === "ru" ? "Отменить игру" : "Cancel activity") : language === "ru" ? "Отклонить игру" : "Decline activity"}</Text>
                   </Pressable>
                 </View>

@@ -11,6 +11,10 @@ Snezhok treats the Android application as the product authority. Changes to chat
 - Direct conversations are identified by account IDs, never display names.
 - Cached state may be stale but must remain render-safe and must not log a user out.
 - Attachment uploads can be resumed or retried without creating duplicate messages.
+- A selected multi-photo activity batch is represented immediately by local
+  placeholders. Each file exposes preparation/upload/commit state independently,
+  and every completed Color Hunt photo is committed durably before the next one;
+  the UI must never wait for the entire batch before revealing progress.
 - Cached, optimistic, HTTP, and realtime attachment arrays are normalized before list classification or rendering. One malformed nested record must never unmount a chat.
 - Stateful native media children use the durable attachment ID as their React identity. Recycler-position keys are not permitted for image, video, audio, or document subtrees.
 - Every attachment subtree has a local JavaScript error boundary. A render failure records privacy-safe structural diagnostics and displays a compact fallback instead of reaching the application-level crash handler.

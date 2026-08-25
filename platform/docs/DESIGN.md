@@ -143,7 +143,7 @@ Calls remain calmer than activities: participant video dominates, dark Ink surfa
 
 ### Cooperative activities
 
-The sparkle menu may be more expressive than routine messaging while staying within the fixed families. Every activity card contains: type and icon, human prompt/title, participant state, one current action, and a compact durable result. Inside an activity sheet, the actual question or task is the primary typographic element; the activity type is a smaller orientation label. Closing the sheet is a reversible dismissal, while at most one clearly named terminal action may cancel or decline the activity. Secret input reveals no partial answer or metadata. Activity steps update one chronological chat object rather than flooding the conversation.
+The sparkle menu may be more expressive than routine messaging while staying within the fixed families. Games/moments and persistent shared collections are separate catalog groups: movie lists and idea jars never show waiting, decline, or cancel-session language. Every activity card contains: type and icon, a distinct human prompt when one exists, participant or collection state, one current action, and a compact durable result. A label may never be repeated immediately as a second title; when both resolve to the same text, render it once. Inside an activity sheet, the actual question or task is the primary typographic element; the activity type is a smaller orientation label. Closing the sheet is a reversible dismissal, while at most one clearly named terminal action may cancel or decline a session and always requires confirmation. Secret input reveals no partial answer or metadata. Activity steps update one chronological chat object rather than flooding the conversation.
 
 ## Motion
 

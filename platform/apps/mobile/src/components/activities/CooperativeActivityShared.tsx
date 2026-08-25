@@ -1,4 +1,5 @@
 import type { CooperativeActivityEntry, CooperativeActivityParticipant, Message } from "@snezhok/contracts";
+import { Image } from "expo-image";
 import { useState } from "react";
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
@@ -12,7 +13,19 @@ import { Avatar } from "../Avatar";
 import { ImageViewer } from "../ImageViewer";
 import { cooperativeActivityStyles as styles } from "./cooperativeActivityStyles";
 
-const COLLAGE_ROWS = [[0, 1, 2], [3, 4, 5], [6, 7, 8]] as const;
+const COLLAGE_TILES = [
+  { top: "0%", left: "0%" }, { top: "0%", left: "33.15%" }, { top: "0%", right: "0%" },
+  { top: "33.15%", left: "0%" }, { top: "33.15%", left: "33.15%" }, { top: "33.15%", right: "0%" },
+  { bottom: "0%", left: "0%" }, { bottom: "0%", left: "33.15%" }, { bottom: "0%", right: "0%" },
+] as const;
+
+export interface PendingCollagePhoto {
+  id: string;
+  uri: string;
+  progress: number;
+  status: "queued" | "preparing" | "uploading" | "saving" | "done" | "failed";
+  attachmentId?: string;
+}
 
 export function TerminalActivity({ state, language }: { state: string; language: "ru" | "en" }) {
   const palette = usePalette();
@@ -218,24 +231,29 @@ function ResultPhoto({ url, attachment }: { url?: string; attachment?: Cooperati
     </>
   );
 }
-export function CollageGrid({ attachments }: { attachments: CooperativeActivityEntry["attachments"] }) {
+export function CollageGrid({ attachments, pending = [] }: { attachments: CooperativeActivityEntry["attachments"]; pending?: PendingCollagePhoto[] }) {
   const palette = usePalette();
+  const attachmentIds = new Set(attachments.map((attachment) => attachment.id));
+  const visiblePending = pending.filter((item) => !item.attachmentId || !attachmentIds.has(item.attachmentId));
   return (
     <View style={[styles.collageGrid, { backgroundColor: palette.surface }]}>
-      {COLLAGE_ROWS.map((indices, row) => (
-        <View key={`row-${row}`} style={styles.collageRow}>
-          {indices.map((index) => {
-            const attachment = attachments[index];
-            return attachment ? (
-              <AuthenticatedImage key={attachment.id} uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={attachment.thumbnailUrl ?? attachment.url} mimeType="image/webp" style={styles.collageCell} />
-            ) : (
-              <View key={`empty-${index}`} style={[styles.collageCell, styles.collageEmpty, { backgroundColor: palette.border }]}>
-                <Text style={{ color: palette.faintText, fontWeight: "800" }}>{index + 1}</Text>
-              </View>
-            );
-          })}
-        </View>
-      ))}
+      {COLLAGE_TILES.map((layout, index) => {
+        const attachment = attachments[index];
+        const staged = visiblePending[index - attachments.length];
+        return (
+          <View key={attachment?.id ?? staged?.id ?? `empty-${index}`} style={[styles.collageCell, layout, { backgroundColor: palette.border }]}>
+            {attachment ? <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} cacheKey={attachment.thumbnailUrl ?? attachment.url} mimeType={attachment.mimeType} style={styles.collageMedia} /> : staged ? (
+              <>
+                <Image source={{ uri: staged.uri }} contentFit="cover" style={[styles.collageMedia, { opacity: staged.status === "done" ? 0.9 : 0.34 }]} />
+                <View style={styles.collageProgress}>
+                  {staged.status === "done" ? <AppIcon name="checkmark" size={22} color="#FFFFFF" /> : staged.status === "failed" ? <AppIcon name="warning-outline" size={22} color="#FFFFFF" /> : <ActivityIndicator color="#FFFFFF" />}
+                  {staged.status === "uploading" ? <Text style={styles.collageProgressText}>{staged.progress}%</Text> : null}
+                </View>
+              </>
+            ) : <Text style={{ color: palette.faintText, fontWeight: "800" }}>{index + 1}</Text>}
+          </View>
+        );
+      })}
     </View>
   );
 }

@@ -7,7 +7,7 @@ import { usePalette } from "../../hooks/usePalette";
 import { clearRealtimeDrawing } from "../../lib/realtimeBridge";
 import { AppIcon } from "../AppIcon";
 import { useAppDialog } from "../AppDialogProvider";
-import { CollageGrid, CollagePhoto, ReadOnlyDrawing, Waiting, Primary, Choice, localized } from "./CooperativeActivityShared";
+import { CollageGrid, CollagePhoto, ReadOnlyDrawing, Waiting, Primary, Choice, localized, type PendingCollagePhoto } from "./CooperativeActivityShared";
 import { attemptStyle, cooperativeActivityStyles as styles, iconActionStyle } from "./cooperativeActivityStyles";
 
 export function QuestionInput({ value, onChange, ownEntry, secret, onSubmit, busy, language }: { value: string; onChange: (value: string) => void; ownEntry?: CooperativeActivityEntry | undefined; secret: boolean; onSubmit: () => void; busy: boolean; language: "ru" | "en" }) {
@@ -54,9 +54,12 @@ export function BlitzInput({ prompts, answers, setAnswers, onSubmit, busy, langu
   );
 }
 
-export function PhotoInput({ activityType, text, onChange, onPick, busy, ownPhotos, ownCollage, assignedColor, language }: { activityType: string; text: string; onChange: (v: string) => void; onPick: () => void; busy: boolean; ownPhotos: CooperativeActivityEntry["attachments"]; ownCollage?: CooperativeActivityEntry["attachments"][number] | undefined; assignedColor?: unknown; language: "ru" | "en" }) {
+export function PhotoInput({ activityType, text, onChange, onPick, onRetry, busy, ownPhotos, ownCollage, pendingPhotos = [], assignedColor, language }: { activityType: string; text: string; onChange: (v: string) => void; onPick: () => void; onRetry?: () => void; busy: boolean; ownPhotos: CooperativeActivityEntry["attachments"]; ownCollage?: CooperativeActivityEntry["attachments"][number] | undefined; pendingPhotos?: PendingCollagePhoto[]; assignedColor?: unknown; language: "ru" | "en" }) {
   const palette = usePalette();
-  const ownCount = ownPhotos.length;
+  const attachmentIds = new Set(ownPhotos.map((attachment) => attachment.id));
+  const visiblePending = pendingPhotos.filter((item) => !item.attachmentId || !attachmentIds.has(item.attachmentId));
+  const ownCount = ownPhotos.length + visiblePending.length;
+  const hasFailedUpload = visiblePending.some((item) => item.status === "failed");
   const color = assignedColor && typeof assignedColor === "object" ? (assignedColor as { hex?: unknown; name?: unknown }) : null;
   const colorName = localized(color?.name, language);
   return (
@@ -83,7 +86,7 @@ export function PhotoInput({ activityType, text, onChange, onPick, busy, ownPhot
           <CollagePhoto attachment={ownCollage} />
         ) : (
           <>
-            <CollageGrid attachments={ownPhotos} />
+            <CollageGrid attachments={ownPhotos} pending={pendingPhotos} />
             {ownCount >= 9 ? (
               <View style={styles.collageLoading}>
                 <ActivityIndicator color={palette.accent} />
@@ -95,7 +98,12 @@ export function PhotoInput({ activityType, text, onChange, onPick, busy, ownPhot
       ) : (
         <TextInput value={text} onChangeText={onChange} maxLength={500} placeholder={language === "ru" ? "Подпись — необязательно" : "Optional caption"} placeholderTextColor={palette.faintText} style={[styles.input, { color: palette.text, backgroundColor: palette.surface }]} />
       )}
-      <Primary label={activityType === "color-hunt" ? (language === "ru" ? "Снять или выбрать фото" : "Take or choose photos") : language === "ru" ? "Выбрать фото" : "Choose photo"} disabled={busy || ownCount >= 9} busy={busy} onPress={onPick} />
+      <Primary
+        label={activityType === "color-hunt" && hasFailedUpload ? (language === "ru" ? "Продолжить загрузку" : "Resume upload") : activityType === "color-hunt" ? (language === "ru" ? "Снять или выбрать фото" : "Take or choose photos") : language === "ru" ? "Выбрать фото" : "Choose photo"}
+        disabled={busy || (ownCount >= 9 && !hasFailedUpload)}
+        busy={busy}
+        onPress={hasFailedUpload && onRetry ? onRetry : onPick}
+      />
     </>
   );
 }

@@ -174,11 +174,15 @@ test("cooperative drawing is live and color hunt resolves to generated collage m
   assert.match(activitySharedSource, /entry\.kind === "collage"/);
 });
 
-test("cooperative photo flows keep the prompt primary and use a seam-free three-row collage", () => {
+test("cooperative photo flows keep the prompt primary and use an overlapping seam-free collage", () => {
   assert.doesNotMatch(activityInputsSource, /Можно выбрать сразу все оставшиеся снимки|Ваши снимки откроются только после вклада обоих/);
   assert.doesNotMatch(activityModalSource, /Не сейчас|Отменить для обоих/);
-  assert.match(activitySharedSource, /COLLAGE_ROWS = \[\[0, 1, 2\], \[3, 4, 5\], \[6, 7, 8\]\]/);
-  assert.match(activitySharedSource, /style=\{styles\.collageRow\}/);
+  assert.match(activitySharedSource, /COLLAGE_TILES/);
+  assert.match(activitySharedSource, /left: "33\.15%"/);
+  assert.match(activitySharedSource, /pending = \[\]/);
+  assert.match(activitySharedSource, /ActivityIndicator/);
+  assert.match(activityModalSource, /processColorHuntBatch/);
+  assert.match(activityModalSource, /attachmentIds: \[attachmentId\]/);
 });
 
 test("cooperative commands reconcile one stale peer revision without losing the action", () => {

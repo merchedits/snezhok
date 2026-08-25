@@ -1,4 +1,5 @@
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
+import { compressImageNative } from "../../modules/snezhok-media-compressor";
 
 import type { UploadInput } from "../types";
 import { replaceImageExtension, resizeForLongEdge } from "./mediaCompressionPolicy";
@@ -16,6 +17,18 @@ export async function prepareMediaUpload(input: UploadInput): Promise<UploadInpu
   if (input.kind !== "image" || input.quality === "high" || input.quality === "original") return input;
   const longEdge = input.quality === "data-saver" ? DATA_SAVER_LONG_EDGE : AUTO_LONG_EDGE;
   const resize = resizeForLongEdge(input.sourceWidth, input.sourceHeight, longEdge);
+  const native = await compressImageNative(input.uri, longEdge, input.quality === "data-saver" ? 72 : 80).catch(() => null);
+  if (native) {
+    return {
+      ...input,
+      uri: native.uri,
+      filename: replaceImageExtension(input.filename, "jpg"),
+      mimeType: "image/jpeg",
+      stripLocation: true,
+      sourceWidth: native.width,
+      sourceHeight: native.height,
+    };
+  }
   const result = await manipulateAsync(input.uri, resize ? [{ resize }] : [], {
     compress: input.quality === "data-saver" ? 0.72 : 0.8,
     format: SaveFormat.JPEG,

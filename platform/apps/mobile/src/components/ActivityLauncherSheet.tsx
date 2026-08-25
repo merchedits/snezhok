@@ -16,23 +16,26 @@ interface Props {
 
 interface LaunchItem { type: CooperativeActivityType; icon: AppIconName; color: string; ink: string; ru: string; en: string; ruHint: string; enHint: string; }
 
-const items: LaunchItem[] = [
+const sessionItems: LaunchItem[] = [
   item("question", "help-circle-outline", "#CDB5FF", "#5D3B93", "Вопрос для двоих", "Question Drop", "Ответьте и откройте вместе", "Answer and reveal together"),
   item("blitz", "bolt-outline", "#FF9184", "#782C28", "Блиц", "60-Second Blitz", "Быстрые выборы для обоих", "Quick choices for both"),
   item("tiny-quest", "camera", "#DCEF72", "#405000", "Маленький квест", "Tiny Quest", "Два снимка откроются вместе", "Two photos unlock together"),
   item("color-hunt", "color-palette-outline", "#91E3BB", "#155C3B", "Охота за цветом", "Color Hunt", "По девять находок каждого", "Nine finds from each person"),
   item("song-exchange", "music-outline", "#A8D8FF", "#174C75", "Обмен песнями", "Song Exchange", "Соберите музыкальный дневник", "Build a musical diary"),
-  item("movie-list", "movie-outline", "#FFE88A", "#6A5300", "Наши фильмы", "Movie List", "Список, выбор и общие оценки", "List, picks and shared ratings"),
   item("draw-guess", "pencil-outline", "#FFA044", "#6B3100", "Нарисуй и угадай", "Draw & Guess", "Плохие рисунки приветствуются", "Bad drawings welcome"),
-  item("ideas-jar", "bulb-outline", "#FFB8C3", "#782C48", "Банка идей", "Ideas Jar", "Выберите, что сделать вместе", "Pick something to do together"),
   item("memory-capsule", "archive-outline", "#FFE88A", "#6A5300", "Капсула памяти", "Memory Capsule", "Заприте и откройте позже", "Lock it and reopen later"),
+];
+
+const collectionItems: LaunchItem[] = [
+  item("movie-list", "movie-outline", "#FFE88A", "#6A5300", "Наши фильмы", "Movie List", "Постоянный общий список и оценки", "A lasting shared list with ratings"),
+  item("ideas-jar", "bulb-outline", "#FFB8C3", "#782C48", "Банка идей", "Ideas Jar", "Постоянный список планов для двоих", "A lasting list of things to do"),
 ];
 
 export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visible, busy, onClose, onStart, onOpenHistory }: Props) {
   const palette = usePalette();
   const { language } = useTranslation();
   const insets = useSafeAreaInsets();
-  const surprise = useMemo(() => ["question", "blitz", "tiny-quest", "song-exchange", "draw-guess", "ideas-jar"] as CooperativeActivityType[], []);
+  const surprise = useMemo(() => ["question", "blitz", "tiny-quest", "song-exchange", "draw-guess"] as CooperativeActivityType[], []);
   const [questionSetup, setQuestionSetup] = useState(false);
   const [capsuleSetup, setCapsuleSetup] = useState(false);
   const [category, setCategory] = useState("random");
@@ -67,18 +70,25 @@ export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visib
             <AppIcon name="sparkles-outline" size={22} color={palette.onAccent} />
             <View style={styles.flex}><Text style={[styles.surpriseTitle, { color: palette.onAccent }]}>{language === "ru" ? "Удиви нас" : "Surprise us"}</Text><Text style={[styles.surpriseHint, { color: palette.onAccent }]}>{language === "ru" ? "Snezhok сам выберет момент" : "Let Snezhok choose the moment"}</Text></View>
           </Pressable>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.grid}>
-            {items.map((entry) => <Pressable accessibilityRole="button" key={entry.type} disabled={busy} onPress={() => entry.type === "question" ? setQuestionSetup(true) : entry.type === "memory-capsule" ? setCapsuleSetup(true) : onStart(entry.type)} style={({ pressed }) => [styles.card, { backgroundColor: entry.color, opacity: busy ? 0.5 : pressed ? 0.78 : 1 }]}>
-              <View style={[styles.icon, { backgroundColor: "rgba(255,255,255,0.5)" }]}><AppIcon name={entry.icon} size={23} color={entry.ink} /></View>
-              <Text style={[styles.cardTitle, { color: entry.ink }]}>{language === "ru" ? entry.ru : entry.en}</Text>
-              <Text style={[styles.cardHint, { color: entry.ink }]}>{language === "ru" ? entry.ruHint : entry.enHint}</Text>
-            </Pressable>)}
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.catalog}>
+            <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{language === "ru" ? "Игры и моменты" : "Games and moments"}</Text>
+            <View style={styles.grid}>{sessionItems.map((entry) => <LaunchCard key={entry.type} entry={entry} language={language} busy={busy} onPress={() => entry.type === "question" ? setQuestionSetup(true) : entry.type === "memory-capsule" ? setCapsuleSetup(true) : onStart(entry.type)} />)}</View>
+            <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{language === "ru" ? "Общие коллекции" : "Shared collections"}</Text>
+            <View style={styles.grid}>{collectionItems.map((entry) => <LaunchCard key={entry.type} entry={entry} language={language} busy={busy} onPress={() => onStart(entry.type)} />)}</View>
           </ScrollView></>}
         </View>
       </View>
     </Modal>
   );
 });
+
+function LaunchCard({ entry, language, busy, onPress }: { entry: LaunchItem; language: "ru" | "en"; busy: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" disabled={busy} onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: entry.color, opacity: busy ? 0.5 : pressed ? 0.78 : 1 }]}>
+    <View style={[styles.icon, { backgroundColor: "rgba(255,255,255,0.5)" }]}><AppIcon name={entry.icon} size={23} color={entry.ink} /></View>
+    <Text style={[styles.cardTitle, { color: entry.ink }]}>{language === "ru" ? entry.ru : entry.en}</Text>
+    <Text style={[styles.cardHint, { color: entry.ink }]}>{language === "ru" ? entry.ruHint : entry.enHint}</Text>
+  </Pressable>;
+}
 
 function item(type: CooperativeActivityType, icon: AppIconName, color: string, ink: string, ru: string, en: string, ruHint: string, enHint: string): LaunchItem {
   return { type, icon, color, ink, ru, en, ruHint, enHint };
@@ -96,7 +106,9 @@ const styles = StyleSheet.create({
   historyIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   historyTitle: { fontSize: 15, fontWeight: "800" }, historyHint: { fontSize: 12, marginTop: 2 },
   surpriseTitle: { fontSize: 17, fontWeight: "800" }, surpriseHint: { fontSize: 12, marginTop: 2, opacity: 0.78 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingBottom: 8 },
+  catalog: { paddingBottom: 8 },
+  sectionTitle: { marginTop: 4, marginBottom: 8, fontSize: 12, lineHeight: 16, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
   card: { width: "48%", minHeight: 132, borderRadius: 22, padding: 14 },
   icon: { width: 39, height: 39, borderRadius: 14, alignItems: "center", justifyContent: "center", marginBottom: 12 },
   cardTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800" }, cardHint: { fontSize: 12, lineHeight: 16, marginTop: 4, opacity: 0.82 },

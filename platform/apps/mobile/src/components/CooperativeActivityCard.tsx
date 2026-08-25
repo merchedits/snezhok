@@ -7,6 +7,7 @@ import { useAppStore } from "../store/useAppStore";
 import { AppIcon, type AppIconName } from "./AppIcon";
 import { AuthenticatedImage } from "./AuthenticatedImage";
 import { Avatar } from "./Avatar";
+import { distinctActivityCopy, isPersistentCollection, persistentCollectionStatus } from "./activities/activityPresentation";
 
 const meta: Record<CooperativeActivityType, { fill: string; ink: string; icon: AppIconName; ru: string; en: string }> = {
   question: {
@@ -88,7 +89,11 @@ export const CooperativeActivityCard = memo(function CooperativeActivityCard({ a
   const style = meta[activity.type];
   const ownEntry = activity.entries.find((entry) => entry.createdBy === meId);
   const ownParticipant = activity.participants.find((participant) => participant.user.id === meId);
-  const prompt = localized(activity.config.prompt, language) || localized(activity.config.title, language);
+  const prompt = distinctActivityCopy(
+    language === "ru" ? style.ru : style.en,
+    localized(activity.config.prompt, language),
+    localized(activity.config.title, language),
+  );
   const milestone = activity.type === "milestone";
   const actionable = !milestone && !["declined", "expired", "cancelled"].includes(activity.state);
   const button = actionLabel(activity, Boolean(ownEntry) || Boolean(ownParticipant && (ownParticipant.contributionCount > 0 || ["submitted", "completed"].includes(ownParticipant.status))), language);
@@ -262,6 +267,7 @@ function actionLabel(activity: CooperativeActivity, ownEntry: boolean, language:
 }
 
 function stateLabel(activity: CooperativeActivity, language: "ru" | "en") {
+  if (isPersistentCollection(activity.type)) return persistentCollectionStatus(language);
   if (activity.state === "completed") return language === "ru" ? "Готово вместе" : "Completed together";
   if (activity.state === "locked") return activity.revealAt ? new Date(activity.revealAt).toLocaleDateString(language === "ru" ? "ru-RU" : "en-US") : language === "ru" ? "Заперто" : "Locked";
   if (activity.state === "declined") return language === "ru" ? "Отклонено" : "Declined";

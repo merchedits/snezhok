@@ -25,6 +25,11 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
   `FlatList` windows deliberately small on Android.
 - Images use the native Glide-backed `expo-image` memory/disk cache. Do not
   prefetch the entire inbox; load visible assets and the selected destination.
+- Normal Android photo sends use Snezhok's sampled native JPEG compressor before
+  upload. It decodes near the requested long edge instead of materializing the
+  complete camera bitmap, preserves EXIF orientation, strips metadata, and
+  falls back to Expo image manipulation if the native module is unavailable.
+  Keep multi-photo preparation bounded on low-memory devices.
 - Image and video attachments carry server-derived dimensions and a compact
   thumbnail variant. Reserve layout from dimensions and decode the thumbnail in
   message cells; the full-resolution object is for the viewer only.
@@ -111,6 +116,8 @@ installs once that measured profile is present.
 - Do not preload every chat, avatar, or attachment at startup.
 - Do not serialize full message history after every socket event.
 - Do not mount media decoders merely to render a thumbnail.
+- Do not decode full-resolution camera photos merely to produce normal-quality
+  uploads. HQ and original-file sends are the explicit exceptions.
 - Do not use `notifyDataSetChanged`-style whole-list invalidation when one row
   changed.
 - Do not raise cache sizes as a substitute for cursor pagination.
