@@ -3,7 +3,7 @@ import test from "node:test";
 
 import type { Message } from "@snezhok/contracts";
 
-import { boundedMessageWindow, messagesForCache, normalizeCachedMessages } from "./cachePolicy";
+import { boundedMessageWindow, LIVE_MESSAGES_PER_STREAM, messagesForCache, normalizeCachedMessages } from "./cachePolicy";
 
 test("legacy cached messages are made safe without touching session state", () => {
   const normalized = normalizeCachedMessages({
@@ -78,4 +78,21 @@ test("live message windows retain the requested edge and important messages", ()
 
   assert.deepEqual(boundedMessageWindow(messages, 5, "latest").map((message) => message.sequence), [2, 3, 4, 15, 16, 17, 18, 19]);
   assert.deepEqual(boundedMessageWindow(messages, 5, "older").map((message) => message.sequence), [0, 1, 2, 3, 4]);
+});
+
+test("the default live window preserves a long visited chat session", () => {
+  const messages = Array.from({ length: LIVE_MESSAGES_PER_STREAM + 20 }, (_, index) => ({
+    id: `message-${index}`,
+    streamId: "stream",
+    sequence: index,
+    createdAt: index,
+    sender: { id: "user" },
+    attachments: [],
+    reactions: [],
+  })) as unknown as Message[];
+
+  const retained = boundedMessageWindow(messages);
+  assert.equal(retained.length, LIVE_MESSAGES_PER_STREAM);
+  assert.equal(retained[0]?.sequence, 20);
+  assert.equal(retained.at(-1)?.sequence, LIVE_MESSAGES_PER_STREAM + 19);
 });

@@ -163,6 +163,17 @@ export const MessageBubble = memo(
         <SelectionMarker selected={selected} animatedStyle={selectionMarkerStyle} />
         <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
           <View style={[styles.row, mine ? styles.mineRow : styles.theirRow, { marginVertical: ui.dense(2, 1) }]}>
+            {mediaOnly ? (
+              <Pressable
+                testID={`message_media_gutter_${message.id}`}
+                accessibilityLabel={selectionMode ? undefined : "Reactions"}
+                onPress={(event) => {
+                  if (selectionMode) onPress?.();
+                  else onOpenReactions?.(event.nativeEvent.pageY);
+                }}
+                style={styles.rowReactionSurface}
+              />
+            ) : null}
             <Pressable
               testID={stateTestId}
               delayLongPress={240}
@@ -170,6 +181,7 @@ export const MessageBubble = memo(
               onLongPress={handleLongPress}
               style={({ pressed }) => [
                 styles.bubble,
+                styles.bubbleSurface,
                 message.activity && styles.activityBubble,
                 mediaOnly && styles.mediaBubble,
                 mine ? styles.mineBubble : styles.theirBubble,

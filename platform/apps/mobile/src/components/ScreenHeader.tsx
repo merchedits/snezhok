@@ -29,10 +29,15 @@ export function ScreenHeader({ title, subtitle, left, right = [], center, promin
   const ui = useUiPreferences();
   const insets = useSafeAreaInsets();
   const backgroundColor = tone === "chat" ? palette.chatCanvas : tone === "profile" ? palette.profileCanvas : tone === "settings" ? palette.settingsCanvas : palette.background;
+  const visibleActions = right.slice(0, 3);
+  // Both sides reserve the same physical width. Asymmetric header slots make a
+  // mathematically centered title look visibly off-center, especially on the
+  // main Profile and Chats screens.
+  const sideWidth = Math.max(left ? 44 : 0, visibleActions.length * 44, 44);
   return (
     <View style={[styles.outer, { paddingTop: insets.top, backgroundColor }]}>
       <View style={[styles.row, prominent && styles.prominentRow, { minHeight: prominent ? ui.dense(68, 60) : ui.dense(52, 46) }]}>
-        <View style={[styles.side, prominent && !left && styles.collapsedSide]}>
+        <View style={[styles.side, { width: sideWidth }]}>
           {left ? <HeaderButton {...left} /> : null}
         </View>
         <View style={[styles.center, prominent && styles.prominentCenter]}>
@@ -43,8 +48,8 @@ export function ScreenHeader({ title, subtitle, left, right = [], center, promin
             </>
           )}
         </View>
-        <View style={[styles.side, styles.right]}>
-          {right.slice(0, 3).map((action) => <HeaderButton key={action.label} {...action} />)}
+        <View style={[styles.side, styles.right, { width: sideWidth }]}>
+          {visibleActions.map((action) => <HeaderButton key={action.label} {...action} />)}
         </View>
       </View>
     </View>
@@ -64,11 +69,10 @@ const styles = StyleSheet.create({
   outer: {},
   row: { minHeight: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: 12 },
   prominentRow: { paddingHorizontal: 20 },
-  side: { width: 84, flexDirection: "row", alignItems: "center" },
-  right: { width: 120, justifyContent: "flex-end" },
+  side: { flexDirection: "row", alignItems: "center" },
+  right: { justifyContent: "flex-end" },
   center: { flex: 1, alignItems: "center", paddingHorizontal: 4 },
-  prominentCenter: { alignItems: "flex-start", paddingLeft: 4 },
-  collapsedSide: { width: 0 },
+  prominentCenter: { alignItems: "center" },
   title: { fontSize: 17, lineHeight: 21, fontWeight: "700" },
   prominentTitle: { fontWeight: "800", letterSpacing: -0.8 },
   subtitle: { fontSize: 12, lineHeight: 15, marginTop: 1 },

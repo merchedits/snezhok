@@ -6,6 +6,8 @@ export const messageBubbleStyles = StyleSheet.create({
   selectionMarker: { position: "absolute", left: 8, top: "50%", marginTop: -11, zIndex: 2 },
   selectionCircle: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   row: { width: "100%", paddingHorizontal: 8, marginVertical: 2 },
+  rowReactionSurface: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 0 },
+  bubbleSurface: { zIndex: 1 },
   mineRow: { alignItems: "flex-end" },
   theirRow: { alignItems: "flex-start" },
   bubble: { maxWidth: "82%", minWidth: 78, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },

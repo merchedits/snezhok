@@ -1,6 +1,6 @@
 import type { Attachment } from "@snezhok/contracts";
-import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type GestureResponderEvent, type StyleProp, type ViewStyle } from "react-native";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import { File, Paths } from "expo-file-system";
 import * as IntentLauncher from "expo-intent-launcher";
 
@@ -15,7 +15,7 @@ import { userFacingError } from "../../lib/userFacingError";
 import { AppIcon } from "../AppIcon";
 import { useAppDialog } from "../AppDialogProvider";
 import { AuthenticatedImage } from "../AuthenticatedImage";
-import { ImageViewer } from "../ImageViewer";
+import { ImageGalleryViewer, ImageViewer, type ImageGalleryItem } from "../ImageViewer";
 import { VideoViewer } from "../VideoViewer";
 import { VoiceMessageAttachment } from "../VoiceMessageAttachment";
 import { messageBubbleStyles as styles } from "./messageBubbleStyles";
@@ -101,8 +101,14 @@ function AlbumMediaTile({ attachment, onOpen, onMessageReaction, onMessageLongPr
 function AlbumAttachmentViewer({ attachments, index, onIndex, onClose }: { attachments: Attachment[]; index: number; onIndex: (index: number) => void; onClose: () => void }) {
   const attachment = attachments[index]!;
   const source = useAuthorizedMedia(attachment.url);
+  const imageAttachments = useMemo(() => attachments.filter((item) => item.kind === "image"), [attachments]);
+  const galleryItems = useMemo<ImageGalleryItem[]>(() => imageAttachments.map((item) => ({ key: item.id, uri: item.url, filename: item.filename, mimeType: item.mimeType })), [imageAttachments]);
   if (attachment.kind === "video") return <VideoViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={onClose} />;
-  return <ImageViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={onClose} {...(index > 0 ? { onPrevious: () => onIndex(index - 1) } : {})} {...(index < attachments.length - 1 ? { onNext: () => onIndex(index + 1) } : {})} />;
+  const imageIndex = Math.max(0, imageAttachments.findIndex((item) => item.id === attachment.id));
+  return <ImageGalleryViewer visible items={galleryItems} initialIndex={imageIndex} onIndexChange={(next) => {
+    const nextAttachment = imageAttachments[next];
+    if (nextAttachment) onIndex(attachments.findIndex((item) => item.id === nextAttachment.id));
+  }} onClose={onClose} />;
 }
 
 function AttachmentView({ attachment, streamId, mine, foreground, mutedForeground, onMessageReaction, onMessageLongPress }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string } & MediaMessageInteractions) {
@@ -159,17 +165,11 @@ function InlineVideo({ attachment, onMessageReaction, onMessageLongPress }: { at
   return <><MediaPressSurface testID={`message_video_${attachment.id}`} onOpen={() => setOpen(true)} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} style={[styles.videoPreview, size]}>{attachment.thumbnailUrl ? <AuthenticatedImage uri={attachment.thumbnailUrl} fallbackUri={attachment.url} cacheKey={`${attachment.id}-thumbnail`} mimeType="image/webp" onIntrinsicSize={onIntrinsicSize} style={styles.video} /> : <View style={[styles.video, styles.videoPlaceholder]} />}<View style={styles.videoPlay}><AppIcon name="play" size={23} color="white" /></View>{attachment.durationMs ? <View style={styles.videoDurationBadge}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</MediaPressSurface>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
 }
 
-function MediaPressSurface({ children, testID, style, onOpen, onMessageReaction, onMessageLongPress }: { children: ReactNode; testID: string; style?: StyleProp<ViewStyle>; onOpen: () => void } & MediaMessageInteractions) {
-  const [width, setWidth] = useState(0);
+function MediaPressSurface({ children, testID, style, onOpen, onMessageLongPress }: { children: ReactNode; testID: string; style?: StyleProp<ViewStyle>; onOpen: () => void } & MediaMessageInteractions) {
   const longPressHandled = useRef(false);
-  const handlePress = (event: GestureResponderEvent) => {
+  const handlePress = () => {
     if (longPressHandled.current) {
       longPressHandled.current = false;
-      return;
-    }
-    const edge = Math.min(52, width * 0.22);
-    if (onMessageReaction && width > 0 && (event.nativeEvent.locationX <= edge || event.nativeEvent.locationX >= width - edge)) {
-      onMessageReaction(event.nativeEvent.pageY);
       return;
     }
     onOpen();
@@ -179,7 +179,6 @@ function MediaPressSurface({ children, testID, style, onOpen, onMessageReaction,
       testID={testID}
       accessibilityRole="button"
       delayLongPress={240}
-      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
       onPress={handlePress}
       onLongPress={() => {
         longPressHandled.current = true;

@@ -4,7 +4,10 @@ import type { CachedState } from "../types";
 import { messagesForCache, normalizeCachedMessages } from "../domains/messaging/cachePolicy";
 import { decodeMessageValue } from "../domains/messaging/messageDecoding";
 
-export const RECENT_MESSAGES_PER_STREAM = 80;
+// Five normal history pages are small enough for low-end devices and large
+// enough that every page visited in an ordinary session remains available
+// offline instead of being pruned back to the first screen immediately.
+export const RECENT_MESSAGES_PER_STREAM = 300;
 export const DEFAULT_CACHE_PAGE_SIZE = 40;
 export const MAX_CACHE_PAGE_SIZE = 100;
 export const STARTUP_STREAM_LIMIT = 16;

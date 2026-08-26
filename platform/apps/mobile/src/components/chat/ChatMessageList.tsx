@@ -3,13 +3,14 @@ import { useIsFocused } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type ViewToken } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 
 import type { ConversationSummary, Message, UserSummary } from "@snezhok/contracts";
 
 import { recordPerformance } from "../../diagnostics/diagnostics";
 import { usePalette } from "../../hooks/usePalette";
+import { prefetchAuthorizedMedia } from "../../hooks/useAuthorizedMedia";
 import { useTranslation } from "../../i18n";
 import { chatOpenPerformanceKind } from "../../lib/chatWarmup";
 import { renderableAttachments } from "../../domains/messaging/messagePayload";
@@ -27,7 +28,7 @@ import { ChatDayDivider, ChatUnreadDivider } from "./ChatTimelineDividers";
 
 const INITIAL_RENDERED_MESSAGES = 80;
 const MESSAGE_PAGE_SIZE = 60;
-const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2 } as const;
+const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 120 } as const;
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
   if (message.activity) return `activity-${message.activity.type}`;
@@ -103,6 +104,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   const loadingOlder = useRef(false);
   const firstPaintRecorded = useRef(false);
   const cachedMessageCountAtOpen = useRef(messages.length);
+  const warmedMediaUris = useRef(new Set<string>());
   const unreadBoundary = useRef({
     streamId,
     initialCount: Math.max(conversation?.unreadCount ?? 0, channelUnreadCount),
@@ -154,6 +156,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     initialBottomAnchored.current = false;
     loadingOlder.current = false;
     firstPaintRecorded.current = false;
+    warmedMediaUris.current.clear();
     cachedMessageCountAtOpen.current = useAppStore.getState().messages[streamId]?.length ?? 0;
     setRouteSettled(false);
     setHistoryState("waiting");
@@ -210,6 +213,26 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   }), [jumpToMessage]);
 
   useEffect(() => { if (targetMessageId) void jumpToMessage(targetMessageId); }, [jumpToMessage, targetMessageId]);
+
+  const warmVisibleMedia = useCallback(({ viewableItems }: { viewableItems: ViewToken<Message>[] }) => {
+    const pending: string[] = [];
+    for (const token of viewableItems) {
+      if (!token.isViewable || !token.item) continue;
+      for (const attachment of renderableAttachments(token.item.attachments)) {
+        const candidates = attachment.kind === "image"
+          ? [attachment.thumbnailUrl, attachment.url]
+          : attachment.kind === "video"
+            ? [attachment.thumbnailUrl]
+            : [];
+        for (const uri of candidates) {
+          if (!uri || warmedMediaUris.current.has(uri)) continue;
+          warmedMediaUris.current.add(uri);
+          pending.push(uri);
+        }
+      }
+    }
+    if (pending.length > 0) void prefetchAuthorizedMedia(pending.slice(0, 18)).catch(() => false);
+  }, []);
 
   const revealOlderMessages = useCallback(async () => {
     if (!userDraggedHistory.current || loadingOlder.current) return;
@@ -290,6 +313,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
         maintainVisibleContentPosition={maintainVisibleMessagePosition}
+        onViewableItemsChanged={warmVisibleMedia}
         onScrollBeginDrag={() => { userDraggedHistory.current = true; }}
         onStartReached={() => void revealOlderMessages().catch(() => undefined)}
         onStartReachedThreshold={0.2}

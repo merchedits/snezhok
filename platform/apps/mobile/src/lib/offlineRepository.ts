@@ -181,7 +181,7 @@ async function persistCacheDelta(db: SQLiteDatabase, delta: OfflineCacheDelta): 
      WHERE stream_id = ? AND important = 0 AND message_id NOT IN (
        SELECT message_id FROM cached_messages
        WHERE stream_id = ? AND important = 0
-       ORDER BY sequence DESC LIMIT 80
+       ORDER BY sequence DESC LIMIT 300
      )`,
   );
   try {

@@ -25,12 +25,18 @@ export function messagesForCache(messages: Record<string, Message[]>, recentLimi
 
 export type MessageWindowEdge = "latest" | "older";
 
+// Message objects only contain metadata and authenticated media URLs; decoded
+// media stays in the native image/video caches. A wider in-memory window keeps
+// already visited history instant throughout an active session without making
+// the durable SQLite startup cache unbounded.
+export const LIVE_MESSAGES_PER_STREAM = 1_000;
+
 /**
  * Bound live JS memory without discarding messages that represent unfinished
  * work or durable pins. Older-page loads keep their historical edge visible;
  * latest/realtime loads keep the newest edge visible.
  */
-export function boundedMessageWindow(messages: Message[], limit = 300, edge: MessageWindowEdge = "latest"): Message[] {
+export function boundedMessageWindow(messages: Message[], limit = LIVE_MESSAGES_PER_STREAM, edge: MessageWindowEdge = "latest"): Message[] {
   if (messages.length <= limit) return messages;
   const window = edge === "latest" ? messages.slice(-limit) : messages.slice(0, limit);
   const keep = new Set(window.map((message) => message.id));

@@ -26,7 +26,6 @@ test("every optimistic message mutation is durable before its network request", 
     ["forwardMessage: async", "editMessage: async", "transport.forwardMessage"],
     ["editMessage: async", "toggleReaction: async", "transport.editMessage"],
     ["toggleReaction: async", "deleteMessage: async", "transport.setReaction"],
-    ["deleteMessage: async", "setMessagePinned: async", "transport.deleteMessage"],
     ["setMessagePinned: async", "retryOutbox: async", "transport.setMessagePinned"],
   ] as const;
   for (const [start, end, networkCall] of cases) {
@@ -35,6 +34,9 @@ test("every optimistic message mutation is durable before its network request", 
     assert.ok(persisted >= 0, `${start} must persist`);
     assert.ok(persisted < source.indexOf(networkCall), `${start} must persist before ${networkCall}`);
   }
+  const batchDelete = operation("const deleteMessages = async", "const actions:", messageMutations);
+  assert.ok(batchDelete.indexOf("await persistNow({") < batchDelete.indexOf("transport.deleteMessage"));
+  assert.match(messageMutations, /deleteMessage: async \(message, scope\) => deleteMessages\(\[message\], scope\)/);
 });
 
 test("offline repositories bind SQLite, drafts, and outbox data to one owner", () => {

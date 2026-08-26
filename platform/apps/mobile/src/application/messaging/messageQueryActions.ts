@@ -1,6 +1,6 @@
 import type { OutboxEntry } from "../../types";
 import { ApiError } from "../../lib/apiError";
-import { boundedMessageWindow } from "../../domains/messaging/cachePolicy";
+import { boundedMessageWindow, LIVE_MESSAGES_PER_STREAM } from "../../domains/messaging/cachePolicy";
 import { cachedHistoryCursor } from "../../lib/offlineCachePolicy";
 import { mergeMessageWindow } from "../../domains/messaging/messageWindow";
 import { mergeMessages, reconcilePinnedMessages } from "../../domains/messaging/messageReconciliation";
@@ -86,7 +86,7 @@ export function createMessageQueryDomain<Guard>({
         set((state) => ({
           messages: {
             ...state.messages,
-            [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], page.items), 300, before === undefined ? "latest" : "older"),
+            [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], page.items), LIVE_MESSAGES_PER_STREAM, before === undefined ? "latest" : "older"),
           },
           messagePagination: {
             ...state.messagePagination,
@@ -142,7 +142,7 @@ export function createMessageQueryDomain<Guard>({
         if (!guardIsCurrent(guard)) return;
         if (cached.length) {
           set((state) => ({
-            messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], cached), 300, "older") },
+            messages: { ...state.messages, [streamId]: boundedMessageWindow(mergeMessages(state.messages[streamId] ?? [], cached), LIVE_MESSAGES_PER_STREAM, "older") },
           }));
           return;
         }

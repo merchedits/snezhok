@@ -49,7 +49,7 @@ export function ContactsScreen({ embedded = false }: { embedded?: boolean }) {
     finally { setBusyId(null); }
   };
 
-  const profileHeader = embedded && me ? <View style={[styles.profileCard, { backgroundColor: palette.surface, borderColor: palette.border }]}><Avatar uri={me.avatarUrl} label={me.displayName} color={me.avatarColor} online size={62} /><View style={styles.profileCopy}><Text numberOfLines={1} style={[styles.profileName, { color: palette.text }]}>{me.displayName}</Text><Text style={[styles.profileUsername, { color: palette.secondaryText }]}>@{me.username}</Text>{me.statusText ? <Text numberOfLines={1} style={[styles.profileStatus, { color: palette.accent }]}>{me.statusText}</Text> : null}</View></View> : null;
+  const profileHeader = embedded && me ? <View style={[styles.profileCard, { backgroundColor: palette.surface, borderColor: palette.border }]}><Avatar uri={me.avatarUrl} label={me.displayName} color={me.avatarColor} online size={62} /><View style={styles.profileCopy}><Text numberOfLines={1} style={[styles.profileName, { color: palette.text }]}>{me.displayName}</Text><Text style={[styles.profileUsername, { color: palette.secondaryText }]}>@{me.username}</Text></View></View> : null;
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
@@ -82,13 +82,12 @@ export function ContactsScreen({ embedded = false }: { embedded?: boolean }) {
 function relationshipLabel(entry: FriendEntry, language: "en" | "ru", t: ReturnType<typeof useTranslation>["t"]): string {
   if (entry.relationship === "incoming") return t("requestIncoming");
   if (entry.relationship === "outgoing") return t("requestSent");
-  if (entry.user.statusText) return entry.user.statusText;
   if (entry.user.presence === "online") return t("online");
   return t("lastSeen", { date: new Date(entry.user.lastSeenAt).toLocaleDateString(language === "ru" ? "ru-RU" : "en-US") });
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 }, profileCard: { margin: 12, marginBottom: 2, borderWidth: 1, borderRadius: 17, padding: 16, flexDirection: "row", alignItems: "center", gap: 14 }, profileCopy: { flex: 1 }, profileName: { fontSize: 20, fontWeight: "800" }, profileUsername: { fontSize: 14, marginTop: 3 }, profileStatus: { fontSize: 13, marginTop: 5 },
+  screen: { flex: 1 }, profileCard: { margin: 12, marginBottom: 2, borderWidth: 1, borderRadius: 17, padding: 16, flexDirection: "row", alignItems: "center", gap: 14 }, profileCopy: { flex: 1 }, profileName: { fontSize: 20, fontWeight: "800" }, profileUsername: { fontSize: 14, marginTop: 3 },
   segment: { flexDirection: "row", borderRadius: 10, margin: 10, padding: 3 }, segmentButton: { flex: 1, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center" }, segmentText: { fontSize: 14, fontWeight: "700" },
   row: { minHeight: 68, flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginVertical: 4, paddingLeft: 12, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth }, body: { minHeight: 68, flex: 1, marginLeft: 12, justifyContent: "center", paddingRight: 12 }, name: { fontSize: 16, fontWeight: "700" }, status: { fontSize: 13, marginTop: 4 },
   empty: { paddingTop: 70, alignItems: "center" }, emptyTitle: { fontSize: 17, fontWeight: "700" }, requestActions: { flexDirection: "row", gap: 6, paddingRight: 9 }, requestButton: { minHeight: 34, borderRadius: 8, paddingHorizontal: 9, alignItems: "center", justifyContent: "center" }, requestText: { fontSize: 11, fontWeight: "700" }, acceptText: { color: "white", fontSize: 11, fontWeight: "700" }, moreButton: { minWidth: 44, minHeight: 44, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" },

@@ -27,7 +27,7 @@ function message(sequence: number, extra: Partial<Message> = {}): Message {
 }
 
 test("v2 migration preserves bootstrap and bounds messages without losing important rows", () => {
-  const messages = Array.from({ length: 100 }, (_, index) => message(index, {
+  const messages = Array.from({ length: 400 }, (_, index) => message(index, {
     pinnedAt: index === 1 ? 10 : null,
     pending: index === 2,
     failed: index === 3,
@@ -36,8 +36,8 @@ test("v2 migration preserves bootstrap and bounds messages without losing import
   assert.equal(migrated?.cachedAt, 123);
   assert.equal((migrated?.bootstrap as { eventCursor?: number } | null)?.eventCursor, 44);
   assert.deepEqual(migrated?.messages.stream?.slice(0, 3).map((item) => item.id), ["message-1", "message-2", "message-3"]);
-  assert.equal(migrated?.messages.stream?.length, 83);
-  assert.equal(migrated?.messages.stream?.at(-1)?.id, "message-99");
+  assert.equal(migrated?.messages.stream?.length, 303);
+  assert.equal(migrated?.messages.stream?.at(-1)?.id, "message-399");
 });
 
 test("damaged legacy snapshots and individual SQLite rows fail closed", () => {

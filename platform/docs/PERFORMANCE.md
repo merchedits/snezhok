@@ -12,10 +12,13 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
   transition.
 - Coalesce realtime cache writes. Presence changes are ephemeral and are not
   written to disk.
-- Persist only the latest 80 messages per stream, plus pinned, pending, and
-  failed messages, in the WAL-backed SQLite offline store. The store exposes
+- Persist only the latest 300 messages (five normal pages) per stream, plus
+  pinned, pending, and failed messages, in the WAL-backed SQLite offline store. The store exposes
   sequence-cursor pages and migrates the former AsyncStorage v2 snapshot in one
   transaction. Older history remains authoritative on the server.
+- Keep up to 1,000 lightweight message records per stream in Zustand during an
+  active session. Native image/video caches own decoded media bytes, so this
+  wider window preserves already visited history without bloating SQLite startup.
 - Deduplicate concurrent history requests and consider a freshly loaded stream
   valid for 15 seconds. Start the SQLite read on chat-row press-in so storage
   latency overlaps the gesture. A chat route opened from a notification or deep
@@ -23,7 +26,10 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
   reconciliation still waits for the native transition to finish.
 - Keep list rows fixed-height, memoized, and backed by `getItemLayout`. Keep
   `FlatList` windows deliberately small on Android.
-- Images use the native Glide-backed `expo-image` memory/disk cache. Do not
+- Images use the native Glide-backed `expo-image` memory/disk cache. Visible
+  thumbnails may warm their authenticated full-size image for immediate viewer
+  entry, and a previously displayed URI must not regain a synthetic loader when
+  its native cache entry is reused. Do not
   prefetch the entire inbox; load visible assets and the selected destination.
 - Normal Android photo sends use Snezhok's sampled native JPEG compressor before
   upload. It decodes near the requested long edge instead of materializing the
@@ -40,7 +46,10 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
   starts after the navigation animation. The only storage work allowed during a
   chat transition is the bounded, deduplicated SQLite first-page warmup needed
   to paint a cold cached route.
-- The chat composer follows the keyboard controller's UI-thread progress. Do
+- Android chat layout uses the platform `adjustResize` contract exactly once;
+  do not wrap it in a second translating keyboard-avoiding container. The chat
+  composer follows the keyboard controller's UI-thread progress only for its
+  closed/open safe-area padding. Do
   not switch safe-area padding from `keyboardDidShow`/`keyboardDidHide`; those
   callbacks arrive at the animation boundary and cause a visible final-frame
   jump on Samsung firmware.

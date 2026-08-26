@@ -33,6 +33,8 @@ const messageSearchSource = readFileSync(new URL("../components/MessageSearchMod
 const managementUiSource = readFileSync(new URL("../components/management/ManagementUi.tsx", import.meta.url), "utf8");
 const loginSource = readFileSync(new URL("./LoginScreen.tsx", import.meta.url), "utf8");
 const profileSource = readFileSync(new URL("./ProfileScreen.tsx", import.meta.url), "utf8");
+const imageViewerSource = readFileSync(new URL("../components/ImageViewer.tsx", import.meta.url), "utf8");
+const mainScreenSource = readFileSync(new URL("./MainScreen.tsx", import.meta.url), "utf8");
 
 test("chat external-store selectors never allocate a filtered snapshot", () => {
   assert.doesNotMatch(chatSource, /useAppStore\(\(state\)\s*=>\s*state\.[^)]+\.filter\(/);
@@ -145,10 +147,11 @@ test("chat composer follows keyboard progress without late JS visibility jumps",
 
 test("chat identity header stays outside the keyboard-translated region", () => {
   const header = chatSource.indexOf("<ChatHeader");
-  const keyboardRegion = chatSource.indexOf("<KeyboardAvoidingView", header);
+  const keyboardRegion = chatSource.indexOf("<View style={styles.keyboardRegion}", header);
   const timeline = chatSource.indexOf("<ChatMessageList", keyboardRegion);
   assert.ok(header >= 0 && keyboardRegion > header && timeline > keyboardRegion);
-  assert.match(chatSource, /<KeyboardAvoidingView style=\{styles\.keyboardRegion\}/);
+  assert.doesNotMatch(chatSource, /KeyboardAvoidingView|translate-with-padding/);
+  assert.match(timelineSource, /autoscrollToBottomThreshold: 120/);
 });
 
 test("text-entry screens and management forms keep focused inputs above the keyboard", () => {
@@ -211,8 +214,25 @@ test("profiles use a large swipeable hero gallery with a fullscreen viewer", () 
   assert.match(profileSource, /horizontal[\s\S]{0,80}pagingEnabled/);
   assert.match(profileSource, /setViewerIndex\(index\)/);
   assert.match(profileSource, /ProfileGalleryViewer/);
-  assert.match(profileSource, /onPrevious/);
-  assert.match(profileSource, /onNext/);
+  assert.match(profileSource, /ImageGalleryViewer/);
+  assert.match(profileSource, /allowsMultipleSelection: true/);
+  assert.match(profileSource, /ellipsis-horizontal/);
+  assert.doesNotMatch(profileSource, /styles\.camera|ProfileInput label=\{t\("status"\)\}|photoManagement/);
+  assert.match(imageViewerSource, /horizontal[\s\S]{0,80}pagingEnabled/);
+  assert.match(imageViewerSource, /onMomentumScrollEnd=\{settleIndex\}/);
+});
+
+test("Android back returns secondary main tabs to Chats before leaving the app", () => {
+  assert.match(mainScreenSource, /BackHandler\.addEventListener\("hardwareBackPress"/);
+  assert.match(mainScreenSource, /activeTab\.current === "chats"\) return false/);
+  assert.match(mainScreenSource, /selectTab\("chats"\);[\s\S]{0,30}return true/);
+});
+
+test("photo taps always open media while reactions live in the outside row gutter", () => {
+  assert.doesNotMatch(messageMediaSource, /locationX|const edge = Math\.min/);
+  assert.match(messageMediaSource, /function MediaPressSurface[\s\S]{0,500}onOpen\(\)/);
+  assert.match(messageBubbleSource, /message_media_gutter_/);
+  assert.match(messageBubbleSource, /onOpenReactions\?\.\(event\.nativeEvent\.pageY\)/);
 });
 
 test("cooperative commands reconcile one stale peer revision without losing the action", () => {

@@ -15,8 +15,8 @@ export interface ProfileGateway {
 export function createProfileUseCases(gateway: ProfileGateway) {
   return {
     load: (userId: string) => gateway.profile(userId),
-    update: (input: { displayName: string; bio: string; statusText: string }) => gateway.updateProfile({
-      displayName: input.displayName.trim(), bio: input.bio.trim(), statusText: input.statusText.trim(),
+    update: (input: { displayName: string; bio: string }) => gateway.updateProfile({
+      displayName: input.displayName.trim(), bio: input.bio.trim(),
     }),
     addPhoto: async (input: UploadInput) => gateway.addProfilePhoto((await gateway.upload(input)).id),
     makePrimary: (profile: UserProfile, photo: ProfilePhoto) => gateway.reorderProfilePhotos([

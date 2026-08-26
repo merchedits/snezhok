@@ -5,6 +5,11 @@ import { ActivityIndicator, StyleSheet, Text, View, type ImageStyle, type StyleP
 import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { refreshAuthorizedMediaSession, useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 
+// Expo already owns the bounded memory/disk bytes. This tiny index only avoids
+// drawing a loading spinner over an image that was displayed earlier in the
+// same app session (a frequent source of visible flicker when reopening chats).
+const displayedImageUris = new Set<string>();
+
 interface AuthenticatedImageProps {
   uri: string;
   fallbackUri?: string | null;
@@ -22,18 +27,25 @@ export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallba
   // keeps the fallback authorization header synchronized after token refresh.
   const fallbackSource = useAuthorizedMedia(fallbackUri || uri);
   const [usingFallback, setUsingFallback] = useState(false);
-  const [loading, setLoading] = useState(showLoader);
+  const [loading, setLoading] = useState(showLoader && !displayedImageUris.has(primarySource.uri));
   const [failed, setFailed] = useState(false);
   const [authorizationAttempt, setAuthorizationAttempt] = useState(0);
   const [authorizationRefreshed, setAuthorizationRefreshed] = useState(false);
 
   useEffect(() => {
     setUsingFallback(false);
-    setLoading(showLoader);
+    setLoading(showLoader && !displayedImageUris.has(primarySource.uri));
     setFailed(false);
     setAuthorizationAttempt(0);
     setAuthorizationRefreshed(false);
-  }, [fallbackUri, showLoader, uri]);
+    if (showLoader && !displayedImageUris.has(primarySource.uri)) {
+      void Image.getCachePathAsync(primarySource.uri).then((cachedPath) => {
+        if (!cachedPath) return;
+        displayedImageUris.add(primarySource.uri);
+        setLoading(false);
+      }).catch(() => undefined);
+    }
+  }, [fallbackUri, primarySource.uri, showLoader, uri]);
 
   const source = usingFallback ? fallbackSource : primarySource;
   const canFallback = Boolean(fallbackUri && fallbackUri !== uri && !usingFallback);
@@ -45,8 +57,9 @@ export const AuthenticatedImage = memo(function AuthenticatedImage({ uri, fallba
         contentFit={resizeMode}
         recyclingKey={`${cacheKey}:${usingFallback ? "original" : "preferred"}:${authorizationAttempt}`}
         transition={0}
-        onLoadStart={() => { if (showLoader) setLoading(true); }}
+        onLoadStart={() => { if (showLoader && !displayedImageUris.has(source.uri)) setLoading(true); }}
         onLoad={(event) => {
+          displayedImageUris.add(source.uri);
           setLoading(false);
           setFailed(false);
           const { width, height } = event.source;

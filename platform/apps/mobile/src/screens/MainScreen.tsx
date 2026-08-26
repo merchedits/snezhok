@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { InteractionManager, type LayoutChangeEvent, StyleSheet, View } from "react-native";
+import { BackHandler, InteractionManager, type LayoutChangeEvent, StyleSheet, View } from "react-native";
 import Animated, { cancelAnimation, Easing, runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 import { BottomNavigation } from "../components/BottomNavigation";
@@ -94,6 +94,15 @@ export function MainScreen() {
     }
     setTransition(nextTransition);
   }, [pageWidth, progress, reducedMotion]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (activeTab.current === "chats") return false;
+      selectTab("chats");
+      return true;
+    });
+    return () => subscription.remove();
+  }, [selectTab]);
 
   const measurePages = useCallback((event: LayoutChangeEvent) => {
     const width = Math.round(event.nativeEvent.layout.width);
