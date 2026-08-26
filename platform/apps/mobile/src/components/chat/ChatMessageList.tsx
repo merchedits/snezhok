@@ -28,7 +28,10 @@ import { ChatDayDivider, ChatUnreadDivider } from "./ChatTimelineDividers";
 
 const INITIAL_RENDERED_MESSAGES = 80;
 const MESSAGE_PAGE_SIZE = 60;
-const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 120 } as const;
+// FlashList expresses this threshold as a viewport ratio, not density pixels.
+// A value of 120 classified every scroll position as "near bottom", so merely
+// focusing the composer jumped someone reading history to the newest message.
+const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2 } as const;
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
   if (message.activity) return `activity-${message.activity.type}`;

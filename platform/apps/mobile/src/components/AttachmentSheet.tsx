@@ -252,7 +252,16 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
             </Animated.View>
           ) : null}
           {busy ? (
-            <View style={[styles.busy, { backgroundColor: palette.elevated }]}>
+            <View
+              style={[
+                styles.busy,
+                {
+                  backgroundColor: palette.elevated,
+                  minHeight: 68 + Math.max(insets.bottom + 10, 18),
+                  paddingBottom: Math.max(insets.bottom + 10, 18),
+                },
+              ]}
+            >
               {progress === null ? <ActivityIndicator color={palette.accent} /> : <CircularProgress progress={visibleProgress} activeColor={palette.accent} inactiveColor={palette.border} textColor={palette.text} />}
               <Text style={[styles.busyText, { color: palette.secondaryText }]}>{progress === null ? t("preparingUpload") : t("uploadingProgress", { progress: visibleProgress })}</Text>
               {onCancel ? (

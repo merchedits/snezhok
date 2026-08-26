@@ -147,11 +147,12 @@ test("chat composer follows keyboard progress without late JS visibility jumps",
 
 test("chat identity header stays outside the keyboard-translated region", () => {
   const header = chatSource.indexOf("<ChatHeader");
-  const keyboardRegion = chatSource.indexOf("<View style={styles.keyboardRegion}", header);
+  const keyboardRegion = chatSource.indexOf("<KeyboardAvoidingView style={styles.keyboardRegion}", header);
   const timeline = chatSource.indexOf("<ChatMessageList", keyboardRegion);
   assert.ok(header >= 0 && keyboardRegion > header && timeline > keyboardRegion);
-  assert.doesNotMatch(chatSource, /KeyboardAvoidingView|translate-with-padding/);
-  assert.match(timelineSource, /autoscrollToBottomThreshold: 120/);
+  assert.match(chatSource, /KeyboardAvoidingView style=\{styles\.keyboardRegion\} behavior="height" automaticOffset/);
+  assert.doesNotMatch(chatSource, /translate-with-padding/);
+  assert.match(timelineSource, /autoscrollToBottomThreshold: 0\.2/);
 });
 
 test("text-entry screens and management forms keep focused inputs above the keyboard", () => {
@@ -220,6 +221,8 @@ test("profiles use a large swipeable hero gallery with a fullscreen viewer", () 
   assert.doesNotMatch(profileSource, /styles\.camera|ProfileInput label=\{t\("status"\)\}|photoManagement/);
   assert.match(imageViewerSource, /horizontal[\s\S]{0,80}pagingEnabled/);
   assert.match(imageViewerSource, /onMomentumScrollEnd=\{settleIndex\}/);
+  assert.match(imageViewerSource, /activeOffsetY\(\[-14, 14\]\)/);
+  assert.match(imageViewerSource, /runOnJS\(onClose\)\(\)/);
 });
 
 test("Android back returns secondary main tabs to Chats before leaving the app", () => {
@@ -233,6 +236,11 @@ test("photo taps always open media while reactions live in the outside row gutte
   assert.match(messageMediaSource, /function MediaPressSurface[\s\S]{0,500}onOpen\(\)/);
   assert.match(messageBubbleSource, /message_media_gutter_/);
   assert.match(messageBubbleSource, /onOpenReactions\?\.\(event\.nativeEvent\.pageY\)/);
+});
+
+test("attachment upload progress clears Android system navigation controls", () => {
+  assert.match(attachmentSheetSource, /minHeight: 68 \+ Math\.max\(insets\.bottom \+ 10, 18\)/);
+  assert.match(attachmentSheetSource, /paddingBottom: Math\.max\(insets\.bottom \+ 10, 18\)/);
 });
 
 test("cooperative commands reconcile one stale peer revision without losing the action", () => {

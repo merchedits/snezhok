@@ -56,7 +56,7 @@ System Back resolves the nearest transient state first:
 4. Return to the previous list or root tab.
 5. Leave the application only when already at its root.
 
-The conversation composer stays above the software keyboard and respects gesture navigation insets. The app supports portrait and landscape layouts.
+The conversation composer stays above the software keyboard and respects gesture navigation insets. Focusing it preserves the reader's current history position unless they were already near the newest message. The app supports portrait and landscape layouts.
 
 ## Accounts and onboarding
 
@@ -211,7 +211,7 @@ Recent photos and videos use adaptive compression by default. A single **HQ** to
 
 Documents are never automatically compressed. Compressed media preserves orientation and strips embedded location metadata by default. The client presents progress, cancellation, retry, and resumable transfer. Android stages user-selected sources into private no-backup storage and uses WorkManager so an upload can survive process death; an in-process resumable path remains available only when the optional native module is absent after an interrupted upgrade or OEM restore.
 
-One to ten media items are sent as one album with a single caption and a predictable tile layout. Larger selections are split deterministically into groups of ten, so 23 items become 10 + 10 + 3. A single image or video preserves and shows its complete source aspect ratio within safe viewport bounds. Photo/video-only posts have no thick colored bubble frame; a hairline edge encloses the media and the timestamp/delivery state sits on a translucent island over its bottom-right corner. Media viewers expose pinch and double-tap zoom, pan to every source edge, download/save, open externally, and a continuous horizontal pager in which the adjacent photo remains visible under a slow drag.
+One to ten media items are sent as one album with a single caption and a predictable tile layout. Larger selections are split deterministically into groups of ten, so 23 items become 10 + 10 + 3. A single image or video preserves and shows its complete source aspect ratio within safe viewport bounds. Photo/video-only posts have no thick colored bubble frame; a hairline edge encloses the media and the timestamp/delivery state sits on a translucent island over its bottom-right corner. Media viewers expose pinch and double-tap zoom, pan to every source edge, download/save, open externally, a continuous horizontal pager in which the adjacent photo remains visible under a slow drag, and an upward swipe to dismiss when the active photo is not zoomed.
 
 ## Presence and notifications
 

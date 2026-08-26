@@ -4,7 +4,7 @@ import * as MediaLibrary from "expo-media-library";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View, useWindowDimensions, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Animated, { interpolate, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { prefetchAuthorizedMedia } from "../hooks/useAuthorizedMedia";
@@ -54,14 +54,16 @@ export function ImageGalleryViewer({ visible, items, initialIndex, onIndexChange
   const [activeIndex, setActiveIndex] = useState(boundedInitialIndex);
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
+  const dismissY = useSharedValue(0);
 
   useEffect(() => {
     if (!visible) return;
     const nextIndex = Math.max(0, Math.min(items.length - 1, initialIndex));
     setActiveIndex(nextIndex);
     setScrollEnabled(true);
+    dismissY.value = 0;
     requestAnimationFrame(() => list.current?.scrollToOffset({ offset: nextIndex * width, animated: false }));
-  }, [initialIndex, items.length, visible, width]);
+  }, [dismissY, initialIndex, items.length, visible, width]);
 
   useEffect(() => {
     if (!visible || items.length === 0) return;
@@ -78,6 +80,29 @@ export function ImageGalleryViewer({ visible, items, initialIndex, onIndexChange
   }, [items.length, onIndexChange, width]);
 
   const activeItem = items[activeIndex];
+  const dismissGesture = useMemo(() => Gesture.Pan()
+    .enabled(scrollEnabled)
+    .maxPointers(1)
+    .activeOffsetY([-14, 14])
+    .failOffsetX([-28, 28])
+    .onUpdate((event) => {
+      dismissY.value = Math.min(0, event.translationY);
+    })
+    .onEnd((event) => {
+      const shouldClose = dismissY.value <= -Math.min(140, height * 0.16) || event.velocityY <= -850;
+      if (shouldClose) {
+        dismissY.value = withTiming(-height, { duration: 170 }, (finished) => {
+          if (finished) runOnJS(onClose)();
+        });
+      } else {
+        dismissY.value = withTiming(0, { duration: 150 });
+      }
+    }), [dismissY, height, onClose, scrollEnabled]);
+  const dismissSurfaceStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(dismissY.value, [-height, 0], [0.35, 1]),
+    transform: [{ translateY: dismissY.value }],
+  }), [height]);
+
   const savePhoto = useCallback(async () => {
     if (saving || !activeItem) return;
     setSaving(true);
@@ -104,47 +129,51 @@ export function ImageGalleryViewer({ visible, items, initialIndex, onIndexChange
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent navigationBarTranslucent={false} onRequestClose={onClose}>
       <GestureHandlerRootView style={styles.viewer}>
-        <FlatList
-          ref={list}
-          data={items as ImageGalleryItem[]}
-          horizontal
-          pagingEnabled
-          scrollEnabled={scrollEnabled}
-          directionalLockEnabled
-          bounces={false}
-          overScrollMode="never"
-          decelerationRate="fast"
-          disableIntervalMomentum
-          showsHorizontalScrollIndicator={false}
-          initialScrollIndex={boundedInitialIndex}
-          initialNumToRender={Math.min(3, items.length)}
-          maxToRenderPerBatch={3}
-          windowSize={3}
-          keyExtractor={(item) => item.key}
-          getItemLayout={(_data, index) => ({ length: width, offset: width * index, index })}
-          onMomentumScrollEnd={settleIndex}
-          onScrollEndDrag={(event) => {
-            if (Math.abs(event.nativeEvent.velocity?.x ?? 0) < 0.01) settleIndex(event);
-          }}
-          renderItem={({ item, index }) => (
-            <ZoomableImagePage
-              item={item}
-              width={width}
-              height={height}
-              active={index === activeIndex}
-              onZoomChange={(zoomed) => {
-                if (index === activeIndex) setScrollEnabled(!zoomed);
+        <GestureDetector gesture={dismissGesture}>
+          <Animated.View style={[styles.dismissSurface, dismissSurfaceStyle]}>
+            <FlatList
+              ref={list}
+              data={items as ImageGalleryItem[]}
+              horizontal
+              pagingEnabled
+              scrollEnabled={scrollEnabled}
+              directionalLockEnabled
+              bounces={false}
+              overScrollMode="never"
+              decelerationRate="fast"
+              disableIntervalMomentum
+              showsHorizontalScrollIndicator={false}
+              initialScrollIndex={boundedInitialIndex}
+              initialNumToRender={Math.min(3, items.length)}
+              maxToRenderPerBatch={3}
+              windowSize={3}
+              keyExtractor={(item) => item.key}
+              getItemLayout={(_data, index) => ({ length: width, offset: width * index, index })}
+              onMomentumScrollEnd={settleIndex}
+              onScrollEndDrag={(event) => {
+                if (Math.abs(event.nativeEvent.velocity?.x ?? 0) < 0.01) settleIndex(event);
               }}
+              renderItem={({ item, index }) => (
+                <ZoomableImagePage
+                  item={item}
+                  width={width}
+                  height={height}
+                  active={index === activeIndex}
+                  onZoomChange={(zoomed) => {
+                    if (index === activeIndex) setScrollEnabled(!zoomed);
+                  }}
+                />
+              )}
             />
-          )}
-        />
-        <Pressable accessibilityRole="button" accessibilityLabel={t("closePhoto")} onPress={onClose} style={[styles.control, styles.close, { top: insets.top + 10 }]}>
-          <AppIcon name="close" size={26} color="white" />
-        </Pressable>
-        <Pressable disabled={saving} accessibilityRole="button" accessibilityLabel={t("savePhoto")} onPress={() => void savePhoto()} style={[styles.control, styles.download, { top: insets.top + 10 }]}>
-          {saving ? <ActivityIndicator color="white" /> : <AppIcon name="download-outline" size={24} color="white" />}
-        </Pressable>
-        {items.length > 1 ? <View pointerEvents="none" style={[styles.counter, { top: insets.top + 18 }]}><Text style={styles.counterText}>{activeIndex + 1}/{items.length}</Text></View> : null}
+            <Pressable accessibilityRole="button" accessibilityLabel={t("closePhoto")} onPress={onClose} style={[styles.control, styles.close, { top: insets.top + 10 }]}>
+              <AppIcon name="close" size={26} color="white" />
+            </Pressable>
+            <Pressable disabled={saving} accessibilityRole="button" accessibilityLabel={t("savePhoto")} onPress={() => void savePhoto()} style={[styles.control, styles.download, { top: insets.top + 10 }]}>
+              {saving ? <ActivityIndicator color="white" /> : <AppIcon name="download-outline" size={24} color="white" />}
+            </Pressable>
+            {items.length > 1 ? <View pointerEvents="none" style={[styles.counter, { top: insets.top + 18 }]}><Text style={styles.counterText}>{activeIndex + 1}/{items.length}</Text></View> : null}
+          </Animated.View>
+        </GestureDetector>
       </GestureHandlerRootView>
     </Modal>
   );
@@ -290,7 +319,8 @@ export function imageExtension(filename: string, mimeType: string): "jpg" | "png
 }
 
 const styles = StyleSheet.create({
-  viewer: { flex: 1, backgroundColor: "#000" },
+  viewer: { flex: 1, backgroundColor: "transparent" },
+  dismissSurface: { flex: 1, backgroundColor: "#000" },
   imageStage: { width: "100%", height: "100%" },
   image: { width: "100%", height: "100%" },
   control: { position: "absolute", width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18,22,29,0.76)" },

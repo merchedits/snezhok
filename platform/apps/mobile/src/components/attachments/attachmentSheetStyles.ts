@@ -28,7 +28,7 @@ export const attachmentSheetStyles = StyleSheet.create({
   sendText: { color: "white", fontSize: 15, fontWeight: "800" },
   sendCount: { minWidth: 24, height: 24, paddingHorizontal: 6, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center" },
   sendCountText: { color: "white", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  busy: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 76, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 18, gap: 12, opacity: 0.96 },
+  busy: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 86, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingTop: 10, paddingHorizontal: 18, gap: 12, opacity: 0.96 },
   busyText: { fontSize: 13 },
   cancelUpload: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   progressLabel: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" },

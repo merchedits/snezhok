@@ -46,9 +46,11 @@ navigation, scrolling, or battery use; speculative preloading is not a goal.
   starts after the navigation animation. The only storage work allowed during a
   chat transition is the bounded, deduplicated SQLite first-page warmup needed
   to paint a cold cached route.
-- Android chat layout uses the platform `adjustResize` contract exactly once;
-  do not wrap it in a second translating keyboard-avoiding container. The chat
-  composer follows the keyboard controller's UI-thread progress only for its
+- Android chat layout uses the platform `adjustResize` contract and a
+  non-translating, height-only guard around the timeline/composer; the latter
+  becomes a no-op when native resize already applied the IME inset. FlashList
+  bottom-autoscroll thresholds are viewport ratios, so keep them fractional.
+  The chat composer follows the keyboard controller's UI-thread progress only for its
   closed/open safe-area padding. Do
   not switch safe-area padding from `keyboardDidShow`/`keyboardDidHide`; those
   callbacks arrive at the animation boundary and cause a visible final-frame
