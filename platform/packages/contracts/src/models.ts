@@ -18,6 +18,11 @@ export type CooperativeActivityType =
   | "draw-guess"
   | "ideas-jar"
   | "memory-capsule"
+  | "tic-tac-toe"
+  | "chess"
+  | "checkers"
+  | "sea-battle"
+  | "pool"
   | "milestone";
 export type CooperativeActivityState = "active" | "waiting" | "locked" | "completed" | "declined" | "expired" | "cancelled";
 export type PrivacyAudience = "everyone" | "contacts" | "nobody";

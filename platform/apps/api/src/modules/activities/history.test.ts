@@ -8,7 +8,7 @@ test("Together history is a bounded projection of visible durable anchor message
   assert.match(source, /anchor\.deleted_at IS NULL/);
   assert.match(source, /NOT EXISTS \(SELECT 1 FROM hidden_messages/);
   assert.match(source, /ca\.state IN \('completed','locked'\)/);
-  assert.match(source, /ca\.type IN \('movie-list','ideas-jar','milestone'\)/);
+  assert.match(source, /ca\.type IN \('movie-list','ideas-jar','milestone','tic-tac-toe','chess','checkers','sea-battle','pool'\)/);
   assert.match(source, /LIMIT 50/);
   assert.match(source, /getMessagesByIds\([\s\S]{0,80}anchors\.rows\.map/);
 });

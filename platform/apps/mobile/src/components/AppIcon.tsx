@@ -7,6 +7,7 @@ import {
   Pause, PencilSimple, PersonArmsSpread, Phone, Play, Plus, PlusCircle, Prohibit, PushPin, Question, Repeat,
   Shield, ShieldCheck, SignOut, SlidersHorizontal, Sparkle, SpeakerHigh, SpeakerSlash, Stack, Stop, Translate,
   Trash, User, UserCircle, UserMinus, UserPlus, VideoCamera, VideoCameraSlash, Warning, WarningCircle, WifiHigh, X,
+  GameController, GridNine, Crown, Checkerboard, Boat, CirclesThree,
   type PhosphorGlyph, type PhosphorWeight,
 } from "../vendor/phosphorBridge";
 
@@ -33,6 +34,8 @@ const glyphs = {
   "volume-high": SpeakerHigh, "volume-medium-outline": SpeakerHigh, "volume-mute": SpeakerSlash, "warning-outline": Warning,
   "wifi-outline": WifiHigh, "help-circle-outline": Question, "bolt-outline": Lightning, "music-outline": MusicNote,
   "movie-outline": FilmSlate, "pencil-outline": PencilSimple, "bulb-outline": Lightbulb, "archive-outline": Archive,
+  "game-controller-outline": GameController, "grid-nine-outline": GridNine, "crown-outline": Crown,
+  "checkerboard-outline": Checkerboard, "boat-outline": Boat, "pool-outline": CirclesThree,
 } as const satisfies Record<string, PhosphorGlyph>;
 
 export type AppIconName = keyof typeof glyphs;

@@ -25,3 +25,5 @@ export const VideoCamera: PhosphorGlyph; export const VideoCameraSlash: Phosphor
 export const WifiHigh: PhosphorGlyph; export const X: PhosphorGlyph; export const Question: PhosphorGlyph; export const Lightning: PhosphorGlyph;
 export const MusicNote: PhosphorGlyph; export const FilmSlate: PhosphorGlyph; export const Lightbulb: PhosphorGlyph; export const Archive: PhosphorGlyph;
 export const CellSignalFull: PhosphorGlyph; export const SlidersHorizontal: PhosphorGlyph;
+export const GameController: PhosphorGlyph; export const GridNine: PhosphorGlyph; export const Crown: PhosphorGlyph;
+export const Checkerboard: PhosphorGlyph; export const Boat: PhosphorGlyph; export const CirclesThree: PhosphorGlyph;

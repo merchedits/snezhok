@@ -82,4 +82,10 @@ module.exports = {
   Archive: require("phosphor-react-native/src/icons/Archive").ArchiveIcon,
   CellSignalFull: require("phosphor-react-native/src/icons/CellSignalFull").CellSignalFullIcon,
   SlidersHorizontal: require("phosphor-react-native/src/icons/SlidersHorizontal").SlidersHorizontalIcon,
+  GameController: require("phosphor-react-native/src/icons/GameController").GameControllerIcon,
+  GridNine: require("phosphor-react-native/src/icons/GridNine").GridNineIcon,
+  Crown: require("phosphor-react-native/src/icons/Crown").CrownIcon,
+  Checkerboard: require("phosphor-react-native/src/icons/Checkerboard").CheckerboardIcon,
+  Boat: require("phosphor-react-native/src/icons/Boat").BoatIcon,
+  CirclesThree: require("phosphor-react-native/src/icons/CirclesThree").CirclesThreeIcon,
 };

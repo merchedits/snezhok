@@ -1,5 +1,6 @@
 import { randomInt } from "node:crypto";
 import type { CooperativeActivityType } from "@snezhok/contracts";
+import { createGame, createSeaBattlePrivateState, isGameKind } from "@snezhok/game-engine";
 import { blitzPrompts, drawWords, songPrompts, tinyQuests } from "./promptCatalogs/activities.js";
 import { questionCatalog } from "./promptCatalogs/questions.js";
 import type { LocalizedText } from "./promptCatalogs/types.js";
@@ -16,12 +17,29 @@ export const huntColors = [
   { id: "yellow", hex: "#F4CC58", name: { ru: "Жёлтый", en: "Yellow" } },
 ] as const;
 
+interface InitialActivityConfiguration {
+  config: Record<string, unknown>;
+  privateByUser: Record<string, Record<string, unknown>>;
+  initialResult?: Record<string, unknown>;
+}
+
 export function initialActivityConfiguration(
   type: CooperativeActivityType,
   options: Record<string, unknown>,
   participantIds: string[],
   recentConfigurations: readonly Record<string, unknown>[] = [],
-) {
+  createdBy?: string,
+): InitialActivityConfiguration {
+  if (isGameKind(type)) {
+    const initialResult = createGame(type, participantIds, createdBy);
+    return {
+      config: { rulesVersion: 1 },
+      privateByUser: type === "sea-battle"
+        ? Object.fromEntries(participantIds.map((id) => [id, { ...createSeaBattlePrivateState() }]))
+        : {},
+      initialResult: initialResult as unknown as Record<string, unknown>,
+    };
+  }
   switch (type) {
     case "question": {
       const category = typeof options.category === "string" && questionCatalog[options.category] ? options.category : "random";

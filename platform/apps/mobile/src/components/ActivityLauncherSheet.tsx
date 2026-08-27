@@ -16,6 +16,14 @@ interface Props {
 
 interface LaunchItem { type: CooperativeActivityType; icon: AppIconName; color: string; ink: string; ru: string; en: string; ruHint: string; enHint: string; }
 
+const gameItems: LaunchItem[] = [
+  item("tic-tac-toe", "grid-nine-outline", "#D7FF72", "#243500", "Крестики-нолики", "Tic-tac-toe", "Быстрая партия без лишних правил", "A quick classic round"),
+  item("chess", "crown-outline", "#CDB5FF", "#4C2A83", "Шахматы", "Chess", "Все правила, рокировка и превращение", "Complete rules, castling and promotion"),
+  item("checkers", "checkerboard-outline", "#B5EBD1", "#15553A", "Русские шашки", "Russian checkers", "Обязательные взятия и летающие дамки", "Forced captures and flying kings"),
+  item("sea-battle", "boat-outline", "#B9D8FF", "#174C75", "Морской бой", "Battleship", "Расставьте флот и найдите все корабли", "Deploy a fleet and find every ship"),
+  item("pool", "pool-outline", "#BFA7FF", "#3E2377", "Бильярд 8-ball", "8-ball pool", "Прицельтесь, выберите силу и забейте восьмёрку", "Aim, set power, and sink the eight"),
+];
+
 const sessionItems: LaunchItem[] = [
   item("question", "help-circle-outline", "#CDB5FF", "#5D3B93", "Вопрос для двоих", "Question Drop", "Ответьте и откройте вместе", "Answer and reveal together"),
   item("blitz", "bolt-outline", "#FF9184", "#782C28", "Блиц", "60-Second Blitz", "Быстрые выборы для обоих", "Quick choices for both"),
@@ -71,7 +79,9 @@ export const ActivityLauncherSheet = memo(function ActivityLauncherSheet({ visib
             <View style={styles.flex}><Text style={[styles.surpriseTitle, { color: palette.onAccent }]}>{language === "ru" ? "Удиви нас" : "Surprise us"}</Text><Text style={[styles.surpriseHint, { color: palette.onAccent }]}>{language === "ru" ? "Snezhok сам выберет момент" : "Let Snezhok choose the moment"}</Text></View>
           </Pressable>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.catalog}>
-            <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{language === "ru" ? "Игры и моменты" : "Games and moments"}</Text>
+            <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{language === "ru" ? "Игры" : "Games"}</Text>
+            <View style={styles.grid}>{gameItems.map((entry) => <LaunchCard key={entry.type} entry={entry} language={language} busy={busy} onPress={() => onStart(entry.type)} />)}</View>
+            <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{language === "ru" ? "Совместные моменты" : "Shared moments"}</Text>
             <View style={styles.grid}>{sessionItems.map((entry) => <LaunchCard key={entry.type} entry={entry} language={language} busy={busy} onPress={() => entry.type === "question" ? setQuestionSetup(true) : entry.type === "memory-capsule" ? setCapsuleSetup(true) : onStart(entry.type)} />)}</View>
             <Text style={[styles.sectionTitle, { color: palette.secondaryText }]}>{language === "ru" ? "Общие коллекции" : "Shared collections"}</Text>
             <View style={styles.grid}>{collectionItems.map((entry) => <LaunchCard key={entry.type} entry={entry} language={language} busy={busy} onPress={() => onStart(entry.type)} />)}</View>

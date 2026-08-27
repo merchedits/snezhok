@@ -4,12 +4,14 @@ export const idSchema = z.string().uuid();
 export const cooperativeActivityTypeValues = [
   "question", "blitz", "tiny-quest", "color-hunt", "song-exchange",
   "movie-list", "draw-guess", "ideas-jar", "memory-capsule", "milestone",
+  "tic-tac-toe", "chess", "checkers", "sea-battle", "pool",
 ] as const;
 export const cooperativeActivityTypeSchema = z.enum(cooperativeActivityTypeValues);
 export const cooperativeActivityActionValues = [
   "submit", "add-item", "update-item", "remove-item", "rate", "set-status",
   "pick", "reroll", "confirm", "submit-drawing", "guess", "complete",
   "decline", "cancel",
+  "game-move", "game-ready", "game-shuffle", "game-rematch", "game-resign",
 ] as const;
 export const cooperativeActivityActionSchema = z.enum(cooperativeActivityActionValues);
 

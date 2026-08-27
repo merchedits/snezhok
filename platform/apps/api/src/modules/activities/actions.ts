@@ -1,13 +1,16 @@
 import { randomInt } from "node:crypto";
 import type { DbClient } from "../../db/pool.js";
+import { isGameKind } from "@snezhok/game-engine";
 import { conflict, forbidden, notFound } from "../../lib/errors.js";
 import { newId } from "../../lib/ids.js";
 import { participantMayEditEntry, participantMaySubmit, selectionAfterEntryChange, type ActivityParticipantStatus } from "./policy.js";
 import { colorHuntBatchLimit, combinedRating, memoryRevealDate, normalizeGuess, parseDrawingStrokes, validSongUrl } from "./rules.js";
 import type { ActionResult, ActivityCommandInput, ActivityRow, EntryRow } from "./activityModel.js";
 import { attachmentIdsFrom, objectValue, optionalInteger, optionalString, requiredId, requiredNumber, requiredString } from "./activityValidation.js";
+import { mutateGame } from "./games/gameActions.js";
 
 export async function applyAction(client: DbClient, activity: ActivityRow, userId: string, action: ActivityCommandInput["action"], payload: Record<string, unknown>): Promise<ActionResult> {
+  if (isGameKind(activity.type)) return mutateGame(client, activity, userId, action, payload);
   switch (activity.type) {
     case "question":
       return submitPair(client, activity, userId, action, "answer", {

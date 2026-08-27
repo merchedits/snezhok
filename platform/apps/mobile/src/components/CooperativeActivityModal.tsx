@@ -1,4 +1,5 @@
 import type { Message } from "@snezhok/contracts";
+import { isGameKind } from "@snezhok/game-engine";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -23,6 +24,7 @@ import { cooperativeActivityStyles as styles } from "./activities/cooperativeAct
 import { ImageViewer } from "./ImageViewer";
 import { useAuthorizedMedia } from "../hooks/useAuthorizedMedia";
 import { Avatar } from "./Avatar";
+import { GameExperience } from "./games/GameExperience";
 
 export function CooperativeActivityModal({ message, onClose }: { message: Message | null; onClose: () => void }) {
   const summaryActivity = message?.activity;
@@ -145,9 +147,10 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
         setCelebrating(true);
         setTimeout(() => setCelebrating(false), 1_450);
       }
-      if (["movie-list", "ideas-jar", "color-hunt", "draw-guess"].includes(activity.type) && saved.activity) setDetailActivity(await activityQueries.detail(saved.activity.id));
+      const staysOpen = isGameKind(activity.type) || ["movie-list", "ideas-jar", "color-hunt", "draw-guess"].includes(activity.type);
+      if (staysOpen && saved.activity) setDetailActivity(await activityQueries.detail(saved.activity.id));
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
-      if (!["movie-list", "ideas-jar", "color-hunt", "draw-guess"].includes(activity.type)) onClose();
+      if (!staysOpen) onClose();
       return true;
     } catch (next) {
       setError(userFacingError(next, t));
@@ -289,6 +292,8 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
                 )
               ) : ["declined", "cancelled", "expired"].includes(activity.state) ? (
                 <TerminalActivity state={activity.state} language={language} />
+              ) : isGameKind(activity.type) ? (
+                <GameExperience activity={activity} meId={meId} busy={busy} language={language} run={run} />
               ) : activity.state === "completed" || activity.state === "locked" ? (
                 <ResultView message={{ ...message, activity }} />
               ) : activity.type === "question" ? (
@@ -429,6 +434,11 @@ function typeLabel(type: string, language: "ru" | "en") {
     "draw-guess": ["Нарисуй и угадай", "Draw & Guess"],
     "ideas-jar": ["Банка идей", "Ideas Jar"],
     "memory-capsule": ["Капсула памяти", "Memory Capsule"],
+    "tic-tac-toe": ["Крестики-нолики", "Tic-tac-toe"],
+    chess: ["Шахматы", "Chess"],
+    checkers: ["Русские шашки", "Russian checkers"],
+    "sea-battle": ["Морской бой", "Battleship"],
+    pool: ["Бильярд 8-ball", "8-ball pool"],
   };
   return labels[type]?.[language === "ru" ? 0 : 1] ?? type;
 }

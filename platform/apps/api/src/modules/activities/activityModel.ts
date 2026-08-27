@@ -9,7 +9,8 @@ export interface ActivityCreateInput {
 export interface ActivityCommandInput {
   clientId: string;
   expectedRevision: number;
-  action: "submit" | "add-item" | "update-item" | "remove-item" | "rate" | "set-status" | "pick" | "reroll" | "confirm" | "submit-drawing" | "guess" | "complete" | "decline" | "cancel";
+  action: "submit" | "add-item" | "update-item" | "remove-item" | "rate" | "set-status" | "pick" | "reroll" | "confirm" | "submit-drawing" | "guess" | "complete" | "decline" | "cancel"
+    | "game-move" | "game-ready" | "game-shuffle" | "game-rematch" | "game-resign";
   payload: Record<string, unknown>;
 }
 
@@ -37,4 +38,5 @@ export interface ActionResult {
   result?: Record<string, unknown>;
   revealAt?: Date;
   completed?: boolean;
+  resetCompletedAt?: boolean;
 }

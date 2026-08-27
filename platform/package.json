@@ -8,7 +8,8 @@
     "apps/media-worker",
     "apps/mobile",
     "apps/web",
-    "packages/contracts"
+    "packages/contracts",
+    "packages/game-engine"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

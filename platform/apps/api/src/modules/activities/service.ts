@@ -74,11 +74,11 @@ export async function createActivity(userId: string, conversationId: string, inp
       )
     ).rows.map((row) => row.config);
     const activityId = newId();
-    const configuration = initialActivityConfiguration(input.type, activityOptions, conversation.participant_ids, recentConfigurations);
+    const configuration = initialActivityConfiguration(input.type, activityOptions, conversation.participant_ids, recentConfigurations, userId);
     await client.query(
-      `INSERT INTO cooperative_activities(id,conversation_id,created_by,client_id,type,config)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [activityId, conversationId, userId, input.clientId, input.type, configuration.config],
+      `INSERT INTO cooperative_activities(id,conversation_id,created_by,client_id,type,config,result)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [activityId, conversationId, userId, input.clientId, input.type, configuration.config, configuration.initialResult ?? null],
     );
     for (const participantId of conversation.participant_ids) {
       const privateState = (configuration.privateByUser as Record<string, Record<string, unknown>>)[participantId] ?? {};
@@ -123,7 +123,7 @@ export async function commandActivity(userId: string, activityId: string, input:
     }
     if (Number(row.revision) !== input.expectedRevision) throw conflict("Activity changed; refresh and try again");
     if (["declined", "expired", "cancelled"].includes(row.state)) throw conflict("Activity is no longer active");
-    if (row.state === "completed" && !["movie-list", "ideas-jar"].includes(row.type)) throw conflict("Activity is already complete");
+    if (row.state === "completed" && !["movie-list", "ideas-jar"].includes(row.type) && input.action !== "game-rematch") throw conflict("Activity is already complete");
 
     let result: ActionResult;
     if (input.action === "cancel") {
@@ -139,8 +139,8 @@ export async function commandActivity(userId: string, activityId: string, input:
     const nextRevision = Number(row.revision) + 1;
     await client.query(
       `UPDATE cooperative_activities SET state=coalesce($2,state),result=coalesce($3,result),reveal_at=coalesce($4,reveal_at),
-       completed_at=CASE WHEN $5 THEN coalesce(completed_at,now()) ELSE completed_at END,revision=$6,updated_at=now() WHERE id=$1`,
-      [activityId, result.state ?? null, result.result ?? null, result.revealAt ?? null, result.completed === true || result.state === "completed", nextRevision],
+       completed_at=CASE WHEN $7 THEN NULL WHEN $5 THEN coalesce(completed_at,now()) ELSE completed_at END,revision=$6,updated_at=now() WHERE id=$1`,
+      [activityId, result.state ?? null, result.result ?? null, result.revealAt ?? null, result.completed === true || result.state === "completed", nextRevision, result.resetCompletedAt === true],
     );
     await client.query(`INSERT INTO cooperative_activity_commands(activity_id,user_id,client_id,action,resulting_revision) VALUES ($1,$2,$3,$4,$5)`, [activityId, userId, input.clientId, input.action, nextRevision]);
     await client.query(`INSERT INTO cooperative_activity_events(id,activity_id,actor_id,action,revision,metadata) VALUES ($1,$2,$3,$4,$5,$6)`, [newId(), activityId, userId, input.action, nextRevision, safeEventMetadata(input.payload)]);
@@ -176,7 +176,7 @@ export async function readActivityHistory(userId: string, conversationId: string
           AND ca.anchor_message_id IS NOT NULL
           AND anchor.deleted_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM hidden_messages hidden WHERE hidden.message_id=anchor.id AND hidden.user_id=$2)
-          AND (ca.state IN ('completed','locked') OR ca.type IN ('movie-list','ideas-jar','milestone'))
+          AND (ca.state IN ('completed','locked') OR ca.type IN ('movie-list','ideas-jar','milestone','tic-tac-toe','chess','checkers','sea-battle','pool'))
         ORDER BY ca.updated_at DESC,ca.id DESC
         LIMIT 50`,
       [conversationId, userId],
@@ -321,6 +321,11 @@ function fallbackText(type: CooperativeActivityType) {
     "draw-guess": "✦ Нарисуй и угадай",
     "ideas-jar": "✦ Банка идей",
     "memory-capsule": "✦ Капсула воспоминаний",
+    "tic-tac-toe": "✦ Крестики-нолики",
+    chess: "✦ Шахматы",
+    checkers: "✦ Шашки",
+    "sea-battle": "✦ Морской бой",
+    pool: "✦ Бильярд",
     milestone: "✦ Общее достижение",
   };
   return labels[type];

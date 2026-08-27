@@ -1,4 +1,5 @@
 import type { CooperativeActivity, CooperativeActivityType } from "@snezhok/contracts";
+import { isGameKind, parseGameState } from "@snezhok/game-engine";
 import { memo } from "react";
 import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { usePalette } from "../hooks/usePalette";
@@ -8,6 +9,8 @@ import { AppIcon, type AppIconName } from "./AppIcon";
 import { AuthenticatedImage } from "./AuthenticatedImage";
 import { Avatar } from "./Avatar";
 import { distinctActivityCopy, isPersistentCollection, persistentCollectionStatus } from "./activities/activityPresentation";
+import { GameActivityCardPreview } from "./games/GameActivityCardPreview";
+import { gameCatalog } from "./games/gameCatalog";
 
 const meta: Record<CooperativeActivityType, { fill: string; ink: string; icon: AppIconName; ru: string; en: string }> = {
   question: {
@@ -73,6 +76,7 @@ const meta: Record<CooperativeActivityType, { fill: string; ink: string; icon: A
     ru: "Капсула памяти",
     en: "Memory Capsule",
   },
+  ...gameCatalog,
   milestone: {
     fill: "#91E3BB",
     ink: "#155C3B",
@@ -145,6 +149,7 @@ export const CooperativeActivityCard = memo(function CooperativeActivityCard({ a
 });
 
 function ActivityPreview({ activity, ink, language }: { activity: CooperativeActivity; ink: string; language: "ru" | "en" }) {
+  if (isGameKind(activity.type)) return <GameActivityCardPreview activity={activity} ink={ink} language={language} />;
   if (activity.type === "color-hunt") {
     const color = activity.privateState.color as { hex?: string; name?: unknown } | undefined;
     const photos = activity.entries
@@ -259,6 +264,7 @@ function MiniPhoto({ url }: { url: string }) {
 }
 
 function actionLabel(activity: CooperativeActivity, ownEntry: boolean, language: "ru" | "en") {
+  if (isGameKind(activity.type)) return activity.state === "completed" ? (language === "ru" ? "Играть ещё" : "Play again") : (language === "ru" ? "Открыть партию" : "Open game");
   if (activity.state === "completed") return language === "ru" ? "Посмотреть результат" : "See result";
   if (activity.state === "locked") return language === "ru" ? "Посмотреть капсулу" : "View capsule";
   if (activity.type === "movie-list" || activity.type === "ideas-jar" || activity.type === "color-hunt") return language === "ru" ? "Открыть" : "Open";
@@ -267,6 +273,15 @@ function actionLabel(activity: CooperativeActivity, ownEntry: boolean, language:
 }
 
 function stateLabel(activity: CooperativeActivity, language: "ru" | "en") {
+  if (isGameKind(activity.type)) {
+    try {
+      const game = parseGameState(activity.result);
+      if (game.status === "completed") return language === "ru" ? "Партия завершена" : "Round complete";
+      if (game.status === "setup") return language === "ru" ? "Расстановка" : "Setting up";
+      const active = activity.participants.find((participant) => participant.user.id === game.turnUserId)?.user.displayName;
+      return language === "ru" ? `Ход: ${active ?? "игрок"}` : `Turn: ${active ?? "player"}`;
+    } catch { return language === "ru" ? "Открыть партию" : "Open game"; }
+  }
   if (isPersistentCollection(activity.type)) return persistentCollectionStatus(language);
   if (activity.state === "completed") return language === "ru" ? "Готово вместе" : "Completed together";
   if (activity.state === "locked") return activity.revealAt ? new Date(activity.revealAt).toLocaleDateString(language === "ru" ? "ru-RU" : "en-US") : language === "ru" ? "Заперто" : "Locked";

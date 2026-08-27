@@ -2,7 +2,7 @@
 
 ## 4.0 implementation status
 
-The 4.0 Android/API release implements the shared framework and the complete first direct-chat set: Question Drop, Blitz, Tiny Quest, Color Hunt, Song Exchange, Movie List, Draw & Guess, Ideas Jar, Memory Capsule, the ✦ launcher, and derived milestone cards. Activity cards are ordinary cached chat messages, commands use client idempotency keys plus expected revisions, and all private projections are built on the server. Chat history embeds compact activity summaries; potentially large list, drawing, and revealed-capsule detail is fetched only when the card opens so it does not inflate every cached message page on A12-class devices.
+The Android/API release implements the shared framework and the complete first direct-chat set: Question Drop, Blitz, Tiny Quest, Color Hunt, Song Exchange, Movie List, Draw & Guess, Ideas Jar, Memory Capsule, Tic-tac-toe, Chess, Russian Checkers, Battleship, 8-ball Pool, the ✦ launcher, and derived milestone cards. Activity cards are ordinary cached chat messages, commands use client idempotency keys plus expected revisions, and all private projections are built on the server. Chat history embeds compact activity summaries; potentially large list, drawing, and revealed-capsule detail is fetched only when the card opens so it does not inflate every cached message page on A12-class devices.
 
 The current Color Hunt result retains all eighteen authenticated source photos and also creates one downloadable 2160 × 2160 PNG collage per participant in the bounded media worker. Song Exchange keeps a shared musical diary in chronological chat history. Memory Capsules accept text, up to four photos, and an optional song link, with one-month or six-month reveal choices; 4.0 locks automatically when both contributions are present and shows the authoritative server reveal date on the locked card. Yandex Music playback is an external app/universal-link handoff: Yandex's current official support documents sharing playlists and using its Android app, but does not publish a third-party playback/playlist-write API for this integration. Snezhok therefore does not scrape pages, copy cookies, proxy audio, or claim embedded native playback. See [Yandex Music playlists](https://yandex.ru/support/music/ru/collection/playlists) and [official Android app availability](https://yandex.ru/support/music/ru/new-template/appmusic).
 
@@ -190,6 +190,18 @@ Milestones summarize shared history without daily obligations. Examples:
 - finished the first Color Hunt.
 
 Counters derive from durable completed activity state. No streaks, missed-day warnings, leaderboards, relationship levels, compatibility scores, artificial currency, or paid recovery mechanics. A milestone produces one tasteful card or scrapbook badge and then gets out of the way.
+
+### Durable games
+
+The Games section contains five complete two-player activities:
+
+- **Tic-tac-toe:** alternating X/O seats, occupied-square rejection, wins and draws.
+- **Chess:** standard initial position, legal movement, check/checkmate, stalemate and draw detection, castling, en passant, and explicit queen/rook/bishop/knight promotion.
+- **Russian Checkers:** mandatory capture, backward capture by men, continued multi-capture, immediate crowning, and flying kings.
+- **Battleship:** 10 × 10 boards; fleet 4-3-3-2-2-2-1-1-1-1; no adjacent ships, including diagonals; a hit retains the turn; fleets stay private until the result.
+- **8-ball Pool:** a deterministic server-calculated table, aim and power controls, solids/stripes assignment, first-contact and scratch fouls, ball in hand, and legal/early eight-ball outcomes.
+
+Every move is a revisioned server-authoritative command. The client may derive legal targets for immediate guidance but never commits a result locally. A completed game records its winner or draw, round, completion time, and series score. **Play again** is a mutual handshake: the first player requests it, the second accepts, starting seats alternate, and the next round replaces the board inside the same anchor while completed-round history remains durable. Resigning and cancelling require explicit confirmation. Reconnect, stale commands, duplicate taps, and two simultaneous moves must converge on one stored revision.
 
 ## Scrapbook and history
 

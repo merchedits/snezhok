@@ -109,7 +109,7 @@ Every activity follows one product equation:
 
 `one tap → shared state → both contribute → durable result in chat/history`
 
-Question Drop with open and secret answers is the foundation release. Blitz, Tiny Quest, Ideas Jar, Movie List, Song Exchange, Draw & Guess, Color Hunt, Memory Capsule, and cooperative milestones build on the same lifecycle and card grammar. Requirements, consent rules, provider constraints, delivery order, and acceptance tests are authoritative in `COOPERATIVE_EXPERIENCES.md`.
+Question Drop with open and secret answers is the foundation release. Blitz, Tiny Quest, Ideas Jar, Movie List, Song Exchange, Draw & Guess, Color Hunt, Memory Capsule, cooperative milestones, and the durable game set—Tic-tac-toe, Chess, Russian Checkers, Battleship, and 8-ball Pool—build on the same lifecycle and card grammar. Completed games offer a mutual rematch inside the same chat object, preserving series score and round history without returning to the launcher. Requirements, consent rules, provider constraints, delivery order, and acceptance tests are authoritative in `COOPERATIVE_EXPERIENCES.md`.
 
 ## Servers (dormant)
 
