@@ -6,6 +6,7 @@ COPY apps/media-worker/package.json apps/media-worker/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/game-engine/package.json packages/game-engine/package.json
 RUN npm ci --workspace=@snezhok/media-worker
 COPY apps/media-worker apps/media-worker
 RUN npm run build --workspace=@snezhok/media-worker
@@ -18,6 +19,7 @@ COPY apps/media-worker/package.json apps/media-worker/package.json
 COPY apps/mobile/package.json apps/mobile/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/game-engine/package.json packages/game-engine/package.json
 RUN npm ci --omit=dev --workspace=@snezhok/media-worker \
   && npm cache clean --force
 

@@ -2,8 +2,13 @@ FROM node:22.23.1-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5
 
 WORKDIR /app
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends g++ make python3 \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/game-engine/package.json packages/game-engine/package.json
 COPY apps/api/package.json apps/api/package.json
 COPY apps/media-worker/package.json apps/media-worker/package.json
 COPY apps/web/package.json apps/web/package.json
@@ -11,10 +16,12 @@ COPY apps/mobile/package.json apps/mobile/package.json
 
 RUN npm ci \
   --workspace=@snezhok/contracts \
+  --workspace=@snezhok/game-engine \
   --workspace=@snezhok/api \
   --workspace=@snezhok/web
 
 COPY packages/contracts packages/contracts
+COPY packages/game-engine packages/game-engine
 COPY apps/api apps/api
 COPY apps/web apps/web
 
@@ -22,6 +29,7 @@ ARG PUBLIC_BASE_PATH=/chat/
 ENV VITE_BASE_PATH=${PUBLIC_BASE_PATH}
 
 RUN npm run build --workspace=@snezhok/contracts \
+  && npm run build --workspace=@snezhok/game-engine \
   && npm run build --workspace=@snezhok/api \
   && npm run build --workspace=@snezhok/web
 
@@ -29,8 +37,13 @@ FROM node:22.23.1-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c3
 
 WORKDIR /app
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends g++ make python3 \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/game-engine/package.json packages/game-engine/package.json
 COPY apps/api/package.json apps/api/package.json
 COPY apps/media-worker/package.json apps/media-worker/package.json
 COPY apps/web/package.json apps/web/package.json
@@ -38,6 +51,7 @@ COPY apps/mobile/package.json apps/mobile/package.json
 
 RUN npm ci --omit=dev \
   --workspace=@snezhok/contracts \
+  --workspace=@snezhok/game-engine \
   --workspace=@snezhok/api \
   && npm cache clean --force
 
@@ -64,6 +78,8 @@ COPY --chown=node:node --from=production-dependencies /app/node_modules node_mod
 
 COPY --chown=node:node packages/contracts/package.json packages/contracts/package.json
 COPY --chown=node:node --from=build /app/packages/contracts/dist packages/contracts/dist
+COPY --chown=node:node packages/game-engine/package.json packages/game-engine/package.json
+COPY --chown=node:node --from=build /app/packages/game-engine/dist packages/game-engine/dist
 COPY --chown=node:node --from=build /app/apps/api/dist apps/api/dist
 COPY --chown=node:node --from=build /app/apps/api/migrations apps/api/migrations
 COPY --chown=node:node --from=build /app/apps/web/dist apps/web/dist
