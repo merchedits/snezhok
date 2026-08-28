@@ -105,9 +105,12 @@ test("production deployment binds backup and image provenance to real commits", 
   assert.match(script, /runuser -u www-data -- test -x "\$MEDIA_OBJECT_ROOT"/);
   assert.ok(script.indexOf("systemctl start snezhok-backup.service") < script.indexOf('set_image_tag "$REVISION"'));
   assert.match(script, /trap rollback_tag EXIT/);
+  assert.match(script, /--no-deps --wait --wait-timeout 90 app job-worker media-worker livekit/);
   assert.match(script, /install-maintenance\.sh" "\$REVISION" --enable/);
   const verifier = await read("../deploy/verify-production-release.sh");
   assert.match(verifier, /android_source_revision/);
+  assert.match(verifier, /origin_download_path/);
+  assert.match(verifier, /Android primary channel did not return a secure CDN redirect/);
   assert.match(verifier, /verify-public-source\.mjs/);
   assert.doesNotMatch(verifier, /body\.sourceRevision!==process\.argv\[2\]/);
 });

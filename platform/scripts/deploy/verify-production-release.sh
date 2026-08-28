@@ -39,14 +39,20 @@ tls_health=$(curl --fail --silent --show-error --max-time 10 \
 node -e 'const body=JSON.parse(process.argv[1]); if(body.status!=="ready"||body.revision!==process.argv[2]) process.exit(1)' "$tls_health" "$REVISION"
 
 manifest=$(curl --fail --silent --show-error --max-time 10 "$API_ORIGIN/client/android/manifest")
-mapfile -t android_release < <(node -e 'const body=JSON.parse(process.argv[1]); if(!Number.isSafeInteger(body.bytes)||body.bytes<1024||!/^\/[A-Za-z0-9_./-]+$/.test(body.downloadUrl)||!/^[0-9a-f]{40}$/.test(body.sourceRevision)) process.exit(1); console.log(body.downloadUrl); console.log(body.sourceRevision)' "$manifest")
-[[ ${#android_release[@]} -eq 2 ]] || { echo "Android channel manifest is incomplete" >&2; exit 1; }
+mapfile -t android_release < <(node -e 'const body=JSON.parse(process.argv[1]); const origin=body.downloadMirrors?.find((value)=>typeof value==="string"&&value.endsWith("/origin")); if(!Number.isSafeInteger(body.bytes)||body.bytes<1024||!/^\/[A-Za-z0-9_./-]+$/.test(body.downloadUrl)||!/^[0-9a-f]{40}$/.test(body.sourceRevision)||!/^\/[A-Za-z0-9_./-]+$/.test(origin??"")) process.exit(1); console.log(body.downloadUrl); console.log(body.sourceRevision); console.log(origin)' "$manifest")
+[[ ${#android_release[@]} -eq 3 ]] || { echo "Android channel manifest is incomplete" >&2; exit 1; }
 download_path=${android_release[0]}
 android_source_revision=${android_release[1]}
+origin_download_path=${android_release[2]}
 node "$PLATFORM_ROOT/scripts/compliance/verify-public-source.mjs" \
   --revision "$android_source_revision" --repository https://github.com/merchedits/snezhok
-range_result=$(curl --fail --location --silent --show-error --max-time 30 --range 0-1023 -o /dev/null \
-  --write-out '%{http_code}|%{size_download}' --resolve "$PUBLIC_HOST:443:$LOCAL_HTTPS_ADDRESS" \
+primary_result=$(curl --silent --show-error --max-time 10 -o /dev/null \
+  --write-out '%{http_code}|%{redirect_url}' --resolve "$PUBLIC_HOST:443:$LOCAL_HTTPS_ADDRESS" \
   "https://$PUBLIC_HOST/chat$download_path")
+[[ "$primary_result" =~ ^30[1278]\|https:// ]] \
+  || { echo "Android primary channel did not return a secure CDN redirect" >&2; exit 1; }
+range_result=$(curl --fail --silent --show-error --max-time 30 --range 0-1023 -o /dev/null \
+  --write-out '%{http_code}|%{size_download}' --resolve "$PUBLIC_HOST:443:$LOCAL_HTTPS_ADDRESS" \
+  "https://$PUBLIC_HOST/chat$origin_download_path")
 [[ "$range_result" == "206|1024" ]] || { echo "Android channel did not return the required 1024-byte range" >&2; exit 1; }
 echo "production release verified locally through TLS for $REVISION"
