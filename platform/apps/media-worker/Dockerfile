@@ -28,7 +28,8 @@ ARG SOURCE_REVISION
 LABEL org.opencontainers.image.source="https://github.com/merchedits/snezhok" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
-RUN apt-get update && apt-get install -y --no-install-recommends dumb-init ffmpeg ca-certificates \
+RUN sed -i 's|http://deb.debian.org/debian|http://ftp.ru.debian.org/debian|g' /etc/apt/sources.list.d/debian.sources \
+  && apt-get update && apt-get install -y --no-install-recommends dumb-init ffmpeg ca-certificates \
   && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm \
   && rm -f /usr/local/bin/npm /usr/local/bin/npx
 ENV NODE_ENV=production
