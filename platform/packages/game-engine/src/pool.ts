@@ -1,9 +1,22 @@
 import { assertTurn, baseState, completeGame, opponent } from "./common.js";
 import type { PlayerPair, PoolBall, PoolShotInput, PoolState } from "./types.js";
 
-const BALL_RADIUS = 0.015;
-const POCKET_RADIUS = 0.029;
-const POCKETS = [[0.025, 0.025], [0.5, 0.018], [0.975, 0.025], [0.025, 0.475], [0.5, 0.482], [0.975, 0.475]] as const;
+export const POOL_GEOMETRY = {
+  minX: 0.055,
+  maxX: 0.945,
+  minY: 0.055,
+  maxY: 0.445,
+  ballRadius: 0.015,
+  pocketRadius: 0.035,
+  pockets: [[0.055, 0.055], [0.5, 0.047], [0.945, 0.055], [0.055, 0.445], [0.5, 0.453], [0.945, 0.445]],
+} as const;
+
+const BALL_RADIUS = POOL_GEOMETRY.ballRadius;
+const POCKETS = POOL_GEOMETRY.pockets;
+const CENTER_MIN_X = POOL_GEOMETRY.minX + BALL_RADIUS;
+const CENTER_MAX_X = POOL_GEOMETRY.maxX - BALL_RADIUS;
+const CENTER_MIN_Y = POOL_GEOMETRY.minY + BALL_RADIUS;
+const CENTER_MAX_Y = POOL_GEOMETRY.maxY - BALL_RADIUS;
 
 interface MovingBall extends PoolBall { vx: number; vy: number; }
 
@@ -26,8 +39,8 @@ export function playPool(state: PoolState, userId: string, input: PoolShotInput)
   const balls = state.balls.map((ball) => ({ ...ball }));
   const cue = balls.find((ball) => ball.id === 0)!;
   if (state.ballInHandUserId === userId) {
-    const x = finiteBetween(input.cueX, 0.08, 0.92, "Place the cue ball on the table");
-    const y = finiteBetween(input.cueY, 0.07, 0.43, "Place the cue ball on the table");
+    const x = finiteBetween(input.cueX, CENTER_MIN_X, CENTER_MAX_X, "Place the cue ball on the table");
+    const y = finiteBetween(input.cueY, CENTER_MIN_Y, CENTER_MAX_Y, "Place the cue ball on the table");
     if (balls.some((ball) => ball.id !== 0 && !ball.pocketed && distance(ball.x, ball.y, x, y) < BALL_RADIUS * 2.05)) throw new Error("The cue ball cannot overlap another ball");
     cue.x = x;
     cue.y = y;
@@ -98,7 +111,7 @@ function simulate(inputBalls: PoolBall[], angle: number, power: number, collectF
       if (Math.hypot(ball.vx, ball.vy) > 0.004) moving = true;
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
-      const pocket = POCKETS.some(([x, y]) => distance(ball.x, ball.y, x, y) <= POCKET_RADIUS);
+      const pocket = POCKETS.some(([x, y]) => distance(ball.x, ball.y, x, y) <= POOL_GEOMETRY.pocketRadius);
       if (pocket) {
         ball.pocketed = true;
         ball.vx = 0;
@@ -107,10 +120,10 @@ function simulate(inputBalls: PoolBall[], angle: number, power: number, collectF
         continue;
       }
       let rail = false;
-      if (ball.x < BALL_RADIUS) { ball.x = BALL_RADIUS; ball.vx = Math.abs(ball.vx) * 0.83; rail = true; }
-      if (ball.x > 1 - BALL_RADIUS) { ball.x = 1 - BALL_RADIUS; ball.vx = -Math.abs(ball.vx) * 0.83; rail = true; }
-      if (ball.y < BALL_RADIUS) { ball.y = BALL_RADIUS; ball.vy = Math.abs(ball.vy) * 0.83; rail = true; }
-      if (ball.y > 0.5 - BALL_RADIUS) { ball.y = 0.5 - BALL_RADIUS; ball.vy = -Math.abs(ball.vy) * 0.83; rail = true; }
+      if (ball.x < CENTER_MIN_X) { ball.x = CENTER_MIN_X; ball.vx = Math.abs(ball.vx) * 0.83; rail = true; }
+      if (ball.x > CENTER_MAX_X) { ball.x = CENTER_MAX_X; ball.vx = -Math.abs(ball.vx) * 0.83; rail = true; }
+      if (ball.y < CENTER_MIN_Y) { ball.y = CENTER_MIN_Y; ball.vy = Math.abs(ball.vy) * 0.83; rail = true; }
+      if (ball.y > CENTER_MAX_Y) { ball.y = CENTER_MAX_Y; ball.vy = -Math.abs(ball.vy) * 0.83; rail = true; }
       if (rail && firstContactId !== null) railAfterContact = true;
       ball.vx *= 0.992;
       ball.vy *= 0.992;

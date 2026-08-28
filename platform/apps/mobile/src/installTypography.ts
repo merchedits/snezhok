@@ -5,6 +5,9 @@ type ComponentWithDefaults<T> = { defaultProps?: T };
 function mergeFontFamily<T extends TextProps | TextInputProps>(component: ComponentWithDefaults<T>) {
   component.defaultProps = {
     ...component.defaultProps,
+    // Preserve Android accessibility scaling without allowing extreme display
+    // settings to reflow critical controls into unusable multi-row layouts.
+    maxFontSizeMultiplier: component.defaultProps?.maxFontSizeMultiplier ?? 1.35,
     style: [{ fontFamily: "Onest" }, component.defaultProps?.style],
   } as T;
 }

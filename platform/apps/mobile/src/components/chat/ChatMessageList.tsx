@@ -3,7 +3,7 @@ import { useIsFocused } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View, type ViewToken } from "react-native";
+import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View, type ViewToken } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 
 import type { ConversationSummary, Message, UserSummary } from "@snezhok/contracts";
@@ -14,6 +14,7 @@ import { prefetchAuthorizedMedia } from "../../hooks/useAuthorizedMedia";
 import { useTranslation } from "../../i18n";
 import { chatOpenPerformanceKind } from "../../lib/chatWarmup";
 import { renderableAttachments } from "../../domains/messaging/messagePayload";
+import { visibleReadSequence } from "../../domains/messaging/readVisibility";
 import { joinRealtimeStream, leaveRealtimeStream } from "../../lib/realtimeBridge";
 import { clearVoicePlaybackQueue, setVoicePlaybackQueue } from "../../lib/voicePlaybackCoordinator";
 import { dismissMessageNotifications } from "../../notifications/androidNotifications";
@@ -100,6 +101,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   const markStreamRead = useAppStore((state) => state.markStreamRead);
   const toggleReaction = useAppStore((state) => state.toggleReaction);
   const [routeSettled, setRouteSettled] = useState(false);
+  const [appActive, setAppActive] = useState(AppState.currentState === "active");
   const [historyState, setHistoryState] = useState<"waiting" | "loading" | "ready" | "error">("waiting");
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
   const userDraggedHistory = useRef(false);
@@ -135,6 +137,10 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   }, [navigation, streamId]);
 
   useEffect(() => { void preloadCachedMessages([streamId]).catch(() => undefined); }, [preloadCachedMessages, streamId]);
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => setAppActive(state === "active"));
+    return () => subscription.remove();
+  }, []);
   const refreshHistory = useCallback(async () => {
     setHistoryState("loading");
     try {
@@ -172,7 +178,11 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     unreadBoundary.current.sequence = displayMessages[boundaryIndex]?.sequence ?? null;
   }
   const renderedMessages = useMemo(() => displayMessages.slice(-renderLimit), [displayMessages, renderLimit]);
-  const latestSequence = useMemo(() => messages.reduce((maximum, message) => Math.max(maximum, message.sequence), 0), [messages]);
+  const readableSequence = useMemo(() => visibleReadSequence(messages, meId, {
+    appActive,
+    screenFocused: isFocused,
+    routeSettled,
+  }), [appActive, isFocused, meId, messages, routeSettled]);
   const voiceAttachmentIds = useMemo(() => displayMessages.flatMap((message) => renderableAttachments(message.attachments)
     .filter((attachment) => attachment.kind === "audio")
     .map((attachment) => attachment.id)), [displayMessages]);
@@ -189,12 +199,12 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   useEffect(() => { setVoicePlaybackQueue(streamId, voiceAttachmentIds); }, [streamId, voiceAttachmentKey]);
   useEffect(() => () => clearVoicePlaybackQueue(streamId), [streamId]);
   useEffect(() => {
-    if (!isFocused || !routeSettled || latestSequence <= 0) return;
-    void markStreamRead(streamId, latestSequence).catch(() => undefined);
-  }, [isFocused, latestSequence, markStreamRead, routeSettled, streamId]);
+    if (readableSequence === null) return;
+    void markStreamRead(streamId, readableSequence).catch(() => undefined);
+  }, [markStreamRead, readableSequence, streamId]);
   useEffect(() => {
-    if (isFocused && routeSettled) void dismissMessageNotifications(streamId).catch(() => undefined);
-  }, [isFocused, routeSettled, streamId]);
+    if (appActive && isFocused && routeSettled) void dismissMessageNotifications(streamId).catch(() => undefined);
+  }, [appActive, isFocused, routeSettled, streamId]);
 
   const jumpToMessage = useCallback(async (messageId: string) => {
     await loadMessageContext(streamId, messageId).catch(() => undefined);

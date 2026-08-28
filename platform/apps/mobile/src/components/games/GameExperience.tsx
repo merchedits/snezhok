@@ -2,6 +2,7 @@ import type { CooperativeActivity } from "@snezhok/contracts";
 import { parseGameState, type GameState } from "@snezhok/game-engine";
 import { memo, useMemo } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { materialAdvantage } from "../../domains/games/gamePresentation";
 import { usePalette } from "../../hooks/usePalette";
 import { useAppDialog } from "../AppDialogProvider";
 import { Avatar } from "../Avatar";
@@ -32,6 +33,9 @@ export const GameExperience = memo(function GameExperience({ activity, meId, bus
   const myRematch = state.rematchRequests.includes(meId);
   const otherRematch = state.rematchRequests.some((id) => id !== meId);
   const status = statusCopy(state, meId, activePlayer?.displayName, winner?.displayName, language);
+  const material = state.kind === "chess" || state.kind === "checkers"
+    ? [materialAdvantage(state, 0), materialAdvantage(state, 1)] as const
+    : [0, 0] as const;
   const resign = () => showDialog(
     language === "ru" ? "Сдаться в этой партии?" : "Resign this game?",
     language === "ru" ? "Победа и очко достанутся второму игроку. Следом можно сразу начать реванш." : "The other player will win the round. You can start a rematch immediately afterward.",
@@ -43,21 +47,14 @@ export const GameExperience = memo(function GameExperience({ activity, meId, bus
   return (
     <View style={styles.root}>
       <View style={[styles.score, { backgroundColor: palette.surface }]}>
-        {players.map((player, index) => (
-          <View key={player.id} style={[styles.player, index === 1 && styles.playerRight]}>
-            <Avatar uri={player.avatarUrl} label={player.displayName} color={player.avatarColor} size={34} />
-            <View style={index === 1 ? styles.rightCopy : undefined}>
-              <Text numberOfLines={1} style={[styles.playerName, { color: palette.text }]}>{player.id === meId ? (language === "ru" ? "Вы" : "You") : player.displayName}</Text>
-              <Text style={[styles.playerRole, { color: palette.secondaryText }]}>{roleCopy(state, index, language)}</Text>
-            </View>
-          </View>
-        ))}
+        <PlayerSummary player={players[0]} index={0} meId={meId} role={roleCopy(state, 0, language)} advantage={material[0]} language={language} />
         <View style={[styles.scorePill, { backgroundColor: palette.accentSoft }]}>
-          <Text style={[styles.scoreText, { color: palette.text }]}>{state.scores[state.players[0]] ?? 0} : {state.scores[state.players[1]] ?? 0}</Text>
-          <Text style={[styles.round, { color: palette.secondaryText }]}>{language === "ru" ? `партия ${state.round}` : `round ${state.round}`}</Text>
+          <Text maxFontSizeMultiplier={1.1} style={[styles.scoreText, { color: palette.text }]}>{state.scores[state.players[0]] ?? 0} : {state.scores[state.players[1]] ?? 0}</Text>
+          <Text maxFontSizeMultiplier={1.1} style={[styles.round, { color: palette.secondaryText }]}>{language === "ru" ? `партия ${state.round}` : `round ${state.round}`}</Text>
         </View>
+        <PlayerSummary player={players[1]} index={1} meId={meId} role={roleCopy(state, 1, language)} advantage={material[1]} language={language} />
       </View>
-      <Text accessibilityLiveRegion="polite" style={[styles.status, { color: palette.text }]}>{status}</Text>
+      <Text maxFontSizeMultiplier={1.2} accessibilityLiveRegion="polite" style={[styles.status, { color: palette.text }]}>{status}</Text>
       {state.kind === "tic-tac-toe" ? <TicTacToeBoard state={state} meId={meId} busy={busy} run={run} /> : null}
       {state.kind === "chess" ? <ChessBoard state={state} meId={meId} busy={busy} run={run} language={language} /> : null}
       {state.kind === "checkers" ? <CheckersBoard state={state} meId={meId} busy={busy} run={run} /> : null}
@@ -68,7 +65,6 @@ export const GameExperience = memo(function GameExperience({ activity, meId, bus
           <Pressable accessibilityRole="button" disabled={busy || myRematch} onPress={() => void run("game-rematch")} style={({ pressed }) => [styles.primary, { backgroundColor: palette.pop, opacity: busy || myRematch ? 0.5 : pressed ? 0.82 : 1 }]}>
             {busy ? <ActivityIndicator color={palette.onPop} /> : <Text style={[styles.primaryText, { color: palette.onPop }]}>{myRematch ? (language === "ru" ? "Ждём второго игрока" : "Waiting for the other player") : otherRematch ? (language === "ru" ? "Принять реванш" : "Accept rematch") : (language === "ru" ? "Играть ещё" : "Play again")}</Text>}
           </Pressable>
-          <Text style={[styles.rematchHint, { color: palette.secondaryText }]}>{language === "ru" ? "Новая партия начнётся здесь же, когда оба будут готовы." : "The next round starts here as soon as both players are ready."}</Text>
         </View>
       ) : state.status === "playing" ? (
         <Pressable accessibilityRole="button" disabled={busy} onPress={resign} style={styles.resign}><Text style={[styles.resignText, { color: palette.danger }]}>{language === "ru" ? "Сдаться" : "Resign"}</Text></Pressable>
@@ -76,6 +72,29 @@ export const GameExperience = memo(function GameExperience({ activity, meId, bus
     </View>
   );
 });
+
+function PlayerSummary({ player, index, meId, role, advantage, language }: {
+  player: CooperativeActivity["participants"][number]["user"] | undefined;
+  index: 0 | 1;
+  meId: string;
+  role: string;
+  advantage: number;
+  language: "ru" | "en";
+}) {
+  const palette = usePalette();
+  if (!player) return <View style={styles.player} />;
+  const right = index === 1;
+  return <View style={[styles.player, right && styles.playerRight]}>
+    <Avatar uri={player.avatarUrl} label={player.displayName} color={player.avatarColor} size={34} />
+    <View style={[styles.playerCopy, right && styles.rightCopy]}>
+      <Text maxFontSizeMultiplier={1.1} numberOfLines={1} style={[styles.playerName, right && styles.rightText, { color: palette.text }]}>{player.id === meId ? (language === "ru" ? "Вы" : "You") : player.displayName}</Text>
+      <View style={[styles.roleLine, right && styles.roleLineRight]}>
+        <Text maxFontSizeMultiplier={1.1} numberOfLines={1} style={[styles.playerRole, { color: palette.secondaryText }]}>{role}</Text>
+        {advantage > 0 ? <Text allowFontScaling={false} style={[styles.advantage, { color: palette.success }]}>+{advantage}</Text> : null}
+      </View>
+    </View>
+  </View>;
+}
 
 function statusCopy(state: GameState, meId: string, activeName: string | undefined, winnerName: string | undefined, language: "ru" | "en") {
   if (state.status === "setup") return language === "ru" ? "Подготовьте поле. Партия начнётся, когда оба будут готовы." : "Prepare the board. The round starts when both players are ready.";
@@ -90,18 +109,20 @@ function roleCopy(state: GameState, index: number, language: "ru" | "en") {
   if (state.kind === "tic-tac-toe") return index === 0 ? "X" : "O";
   if (state.kind === "chess") return index === 0 ? (language === "ru" ? "белые" : "white") : (language === "ru" ? "чёрные" : "black");
   if (state.kind === "checkers") return index === 0 ? (language === "ru" ? "светлые" : "light") : (language === "ru" ? "тёмные" : "dark");
-  if (state.kind === "pool") return state.groups[state.players[index]!] ? (state.groups[state.players[index]!] === "solid" ? (language === "ru" ? "целые" : "solids") : (language === "ru" ? "полосатые" : "stripes")) : (language === "ru" ? "группа не выбрана" : "open table");
+  if (state.kind === "pool") return state.groups[state.players[index]!] ? (state.groups[state.players[index]!] === "solid" ? (language === "ru" ? "целые" : "solids") : (language === "ru" ? "полосатые" : "stripes")) : "—";
   return language === "ru" ? "флот" : "fleet";
 }
 
 const styles = StyleSheet.create({
   root: { gap: 12 }, error: { fontSize: 14, lineHeight: 20, fontWeight: "700", paddingVertical: 24 },
-  score: { minHeight: 66, borderRadius: 18, padding: 10, flexDirection: "row", alignItems: "center" },
-  player: { width: "38%", flexDirection: "row", alignItems: "center", gap: 8 }, playerRight: { flexDirection: "row-reverse" }, rightCopy: { alignItems: "flex-end" },
-  playerName: { fontSize: 12, fontWeight: "800", maxWidth: 80 }, playerRole: { fontSize: 10, marginTop: 1 },
-  scorePill: { position: "absolute", left: "38%", width: "24%", minHeight: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  score: { minHeight: 66, borderRadius: 18, padding: 9, flexDirection: "row", alignItems: "center", gap: 5 },
+  player: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 }, playerRight: { flexDirection: "row-reverse" },
+  playerCopy: { flex: 1, minWidth: 0 }, rightCopy: { alignItems: "flex-end" },
+  playerName: { width: "100%", fontSize: 12, fontWeight: "800" }, rightText: { textAlign: "right" }, playerRole: { flexShrink: 1, fontSize: 10 },
+  roleLine: { maxWidth: "100%", flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 }, roleLineRight: { flexDirection: "row-reverse" }, advantage: { fontSize: 10, fontWeight: "900" },
+  scorePill: { width: 76, flexShrink: 0, minHeight: 48, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   scoreText: { fontSize: 18, fontWeight: "900" }, round: { fontSize: 9, fontWeight: "700", marginTop: 1 },
   status: { fontSize: 18, lineHeight: 23, fontWeight: "800", textAlign: "center" }, resultActions: { gap: 8 },
   primary: { minHeight: 52, borderRadius: 17, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 }, primaryText: { fontSize: 16, fontWeight: "800" },
-  rematchHint: { fontSize: 11, lineHeight: 16, textAlign: "center" }, resign: { minHeight: 44, alignItems: "center", justifyContent: "center" }, resignText: { fontSize: 13, fontWeight: "800" },
+  resign: { minHeight: 44, alignItems: "center", justifyContent: "center" }, resignText: { fontSize: 13, fontWeight: "800" },
 });

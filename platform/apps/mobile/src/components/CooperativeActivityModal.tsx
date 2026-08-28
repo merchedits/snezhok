@@ -273,8 +273,8 @@ export function CooperativeActivityModal({ message, onClose }: { message: Messag
           >
             <View style={styles.header}>
               <View style={styles.headerCopy}>
-                <Text style={[styles.title, !hasInstruction && styles.standaloneTitle, { color: palette.text }]}>{activityLabel}</Text>
-                {hasInstruction ? <Text style={[styles.headerInstruction, { color: palette.text }]}>{instruction}</Text> : null}
+                <Text maxFontSizeMultiplier={1.2} numberOfLines={2} style={[styles.title, !hasInstruction && styles.standaloneTitle, { color: palette.text }]}>{activityLabel}</Text>
+                {hasInstruction ? <Text maxFontSizeMultiplier={1.2} style={[styles.headerInstruction, { color: palette.text }]}>{instruction}</Text> : null}
               </View>
               <Pressable accessibilityRole="button" accessibilityLabel={language === "ru" ? "Закрыть" : "Close"} disabled={busy} onPress={onClose} style={[styles.close, { backgroundColor: palette.surface }]}>
                 <AppIcon name="close" size={21} color={palette.secondaryText} />

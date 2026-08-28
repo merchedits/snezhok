@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-na
 
 export const CheckersBoard = memo(function CheckersBoard({ state, meId, busy, run }: { state: CheckersState; meId: string; busy: boolean; run: (action: string, payload?: Record<string, unknown>) => Promise<boolean> }) {
   const { width } = useWindowDimensions();
-  const size = Math.min(width - 68, 344);
+  const size = Math.min(width - 36, 360);
   const [selected, setSelected] = useState<number | null>(state.forcedFrom);
   const legal = useMemo(() => legalCheckersMoves(state, meId), [state, meId]);
   const whitePerspective = state.players[0] === meId;
@@ -31,7 +31,7 @@ export const CheckersBoard = memo(function CheckersBoard({ state, meId, busy, ru
         return (
           <Pressable accessibilityRole="button" accessibilityLabel={`${Math.floor(index / 8) + 1}, ${index % 8 + 1}`} key={`${index}-${visualIndex}`} onPress={() => void press(index)} style={[styles.square, { backgroundColor: current === index ? "#D7FF29" : playable ? "#72569B" : "#EEE5D3" }]}>
             {target ? <View style={styles.target} /> : null}
-            {piece ? <View style={[styles.checker, piece.toLowerCase() === "w" ? styles.light : styles.dark]}>{piece === piece.toUpperCase() ? <Text style={styles.crown}>♛</Text> : null}</View> : null}
+            {piece ? <View style={[styles.checker, piece.toLowerCase() === "w" ? styles.light : styles.dark]}>{piece === piece.toUpperCase() ? <Text allowFontScaling={false} style={styles.crown}>♛</Text> : null}</View> : null}
           </Pressable>
         );
       })}

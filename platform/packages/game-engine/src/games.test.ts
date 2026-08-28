@@ -139,7 +139,7 @@ test("pool simulation is deterministic and keeps every ball on the table or pock
   const first = playPool(state, "alice", { angle: 0, power: 0.8 });
   const second = playPool(state, "alice", { angle: 0, power: 0.8 });
   assert.deepEqual(first.balls, second.balls);
-  assert.ok(first.balls.every((ball) => ball.pocketed || (ball.x >= 0 && ball.x <= 1 && ball.y >= 0 && ball.y <= 0.5)));
+  assert.ok(first.balls.every((ball) => ball.pocketed || (ball.x >= 0.07 && ball.x <= 0.93 && ball.y >= 0.07 && ball.y <= 0.43)));
   const frames = tracePoolShot(state.balls, 0, 0.8);
   assert.ok(frames.length > 2);
   assert.deepEqual(frames.at(-1), first.balls);
@@ -150,8 +150,8 @@ test("pool awards an early eight ball to the opponent", () => {
   const balls = initial.balls.map((ball) => ({ ...ball, pocketed: ball.id !== 0 && ball.id !== 8 }));
   const cue = balls.find((ball) => ball.id === 0)!;
   const eight = balls.find((ball) => ball.id === 8)!;
-  Object.assign(cue, { x: 0.72, y: 0.025, pocketed: false });
-  Object.assign(eight, { x: 0.89, y: 0.025, pocketed: false });
+  Object.assign(cue, { x: 0.76, y: 0.07, pocketed: false });
+  Object.assign(eight, { x: 0.89, y: 0.055, pocketed: false });
   const result = playPool({ ...initial, balls, breakShot: false }, "alice", { angle: 0, power: 0.7 });
   assert.equal(result.winnerId, "bob");
 });
