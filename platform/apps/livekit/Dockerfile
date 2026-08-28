@@ -3,7 +3,8 @@ FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a
 ARG TARGETARCH
 ARG LIVEKIT_REVISION=3b9f118327b257301083a7c4aa46076c8012918a
 
-RUN apk add --no-cache ca-certificates git
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirror.yandex.ru/mirrors/alpine|g' /etc/apk/repositories \
+  && apk add --no-cache ca-certificates git
 
 WORKDIR /src
 

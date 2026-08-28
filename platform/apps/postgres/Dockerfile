@@ -4,7 +4,8 @@ LABEL org.opencontainers.image.source="https://github.com/merchedits/snezhok" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
-RUN apk add --no-cache age coreutils su-exec \
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirror.yandex.ru/mirrors/alpine|g' /etc/apk/repositories \
+  && apk add --no-cache age coreutils su-exec \
   && sed -i 's/exec gosu postgres/exec su-exec postgres/g' \
     /usr/local/bin/docker-entrypoint.sh \
     /usr/local/bin/docker-ensure-initdb.sh \
