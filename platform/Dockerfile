@@ -78,6 +78,7 @@ RUN sed -i 's|http://deb.debian.org/debian|http://ftp.ru.debian.org/debian|g' /e
 WORKDIR /app
 
 COPY --chown=node:node --from=production-dependencies /app/node_modules node_modules
+COPY --chown=node:node --from=production-dependencies /app/packages/game-engine/node_modules packages/game-engine/node_modules
 
 COPY --chown=node:node packages/contracts/package.json packages/contracts/package.json
 COPY --chown=node:node --from=build /app/packages/contracts/dist packages/contracts/dist
