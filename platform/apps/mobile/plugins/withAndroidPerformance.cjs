@@ -8,6 +8,7 @@ const {
 } = require("expo/config-plugins");
 
 const PROFILE_INSTALLER = 'implementation("androidx.profileinstaller:profileinstaller:1.4.1")';
+const SKIA_PROGUARD_RULE = "-keep class com.shopify.reactnative.skia.** { *; }";
 
 function insertIntoBlock(source, blockName, addition) {
   const start = source.indexOf(`${blockName} {`);
@@ -63,6 +64,11 @@ module.exports = function withAndroidPerformance(config) {
       const appMain = path.join(dangerousConfig.modRequest.platformProjectRoot, "app", "src", "main");
       fs.mkdirSync(appMain, { recursive: true });
       fs.copyFileSync(generatedProfile, path.join(appMain, "baseline-prof.txt"));
+    }
+    const proguardRules = path.join(dangerousConfig.modRequest.platformProjectRoot, "app", "proguard-rules.pro");
+    const proguardSource = fs.readFileSync(proguardRules, "utf8");
+    if (!proguardSource.includes(SKIA_PROGUARD_RULE)) {
+      fs.appendFileSync(proguardRules, `\n# React Native Skia native renderer\n${SKIA_PROGUARD_RULE}\n`);
     }
     return dangerousConfig;
   }]);

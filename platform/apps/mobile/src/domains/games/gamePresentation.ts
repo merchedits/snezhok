@@ -1,4 +1,4 @@
-import { chessPieces, type CheckersState, type ChessState, type PoolBall } from "@snezhok/game-engine";
+import { chessPieces, POOL_TRACE_FPS, type CheckersState, type ChessState, type PoolBall } from "@snezhok/game-engine";
 
 const chessValues = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 } as const;
 
@@ -51,10 +51,11 @@ export function poolPullPoint(start: PoolGesturePoint, deltaX: number, deltaY: n
   return { x: start.x + deltaX / scale, y: start.y + deltaY / scale };
 }
 
-/** Snapshot count controls physical playback length, while native animation
- * interpolates between the precomputed snapshots at the display refresh rate. */
+/** The deterministic engine emits equally spaced 60 Hz snapshots. Playback
+ * keeps that physical clock instead of compressing long shots into a jumpy
+ * arbitrary duration. */
 export function poolPlaybackDuration(frameCount: number): number {
-  return clamp((Math.max(2, Math.floor(frameCount)) - 1) * 18, 900, 3_200);
+  return Math.max(0, Math.round((Math.max(1, Math.floor(frameCount)) - 1) * 1_000 / POOL_TRACE_FPS));
 }
 
 /** Converts a slingshot gesture into the deterministic server shot. Coordinates

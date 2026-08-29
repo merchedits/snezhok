@@ -1,5 +1,6 @@
 import { assertTurn, baseState, completeGame, opponent } from "./common.js";
 import type { PlayerPair, PoolBall, PoolShotInput, PoolState } from "./types.js";
+import { Circle, Edge, Vec2, World, type Body, type Contact } from "planck";
 
 export const POOL_GEOMETRY = {
   minX: 0.055,
@@ -17,8 +18,28 @@ const CENTER_MIN_X = POOL_GEOMETRY.minX + BALL_RADIUS;
 const CENTER_MAX_X = POOL_GEOMETRY.maxX - BALL_RADIUS;
 const CENTER_MIN_Y = POOL_GEOMETRY.minY + BALL_RADIUS;
 const CENTER_MAX_Y = POOL_GEOMETRY.maxY - BALL_RADIUS;
+export const POOL_TRACE_FPS = 60;
 
-interface MovingBall extends PoolBall { vx: number; vy: number; }
+const PHYSICS_FPS = 240;
+const PHYSICS_STEP = 1 / PHYSICS_FPS;
+// Box2D's contact tolerance is expressed in world units. Keeping the normalized
+// 0..1 render coordinates directly in the solver makes that tolerance enormous
+// relative to a pool ball. A 10x physics world keeps balls in Box2D's preferred
+// size range and is converted back only at the snapshot boundary.
+const PHYSICS_SCALE = 10;
+const TRACE_EVERY_STEPS = PHYSICS_FPS / POOL_TRACE_FPS;
+const MAX_SHOT_SECONDS = 8;
+const MAX_SHOT_STEPS = PHYSICS_FPS * MAX_SHOT_SECONDS;
+const VELOCITY_ITERATIONS = 16;
+const POSITION_ITERATIONS = 20;
+const BALL_RESTITUTION = 0.96;
+const CUSHION_RESTITUTION = 0.86;
+const ROLLING_DECELERATION = 0.12;
+const STOP_SPEED = 0.003;
+
+interface BallBodyData { type: "ball"; id: number; }
+interface RailBodyData { type: "rail"; }
+type PhysicsBodyData = BallBodyData | RailBodyData;
 
 export function createPool(players: PlayerPair, round = 1, scores?: Record<string, number>): PoolState {
   return {
@@ -95,76 +116,132 @@ export function tracePoolShot(inputBalls: PoolBall[], angle: number, power: numb
 }
 
 function simulate(inputBalls: PoolBall[], angle: number, power: number, collectFrames = false) {
-  const balls: MovingBall[] = inputBalls.map((ball) => ({ ...ball, vx: 0, vy: 0 }));
-  const cue = balls.find((ball) => ball.id === 0)!;
-  cue.vx = Math.cos(angle) * (0.72 + power * 1.7);
-  cue.vy = Math.sin(angle) * (0.72 + power * 1.7);
+  const world = new World({ gravity: Vec2(0, 0), allowSleep: true, continuousPhysics: true, warmStarting: true, blockSolve: true });
+  const rail = world.createBody({ userData: { type: "rail" } satisfies RailBodyData });
+  const railFixture = { friction: 0, restitution: CUSHION_RESTITUTION };
+  rail.createFixture(new Edge(physicsPoint(POOL_GEOMETRY.minX, POOL_GEOMETRY.minY), physicsPoint(POOL_GEOMETRY.maxX, POOL_GEOMETRY.minY)), railFixture);
+  rail.createFixture(new Edge(physicsPoint(POOL_GEOMETRY.maxX, POOL_GEOMETRY.minY), physicsPoint(POOL_GEOMETRY.maxX, POOL_GEOMETRY.maxY)), railFixture);
+  rail.createFixture(new Edge(physicsPoint(POOL_GEOMETRY.maxX, POOL_GEOMETRY.maxY), physicsPoint(POOL_GEOMETRY.minX, POOL_GEOMETRY.maxY)), railFixture);
+  rail.createFixture(new Edge(physicsPoint(POOL_GEOMETRY.minX, POOL_GEOMETRY.maxY), physicsPoint(POOL_GEOMETRY.minX, POOL_GEOMETRY.minY)), railFixture);
+
+  const bodies = new Map<number, Body>();
+  for (const ball of inputBalls) {
+    if (ball.pocketed) continue;
+    const body = world.createDynamicBody({
+      position: physicsPoint(ball.x, ball.y),
+      fixedRotation: true,
+      bullet: ball.id === 0,
+      allowSleep: true,
+      userData: { type: "ball", id: ball.id } satisfies BallBodyData,
+    });
+    body.createFixture(new Circle(BALL_RADIUS * PHYSICS_SCALE), { density: 1, friction: 0, restitution: BALL_RESTITUTION });
+    bodies.set(ball.id, body);
+  }
+  const cue = bodies.get(0);
+  if (!cue) throw new Error("Cue ball is unavailable");
+  const launchSpeed = 0.45 + power * 1.25;
+  cue.setLinearVelocity(Vec2(Math.cos(angle) * launchSpeed * PHYSICS_SCALE, Math.sin(angle) * launchSpeed * PHYSICS_SCALE));
+  cue.setAwake(true);
+
   const pocketed: number[] = [];
   let firstContactId: number | null = null;
   let railAfterContact = false;
-  const frames: PoolBall[][] = collectFrames ? [snapshot(balls)] : [];
-  const dt = 0.004;
-  for (let step = 0; step < 2_400; step += 1) {
-    let moving = false;
-    for (const ball of balls) {
-      if (ball.pocketed) continue;
-      if (Math.hypot(ball.vx, ball.vy) > 0.004) moving = true;
-      ball.x += ball.vx * dt;
-      ball.y += ball.vy * dt;
-      const pocket = POCKETS.some(([x, y]) => distance(ball.x, ball.y, x, y) <= POOL_GEOMETRY.pocketRadius);
-      if (pocket) {
-        ball.pocketed = true;
-        ball.vx = 0;
-        ball.vy = 0;
-        pocketed.push(ball.id);
-        continue;
-      }
-      let rail = false;
-      if (ball.x < CENTER_MIN_X) { ball.x = CENTER_MIN_X; ball.vx = Math.abs(ball.vx) * 0.83; rail = true; }
-      if (ball.x > CENTER_MAX_X) { ball.x = CENTER_MAX_X; ball.vx = -Math.abs(ball.vx) * 0.83; rail = true; }
-      if (ball.y < CENTER_MIN_Y) { ball.y = CENTER_MIN_Y; ball.vy = Math.abs(ball.vy) * 0.83; rail = true; }
-      if (ball.y > CENTER_MAX_Y) { ball.y = CENTER_MAX_Y; ball.vy = -Math.abs(ball.vy) * 0.83; rail = true; }
-      if (rail && firstContactId !== null) railAfterContact = true;
-      ball.vx *= 0.992;
-      ball.vy *= 0.992;
-      if (Math.hypot(ball.vx, ball.vy) < 0.004) { ball.vx = 0; ball.vy = 0; }
+  world.on("begin-contact", (contact) => {
+    const [first, second] = contactData(contact);
+    if (!first || !second) return;
+    if (first.type === "ball" && second.type === "ball" && firstContactId === null) {
+      if (first.id === 0 && second.id !== 0) firstContactId = second.id;
+      else if (second.id === 0 && first.id !== 0) firstContactId = first.id;
     }
-    for (let left = 0; left < balls.length; left += 1) for (let right = left + 1; right < balls.length; right += 1) {
-      const a = balls[left]!;
-      const b = balls[right]!;
-      if (a.pocketed || b.pocketed) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const separation = Math.hypot(dx, dy);
-      if (separation <= 0 || separation >= BALL_RADIUS * 2) continue;
-      if (firstContactId === null && (a.id === 0 || b.id === 0)) firstContactId = a.id === 0 ? b.id : a.id;
-      const nx = dx / separation;
-      const ny = dy / separation;
-      const relative = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
-      if (relative > 0) {
-        const impulse = relative * 0.96;
-        a.vx -= impulse * nx;
-        a.vy -= impulse * ny;
-        b.vx += impulse * nx;
-        b.vy += impulse * ny;
-      }
-      const overlap = BALL_RADIUS * 2 - separation;
-      a.x -= nx * overlap * 0.5;
-      a.y -= ny * overlap * 0.5;
-      b.x += nx * overlap * 0.5;
-      b.y += ny * overlap * 0.5;
+    if (firstContactId !== null && ((first.type === "ball" && second.type === "rail") || (first.type === "rail" && second.type === "ball"))) {
+      railAfterContact = true;
     }
-    if (collectFrames && step % 20 === 0) frames.push(snapshot(balls));
-    if (!moving && step > 10) break;
+  });
+
+  const ballsById = new Map(inputBalls.map((ball) => [ball.id, { ...ball }]));
+  const frames: PoolBall[][] = collectFrames ? [snapshotPoolBalls(ballsById, bodies)] : [];
+  for (let step = 1; step <= MAX_SHOT_STEPS; step += 1) {
+    world.step(PHYSICS_STEP, VELOCITY_ITERATIONS, POSITION_ITERATIONS);
+    capturePocketedBalls(ballsById, bodies, pocketed);
+    const moving = applyRollingResistance(bodies, PHYSICS_STEP);
+    if (collectFrames && step % TRACE_EVERY_STEPS === 0) frames.push(snapshotPoolBalls(ballsById, bodies));
+    if (!moving && step > TRACE_EVERY_STEPS * 2) break;
   }
-  if (collectFrames) frames.push(snapshot(balls));
+  const finalBalls = snapshotPoolBalls(ballsById, bodies);
+  if (collectFrames && !sameBallSnapshot(frames.at(-1), finalBalls)) frames.push(finalBalls);
   return {
-    balls: balls.map(({ vx: _vx, vy: _vy, ...ball }) => ({ ...ball, x: rounded(ball.x), y: rounded(ball.y) })),
+    balls: finalBalls,
     pocketed,
     firstContactId,
     railAfterContact,
     frames,
   };
+}
+
+function contactData(contact: Contact): [PhysicsBodyData | null, PhysicsBodyData | null] {
+  return [physicsBodyData(contact.getFixtureA().getBody()), physicsBodyData(contact.getFixtureB().getBody())];
+}
+
+function physicsBodyData(body: Body): PhysicsBodyData | null {
+  const value = body.getUserData();
+  if (!value || typeof value !== "object" || !("type" in value)) return null;
+  if (value.type === "rail") return { type: "rail" };
+  if (value.type === "ball" && "id" in value && typeof value.id === "number") return { type: "ball", id: value.id };
+  return null;
+}
+
+function capturePocketedBalls(balls: Map<number, PoolBall>, bodies: Map<number, Body>, pocketed: number[]) {
+  for (const [id, body] of bodies) {
+    if (!body.isActive()) continue;
+    const position = body.getPosition();
+    const pocket = POCKETS.find(([x, y]) => distance(position.x, position.y, x * PHYSICS_SCALE, y * PHYSICS_SCALE) <= POOL_GEOMETRY.pocketRadius * PHYSICS_SCALE);
+    if (!pocket) continue;
+    const ball = balls.get(id);
+    if (!ball) continue;
+    ball.x = pocket[0];
+    ball.y = pocket[1];
+    ball.pocketed = true;
+    body.setLinearVelocity(Vec2(0, 0));
+    body.setPosition(physicsPoint(pocket[0], pocket[1]));
+    body.setActive(false);
+    pocketed.push(id);
+  }
+}
+
+function applyRollingResistance(bodies: Map<number, Body>, dt: number): boolean {
+  let moving = false;
+  for (const body of bodies.values()) {
+    if (!body.isActive()) continue;
+    const velocity = body.getLinearVelocity();
+    const speed = Math.hypot(velocity.x, velocity.y);
+    const nextSpeed = Math.max(0, speed - ROLLING_DECELERATION * PHYSICS_SCALE * dt);
+    if (nextSpeed <= STOP_SPEED * PHYSICS_SCALE) {
+      body.setLinearVelocity(Vec2(0, 0));
+      body.setAwake(false);
+      continue;
+    }
+    body.setLinearVelocity(Vec2(velocity.x * nextSpeed / speed, velocity.y * nextSpeed / speed));
+    moving = true;
+  }
+  return moving;
+}
+
+function snapshotPoolBalls(balls: Map<number, PoolBall>, bodies: Map<number, Body>): PoolBall[] {
+  return [...balls.values()].map((ball) => {
+    const body = bodies.get(ball.id);
+    if (!body || ball.pocketed) return { ...ball, x: rounded(ball.x), y: rounded(ball.y) };
+    const position = body.getPosition();
+    return { ...ball, x: rounded(position.x / PHYSICS_SCALE), y: rounded(position.y / PHYSICS_SCALE) };
+  });
+}
+
+function physicsPoint(x: number, y: number) { return Vec2(x * PHYSICS_SCALE, y * PHYSICS_SCALE); }
+
+function sameBallSnapshot(first: PoolBall[] | undefined, second: PoolBall[]) {
+  return Boolean(first && first.length === second.length && first.every((ball, index) => {
+    const candidate = second[index];
+    return candidate && ball.id === candidate.id && ball.x === candidate.x && ball.y === candidate.y && ball.pocketed === candidate.pocketed;
+  }));
 }
 
 function rackBalls(): PoolBall[] {
@@ -192,4 +269,3 @@ function finiteBetween(value: unknown, min: number, max: number, message: string
 }
 function distance(ax: number, ay: number, bx: number, by: number) { return Math.hypot(ax - bx, ay - by); }
 function rounded(value: number) { return Math.round(value * 100_000) / 100_000; }
-function snapshot(balls: MovingBall[]): PoolBall[] { return balls.map(({ vx: _vx, vy: _vy, ...ball }) => ({ ...ball, x: rounded(ball.x), y: rounded(ball.y) })); }

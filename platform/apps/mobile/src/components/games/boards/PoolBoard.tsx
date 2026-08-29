@@ -1,7 +1,9 @@
 import { POOL_GEOMETRY, tracePoolShot, type PoolBall, type PoolLastShot, type PoolState } from "@snezhok/game-engine";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Easing, type GestureResponderEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import Svg, { Circle, Line, Rect, Text as SvgText } from "react-native-svg";
+import { Canvas, Circle as SkiaCircle, Group, Rect as SkiaRect, select, Text as SkiaText, useFont, type SkFont } from "@shopify/react-native-skia";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type GestureResponderEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { cancelAnimation, Easing, runOnJS, useDerivedValue, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import Svg, { Circle as SvgCircle, Line as SvgLine, Rect as SvgRect, Text as SvgText } from "react-native-svg";
 
 import { poolPlaybackDuration, poolPullPoint, poolShotFromPull } from "../../../domains/games/gamePresentation";
 import { usePalette } from "../../../hooks/usePalette";
@@ -19,7 +21,9 @@ interface PoolPlayback {
 
 interface PoolBallTrack {
   ball: PoolBall;
-  samples: PoolBall[];
+  x: number[];
+  y: number[];
+  opacity: number[];
 }
 
 export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, language }: { state: PoolState; meId: string; busy: boolean; run: (action: string, payload?: Record<string, unknown>) => Promise<boolean>; language: "ru" | "en" }) {
@@ -35,8 +39,9 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
   const [playback, setPlayback] = useState<PoolPlayback | null>(null);
   const [pocketBurst, setPocketBurst] = useState<{ x: number; y: number; key: number } | null>(null);
   const previousState = useRef(state);
-  const animationProgress = useRef(new Animated.Value(0)).current;
-  const playbackAnimation = useRef<Animated.CompositeAnimation | null>(null);
+  const animationProgress = useSharedValue(0);
+  const ballFont = useFont(require("@expo-google-fonts/onest/900Black/Onest_900Black.ttf"), Math.max(5, tableWidth * 0.016));
+  const playbackRef = useRef<PoolPlayback | null>(null);
   const pocketTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackKey = useRef(0);
   const gestureOrigin = useRef<{ x: number; y: number; pageX: number; pageY: number } | null>(null);
@@ -64,9 +69,9 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
   }, [state.lastActionAt]);
 
   useEffect(() => () => {
-    playbackAnimation.current?.stop();
+    cancelAnimation(animationProgress);
     if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
-  }, []);
+  }, [animationProgress]);
 
   const canPlay = state.status === "playing" && state.turnUserId === meId && !busy && !playback;
   const activeCue = ballInHand ? cuePosition : cue;
@@ -137,24 +142,33 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
       setVisualBalls(finalBalls);
       return;
     }
-    playbackAnimation.current?.stop();
+    cancelAnimation(animationProgress);
     if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
-    animationProgress.stopAnimation();
-    animationProgress.setValue(0);
+    animationProgress.value = 0;
     setPocketBurst(null);
     playbackKey.current += 1;
-    setPlayback({ key: playbackKey.current, frames, finalBalls, pocketed, duration: poolPlaybackDuration(frames.length) });
+    const next = { key: playbackKey.current, frames, finalBalls, pocketed, duration: poolPlaybackDuration(frames.length) };
+    playbackRef.current = next;
+    setPlayback(next);
   };
   const stopAnimation = (balls: PoolBall[]) => {
-    playbackAnimation.current?.stop();
-    playbackAnimation.current = null;
+    cancelAnimation(animationProgress);
+    animationProgress.value = 0;
     if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
     pocketTimer.current = null;
-    animationProgress.stopAnimation();
+    playbackRef.current = null;
     setPocketBurst(null);
     setPlayback(null);
     setVisualBalls(balls);
   };
+
+  const completePlayback = useCallback((key: number) => {
+    const current = playbackRef.current;
+    if (!current || current.key !== key) return;
+    playbackRef.current = null;
+    setVisualBalls(current.finalBalls);
+    setPlayback(null);
+  }, []);
 
   useEffect(() => {
     if (!playback) return;
@@ -168,27 +182,19 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
         }, 420);
       }, pocketEvent.delay);
     }
-    const animation = Animated.timing(animationProgress, {
-      toValue: 1,
-      duration: playback.duration,
+    animationProgress.value = 0;
+    animationProgress.value = withTiming(1, {
+      duration: Math.max(1, playback.duration),
       easing: Easing.linear,
-      useNativeDriver: true,
-      isInteraction: false,
-    });
-    playbackAnimation.current = animation;
-    animation.start(({ finished }) => {
-      if (!finished) return;
-      playbackAnimation.current = null;
-      setVisualBalls(playback.finalBalls);
-      setPlayback((current) => current?.key === playback.key ? null : current);
+    }, (finished) => {
+      if (finished) runOnJS(completePlayback)(playback.key);
     });
     return () => {
-      animation.stop();
-      if (playbackAnimation.current === animation) playbackAnimation.current = null;
+      cancelAnimation(animationProgress);
       if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
       pocketTimer.current = null;
     };
-  }, [animationProgress, playback]);
+  }, [animationProgress, completePlayback, playback]);
 
   const aimLength = gesture ? 0.2 + gesture.power * 0.22 : 0;
   return <View style={styles.root}>
@@ -208,21 +214,21 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
       style={[styles.tableWrap, { width: tableWidth, height: tableWidth / 2 }]}
     >
       <Svg width="100%" height="100%" viewBox="0 0 1000 500">
-        <Rect x="0" y="0" width="1000" height="500" rx="42" fill="#4A2815" />
-        <Rect x="28" y="28" width="944" height="444" rx="30" fill="#855229" />
-        <Rect x="55" y="55" width="890" height="390" rx="18" fill="#257A55" stroke="#173F31" strokeWidth="4" />
-        {POCKETS.map(([x, y], index) => <Circle key={index} cx={x * 1000} cy={y * 1000} r={POOL_GEOMETRY.pocketRadius * 1000} fill="#090B0A" stroke="#5B341C" strokeWidth="8" />)}
+        <SvgRect x="0" y="0" width="1000" height="500" rx="42" fill="#4A2815" />
+        <SvgRect x="28" y="28" width="944" height="444" rx="30" fill="#855229" />
+        <SvgRect x="55" y="55" width="890" height="390" rx="18" fill="#257A55" stroke="#173F31" strokeWidth="4" />
+        {POCKETS.map(([x, y], index) => <SvgCircle key={index} cx={x * 1000} cy={y * 1000} r={POOL_GEOMETRY.pocketRadius * 1000} fill="#090B0A" stroke="#5B341C" strokeWidth="8" />)}
         {gesture ? <>
-          <Line x1={activeCue.x * 1000} y1={activeCue.y * 1000} x2={(activeCue.x + Math.cos(gesture.angle) * aimLength) * 1000} y2={(activeCue.y + Math.sin(gesture.angle) * aimLength) * 1000} stroke="#FFF9DB" strokeWidth="5" strokeDasharray="16 12" strokeLinecap="round" />
-          <Line x1={activeCue.x * 1000} y1={activeCue.y * 1000} x2={(pull?.x ?? activeCue.x) * 1000} y2={(pull?.y ?? activeCue.y) * 1000} stroke="#D7FF29" strokeWidth="9" strokeLinecap="round" opacity={0.78} />
+          <SvgLine x1={activeCue.x * 1000} y1={activeCue.y * 1000} x2={(activeCue.x + Math.cos(gesture.angle) * aimLength) * 1000} y2={(activeCue.y + Math.sin(gesture.angle) * aimLength) * 1000} stroke="#FFF9DB" strokeWidth="5" strokeDasharray="16 12" strokeLinecap="round" />
+          <SvgLine x1={activeCue.x * 1000} y1={activeCue.y * 1000} x2={(pull?.x ?? activeCue.x) * 1000} y2={(pull?.y ?? activeCue.y) * 1000} stroke="#D7FF29" strokeWidth="9" strokeLinecap="round" opacity={0.78} />
         </> : null}
         {!playback ? visualBalls.filter((ball) => !ball.pocketed && ball.id !== 0).map((ball) => <PoolBallGlyph key={ball.id} ball={ball} />) : null}
         {!playback && (ballInHand || !cue.pocketed) ? <PoolBallGlyph ball={{ id: 0, kind: "cue", x: activeCue.x, y: activeCue.y, pocketed: false }} /> : null}
-        {pocketBurst ? <><Circle key={pocketBurst.key} cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="48" fill="none" stroke="#D7FF29" strokeWidth="8" opacity="0.9" /><Circle cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="62" fill="none" stroke="#FFF9DB" strokeWidth="4" opacity="0.55" /></> : null}
+        {pocketBurst ? <><SvgCircle key={pocketBurst.key} cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="48" fill="none" stroke="#D7FF29" strokeWidth="8" opacity="0.9" /><SvgCircle cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="62" fill="none" stroke="#FFF9DB" strokeWidth="4" opacity="0.55" /></> : null}
       </Svg>
-      {playback ? <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-        {playbackTracks.map((track) => <AnimatedPoolBall key={track.ball.id} track={track} progress={animationProgress} tableWidth={tableWidth} />)}
-      </View> : null}
+      <Canvas androidWarmup pointerEvents="none" style={StyleSheet.absoluteFill}>
+        {playbackTracks.map((track) => <AnimatedSkiaPoolBall key={track.ball.id} track={track} progress={animationProgress} tableWidth={tableWidth} font={ballFont} />)}
+      </Canvas>
     </View>
     {canPlay ? <Text maxFontSizeMultiplier={1.2} style={[styles.hint, { color: palette.secondaryText }]}>{placing ? (language === "ru" ? "Перетащите биток на свободное место" : "Drag the cue ball to an open spot") : (language === "ru" ? "Потяните биток назад и отпустите" : "Pull the cue ball back and release")}</Text> : null}
     {state.lastShot?.foul ? <Text maxFontSizeMultiplier={1.2} style={[styles.foul, { color: palette.danger }]}>{language === "ru" ? "Фол · соперник ставит биток" : "Foul · ball in hand for the other player"}</Text> : null}
@@ -235,58 +241,64 @@ function PoolBallGlyph({ ball }: { ball: PoolBall }) {
   const y = clamp(ball.y, POOL_GEOMETRY.minY, POOL_GEOMETRY.maxY) * 1000;
   const radius = POOL_GEOMETRY.ballRadius * 1000;
   return <>
-    <Circle cx={x} cy={y} r={radius} fill={ball.kind === "stripe" ? "#FFFDF7" : color} stroke="#17131A" strokeWidth="2" />
-    {ball.kind === "stripe" ? <Rect x={x - radius + 1} y={y - 7} width={(radius - 1) * 2} height="14" rx="4" fill={color} /> : null}
-    {ball.id > 0 ? <Circle cx={x} cy={y} r="7" fill="#FFFDF7" /> : null}
+    <SvgCircle cx={x} cy={y} r={radius} fill={ball.kind === "stripe" ? "#FFFDF7" : color} stroke="#17131A" strokeWidth="2" />
+    {ball.kind === "stripe" ? <SvgRect x={x - radius + 1} y={y - 7} width={(radius - 1) * 2} height="14" rx="4" fill={color} /> : null}
+    {ball.id > 0 ? <SvgCircle cx={x} cy={y} r="7" fill="#FFFDF7" /> : null}
     {ball.id > 0 ? <SvgText x={x} y={y + 3.3} fill="#17131A" fontSize="8" fontWeight="900" textAnchor="middle">{ball.id}</SvgText> : null}
-    <Circle cx={x - radius * 0.32} cy={y - radius * 0.32} r={radius * 0.2} fill="rgba(255,255,255,0.48)" />
+    <SvgCircle cx={x - radius * 0.32} cy={y - radius * 0.32} r={radius * 0.2} fill="rgba(255,255,255,0.48)" />
   </>;
 }
 
-function AnimatedPoolBall({ track, progress, tableWidth }: { track: PoolBallTrack; progress: Animated.Value; tableWidth: number }) {
-  const inputRange = useMemo(() => track.samples.map((_sample, index) => index / (track.samples.length - 1)), [track]);
+function AnimatedSkiaPoolBall({ track, progress, tableWidth, font }: { track: PoolBallTrack; progress: SharedValue<number>; tableWidth: number; font: SkFont | null }) {
   const radius = POOL_GEOMETRY.ballRadius * tableWidth;
-  const size = radius * 2;
-  const translateX = useMemo(() => progress.interpolate({
-    inputRange,
-    outputRange: track.samples.map((sample) => sample.x * tableWidth - radius),
-    extrapolate: "clamp",
-  }), [inputRange, progress, radius, tableWidth, track]);
-  const translateY = useMemo(() => progress.interpolate({
-    inputRange,
-    outputRange: track.samples.map((sample) => sample.y * tableWidth - radius),
-    extrapolate: "clamp",
-  }), [inputRange, progress, radius, tableWidth, track]);
-  const opacity = useMemo(() => progress.interpolate({
-    inputRange,
-    outputRange: track.samples.map((sample) => sample.pocketed ? 0 : 1),
-    extrapolate: "clamp",
-  }), [inputRange, progress, track]);
+  const color = track.ball.id === 0 ? "#FFFDF7" : BALL_COLORS[track.ball.id] ?? "#17131A";
+  const label = String(track.ball.id);
+  const labelBounds = font?.measureText(label);
+  const labelWidth = labelBounds?.width ?? 0;
+  const metrics = font?.getMetrics();
+  const labelBaselineOffset = metrics ? -(metrics.ascent + metrics.descent) / 2 : 0;
+  const sample = useDerivedValue(() => {
+    const last = track.x.length - 1;
+    const exact = Math.max(0, Math.min(last, progress.value * last));
+    const left = Math.floor(exact);
+    const right = Math.min(last, left + 1);
+    const fraction = exact - left;
+    const cx = ((track.x[left] ?? 0) + ((track.x[right] ?? 0) - (track.x[left] ?? 0)) * fraction) * tableWidth;
+    const cy = ((track.y[left] ?? 0) + ((track.y[right] ?? 0) - (track.y[left] ?? 0)) * fraction) * tableWidth;
+    const opacity = (track.opacity[left] ?? 0) + ((track.opacity[right] ?? 0) - (track.opacity[left] ?? 0)) * fraction;
+    return {
+      cx,
+      cy,
+      opacity,
+      stripeX: cx - radius * 0.94,
+      stripeY: cy - radius * 0.28,
+      spotRadius: radius * 0.43,
+      highlightX: cx - radius * 0.31,
+      highlightY: cy - radius * 0.31,
+      textX: cx - labelWidth / 2,
+      textY: cy + labelBaselineOffset,
+    };
+  }, [labelBaselineOffset, labelWidth, progress, radius, tableWidth, track.opacity, track.x, track.y]);
+  const cx = select(sample, "cx");
+  const cy = select(sample, "cy");
 
-  return <Animated.View
-    renderToHardwareTextureAndroid
-    style={[styles.animatedBall, { width: size, height: size, opacity, transform: [{ translateX }, { translateY }] }]}
-  >
-    <PoolBallFace ball={track.ball} size={size} />
-  </Animated.View>;
-}
-
-function PoolBallFace({ ball, size }: { ball: PoolBall; size: number }) {
-  const color = ball.id === 0 ? "#FFFDF7" : BALL_COLORS[ball.id] ?? "#17131A";
-  return <Svg width={size} height={size} viewBox="0 0 100 100">
-    <Circle cx="50" cy="50" r="47" fill={ball.kind === "stripe" ? "#FFFDF7" : color} stroke="#17131A" strokeWidth="3" />
-    {ball.kind === "stripe" ? <Rect x="3" y="36" width="94" height="28" rx="8" fill={color} /> : null}
-    {ball.id > 0 ? <Circle cx="50" cy="50" r="22" fill="#FFFDF7" /> : null}
-    {ball.id > 0 ? <SvgText x="50" y="58" fill="#17131A" fontSize="25" fontWeight="900" textAnchor="middle">{ball.id}</SvgText> : null}
-    <Circle cx="35" cy="35" r="9" fill="rgba(255,255,255,0.48)" />
-  </Svg>;
+  return <Group opacity={select(sample, "opacity")}>
+    <SkiaCircle cx={cx} cy={cy} r={radius} color={track.ball.kind === "stripe" ? "#FFFDF7" : color} />
+    <SkiaCircle cx={cx} cy={cy} r={radius} color="#17131A" style="stroke" strokeWidth={Math.max(0.7, radius * 0.12)} />
+    {track.ball.kind === "stripe" ? <SkiaRect x={select(sample, "stripeX")} y={select(sample, "stripeY")} width={radius * 1.88} height={radius * 0.56} color={color} /> : null}
+    {track.ball.id > 0 ? <SkiaCircle cx={cx} cy={cy} r={select(sample, "spotRadius")} color="#FFFDF7" /> : null}
+    {track.ball.id > 0 && font ? <SkiaText x={select(sample, "textX")} y={select(sample, "textY")} text={label} font={font} color="#17131A" /> : null}
+    <SkiaCircle cx={select(sample, "highlightX")} cy={select(sample, "highlightY")} r={radius * 0.2} color="rgba(255,255,255,0.5)" />
+  </Group>;
 }
 
 function buildPoolTracks(frames: PoolBall[][]): PoolBallTrack[] {
   const first = frames[0] ?? [];
   return first.map((ball) => ({
     ball,
-    samples: frames.map((frame) => frame.find((candidate) => candidate.id === ball.id) ?? ball),
+    x: frames.map((frame) => frame.find((candidate) => candidate.id === ball.id)?.x ?? ball.x),
+    y: frames.map((frame) => frame.find((candidate) => candidate.id === ball.id)?.y ?? ball.y),
+    opacity: frames.map((frame) => frame.find((candidate) => candidate.id === ball.id)?.pocketed ? 0 : 1),
   }));
 }
 
@@ -316,7 +328,6 @@ function clamp(value: number, min: number, max: number) { return Math.max(min, M
 const styles = StyleSheet.create({
   root: { gap: 10 },
   tableWrap: { alignSelf: "center", borderRadius: 17, overflow: "hidden", backgroundColor: "#4A2815" },
-  animatedBall: { position: "absolute", left: 0, top: 0 },
   hint: { minHeight: 18, paddingHorizontal: 8, fontSize: 12, lineHeight: 17, fontWeight: "700", textAlign: "center" },
   foul: { fontSize: 12, lineHeight: 17, fontWeight: "800", textAlign: "center" },
 });

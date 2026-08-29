@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   createCheckers, createChess, createPool, createSeaBattle, createTicTacToe,
   chessPieces, fireSeaBattle, generateFleet, legalCheckersMoves, parseGameState, playCheckers, playChess, playPool,
-  playTicTacToe, readySeaBattle, requestGameRematch, tracePoolShot, validateFleet,
+  playTicTacToe, POOL_GEOMETRY, readySeaBattle, requestGameRematch, tracePoolShot, validateFleet,
 } from "./index.js";
 
 const players: [string, string] = ["alice", "bob"];
@@ -143,6 +143,48 @@ test("pool simulation is deterministic and keeps every ball on the table or pock
   const frames = tracePoolShot(state.balls, 0, 0.8);
   assert.ok(frames.length > 2);
   assert.deepEqual(frames.at(-1), first.balls);
+});
+
+test("pool trace stays collision-safe and emits smooth 60 Hz playback samples", () => {
+  const state = createPool(players);
+  const frames = tracePoolShot(state.balls, 0, 1);
+  assert.ok(frames.length > 60 && frames.length <= 482, `unexpected frame count: ${frames.length}`);
+  let largestFrameTravel = 0;
+  for (let frameIndex = 0; frameIndex < frames.length; frameIndex += 1) {
+    const frame = frames[frameIndex]!;
+    const active = frame.filter((ball) => !ball.pocketed);
+    for (let left = 0; left < active.length; left += 1) {
+      for (let right = left + 1; right < active.length; right += 1) {
+        const first = active[left]!;
+        const second = active[right]!;
+        const separation = Math.hypot(first.x - second.x, first.y - second.y);
+        assert.ok(separation >= POOL_GEOMETRY.ballRadius * 1.6, `frame ${frameIndex}: balls ${first.id}/${second.id} separated by ${separation}`);
+      }
+    }
+    if (frameIndex === 0) continue;
+    const previous = frames[frameIndex - 1]!;
+    for (const ball of frame) {
+      const before = previous.find((candidate) => candidate.id === ball.id);
+      if (!before || before.pocketed || ball.pocketed) continue;
+      largestFrameTravel = Math.max(largestFrameTravel, Math.hypot(ball.x - before.x, ball.y - before.y));
+    }
+  }
+  assert.ok(largestFrameTravel < 0.04);
+});
+
+test("a full-power cue ball cannot tunnel through an object ball", () => {
+  const initial = createPool(players);
+  const balls = initial.balls.map((ball) => ({ ...ball, pocketed: ball.id !== 0 && ball.id !== 1 }));
+  Object.assign(balls.find((ball) => ball.id === 0)!, { x: 0.2, y: 0.25, pocketed: false });
+  Object.assign(balls.find((ball) => ball.id === 1)!, { x: 0.5, y: 0.25, pocketed: false });
+  const frames = tracePoolShot(balls, 0, 1);
+  const targetTravel = Math.max(...frames.map((frame) => frame.find((ball) => ball.id === 1)!.x)) - 0.5;
+  assert.ok(targetTravel > 0.1);
+  for (const frame of frames.slice(0, 20)) {
+    const cue = frame.find((ball) => ball.id === 0)!;
+    const object = frame.find((ball) => ball.id === 1)!;
+    assert.ok(cue.x <= object.x + 0.001);
+  }
 });
 
 test("pool awards an early eight ball to the opponent", () => {

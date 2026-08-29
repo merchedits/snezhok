@@ -40,8 +40,8 @@ test("pool pull remains captured beyond the table and reaches full power", () =>
   assert.ok(Math.abs(shot.angle) < 1e-9);
 });
 
-test("pool playback stays readable while bounding very short and long traces", () => {
-  assert.equal(poolPlaybackDuration(1), 900);
-  assert.equal(poolPlaybackDuration(80), 1_422);
-  assert.equal(poolPlaybackDuration(1_000), 3_200);
+test("pool playback preserves the engine's physical 60 Hz clock", () => {
+  assert.equal(poolPlaybackDuration(1), 0);
+  assert.equal(poolPlaybackDuration(61), 1_000);
+  assert.equal(poolPlaybackDuration(181), 3_000);
 });
