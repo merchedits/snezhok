@@ -38,6 +38,25 @@ export interface PoolShotGesture {
   pullDistance: number;
 }
 
+export interface PoolGesturePoint {
+  x: number;
+  y: number;
+}
+
+/** Keeps a captured pool gesture in table coordinates even after the finger
+ * leaves the rendered table. React Native continues delivering responder
+ * deltas outside the view, so this point must deliberately remain unclamped. */
+export function poolPullPoint(start: PoolGesturePoint, deltaX: number, deltaY: number, tableWidth: number): PoolGesturePoint {
+  const scale = Number.isFinite(tableWidth) && tableWidth > 0 ? tableWidth : 1;
+  return { x: start.x + deltaX / scale, y: start.y + deltaY / scale };
+}
+
+/** Snapshot count controls physical playback length, while native animation
+ * interpolates between the precomputed snapshots at the display refresh rate. */
+export function poolPlaybackDuration(frameCount: number): number {
+  return clamp((Math.max(2, Math.floor(frameCount)) - 1) * 18, 900, 3_200);
+}
+
 /** Converts a slingshot gesture into the deterministic server shot. Coordinates
  * use the engine's table system: x=0..1 and y=0..0.5, which maps to equal
  * physical units on a 2:1 table. */

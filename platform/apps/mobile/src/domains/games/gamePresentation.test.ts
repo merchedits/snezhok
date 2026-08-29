@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCheckers, createChess, playChess } from "@snezhok/game-engine";
-import { materialAdvantage, poolShotFromPull } from "./gamePresentation";
+import { materialAdvantage, poolPlaybackDuration, poolPullPoint, poolShotFromPull } from "./gamePresentation";
 
 const players: [string, string] = ["alice", "bob"];
 
@@ -29,4 +29,19 @@ test("pool pull gesture aims opposite the drag and scales power continuously", (
   assert.ok(strong.power > weak.power);
   assert.equal(strong.power, 1);
   assert.equal(poolShotFromPull({ x: 0.25, y: 0.25 }, { x: 0.251, y: 0.25 }), null);
+});
+
+test("pool pull remains captured beyond the table and reaches full power", () => {
+  const outside = poolPullPoint({ x: 0.25, y: 0.25 }, -120, 0, 360);
+  assert.ok(outside.x < 0);
+  const shot = poolShotFromPull({ x: 0.25, y: 0.25 }, outside);
+  assert.ok(shot);
+  assert.equal(shot.power, 1);
+  assert.ok(Math.abs(shot.angle) < 1e-9);
+});
+
+test("pool playback stays readable while bounding very short and long traces", () => {
+  assert.equal(poolPlaybackDuration(1), 900);
+  assert.equal(poolPlaybackDuration(80), 1_422);
+  assert.equal(poolPlaybackDuration(1_000), 3_200);
 });
