@@ -250,9 +250,9 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
       ) : null}
       {mediaOnly ? (
         <View style={styles.mediaStage}>
-          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} /> : null}
+          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} pending={Boolean(message.pending)} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} /> : null}
           {otherAttachments.map((attachment) => (
-            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} />
+            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} pending={Boolean(message.pending)} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} />
           ))}
           {showSender ? (
             <View style={[styles.mediaSenderOverlay, styles.overlayIsland]}>
@@ -266,9 +266,9 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
         </View>
       ) : (
         <>
-          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} /> : null}
+          {mediaAttachments.length > 1 ? <MediaAlbum attachments={mediaAttachments} pending={Boolean(message.pending)} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} /> : null}
           {otherAttachments.map((attachment) => (
-            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} />
+            <SafeAttachmentView key={attachment.id} attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} pending={Boolean(message.pending)} onMessageReaction={onOpenReactions} onMessageLongPress={onSelectMessage} />
           ))}
         </>
       )}

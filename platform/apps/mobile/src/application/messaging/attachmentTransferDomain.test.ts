@@ -7,6 +7,7 @@ import { emptyAttachmentRepository } from "../../repositories/attachments/attach
 import { emptyMessageRepository } from "../../repositories/messages/messageRepository";
 import { defaultRuntimeCapabilities, defaultSettings, type AppState, type AppStorePatch } from "../../store/appState";
 import { TransferManager } from "../../transfers/transferManager";
+import { createAttachmentBatch } from "../../transfers/backgroundTransferModel";
 import type { UploadInput } from "../../types";
 import {
   createAttachmentTransferDomain,
@@ -50,9 +51,34 @@ test("an account change aborts the batch before a message can be sent", async ()
   assert.equal(fixture.sent.length, 0);
 });
 
+test("background batches are accepted after durable projection and before media preparation completes", async () => {
+  const steps: string[] = [];
+  let releasePreparation: () => void = () => undefined;
+  const preparationGate = new Promise<void>((resolve) => { releasePreparation = resolve; });
+  const background = enabledBackground(steps);
+  const fixture = createFixture({
+    background,
+    prepareMany: async (inputs) => {
+      steps.push("prepare");
+      await preparationGate;
+      return [...inputs];
+    },
+  });
+
+  const handle = fixture.domain.actions.sendAttachmentBatch("chat", [uploadInput(0)], "media", null);
+  await handle.accepted;
+
+  assert.deepEqual(steps, ["persist", "project", "prepare"]);
+  releasePreparation();
+  await handle.completion;
+  assert.deepEqual(steps, ["persist", "project", "prepare", "replace", "resume", "wait"]);
+});
+
 interface Overrides {
   guardIsCurrent?: () => boolean;
   upload?: AttachmentTransferDependencies<number>["transport"]["upload"];
+  background?: AttachmentTransferDependencies<number>["background"];
+  prepareMany?: AttachmentTransferDependencies<number>["media"]["prepareMany"];
 }
 
 function createFixture(overrides: Overrides = {}) {
@@ -73,7 +99,7 @@ function createFixture(overrides: Overrides = {}) {
     createMessage: async () => message(),
     cancelUpload: async () => undefined,
   };
-  const background = disabledBackground();
+  const background = overrides.background ?? disabledBackground();
   const manager = new TransferManager();
   manager.subscribe((snapshots) => {
     const parent = snapshots.find((snapshot) => !snapshot.id.includes(":"));
@@ -87,7 +113,7 @@ function createFixture(overrides: Overrides = {}) {
     sessionIsActive: () => true,
     createId: () => `batch-${++operationId}`,
     transport,
-    media: { prepareOne: async (input) => input, prepareMany: async (inputs) => [...inputs] },
+    media: { prepareOne: async (input) => input, prepareMany: overrides.prepareMany ?? (async (inputs) => [...inputs]) },
     background,
     manager,
   });
@@ -97,10 +123,38 @@ function createFixture(overrides: Overrides = {}) {
   return { domain, get state() { return state; }, sent, progress };
 }
 
+function enabledBackground(steps: string[]): AttachmentTransferDependencies<number>["background"] {
+  return {
+    available: true,
+    enqueueBatch: async (input) => {
+      steps.push("persist");
+      const batch = createAttachmentBatch({
+        id: "native-batch", ownerId: input.ownerId, streamId: input.streamId, messageKind: input.messageKind,
+        replyToId: input.replyToId, ...(input.text === undefined ? {} : { text: input.text }),
+        inputs: input.inputs, transferIds: ["native-transfer"],
+        clientIds: ["native-message"], now: 1,
+      });
+      input.onCreated?.(batch);
+      steps.push("project");
+      return batch.id;
+    },
+    replaceBatchInputs: async () => { steps.push("replace"); },
+    resumeBatch: async () => { steps.push("resume"); },
+    failBatch: async () => undefined,
+    waitForBatch: async () => { steps.push("wait"); },
+    cancelBatch: async () => undefined,
+    reconcile: async () => undefined,
+    retryForMessage: async () => null,
+  };
+}
+
 function disabledBackground(): AttachmentTransferDependencies<number>["background"] {
   return {
     available: false,
     enqueueBatch: async () => "unused",
+    replaceBatchInputs: async () => undefined,
+    resumeBatch: async () => undefined,
+    failBatch: async () => undefined,
     waitForBatch: async () => undefined,
     cancelBatch: async () => undefined,
     reconcile: async () => undefined,

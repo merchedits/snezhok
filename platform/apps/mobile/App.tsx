@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Component, type ComponentProps, type ErrorInfo, type ReactNode, useEffect } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { KeyboardProvider } from "react-native-keyboard-controller";
+import { KeyboardController, KeyboardProvider } from "react-native-keyboard-controller";
 import { initialWindowMetrics, SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { enableFreeze } from "react-native-screens";
 import { StatusBar } from "expo-status-bar";
@@ -64,6 +64,10 @@ function AppRoot() {
   const palette = usePalette();
 
   useEffect(() => {
+    // Prime Android's IME connection before the first composer focus. Without
+    // this, the first keyboard transition after launch can arrive before the
+    // native frame tracker is ready and leave the composer underneath it.
+    KeyboardController.preload();
     void initializeDiagnostics().then(ingestNativeDiagnostics).catch(() => undefined);
     void initializeMediaCache().catch((error) => recordDiagnostic("warn", "media", "Could not configure media cache", { error }));
     const uninstallErrorCapture = installGlobalErrorCapture();

@@ -58,6 +58,15 @@ export function poolPlaybackDuration(frameCount: number): number {
   return Math.max(0, Math.round((Math.max(1, Math.floor(frameCount)) - 1) * 1_000 / POOL_TRACE_FPS));
 }
 
+export function poolCueStrikeTiming(power: number) {
+  const bounded = clamp(Number.isFinite(power) ? power : 0.12, 0.12, 1);
+  return {
+    pullbackMs: Math.round(180 + bounded * 220),
+    impactMs: Math.round(190 - bounded * 125),
+    pullbackDistance: Math.round(44 + bounded * 86),
+  };
+}
+
 /** Converts a slingshot gesture into the deterministic server shot. Coordinates
  * use the engine's table system: x=0..1 and y=0..0.5, which maps to equal
  * physical units on a 2:1 table. */

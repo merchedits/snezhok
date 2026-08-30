@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { appendRecordingLevel, recordingMeterLevel, recordingSourceForMicrophone, routeThroughEarpieceForMicrophone } from "./recordingWaveform";
+import { appendRecordingLevel, appendRecordingWaveformSample, finalizeRecordingWaveform, recordingMeterLevel, recordingSourceForMicrophone, routeThroughEarpieceForMicrophone } from "./recordingWaveform";
 
 test("maps the microphone selector to supported Android capture paths", () => {
   assert.equal(recordingSourceForMicrophone("system"), "default");
@@ -17,6 +17,15 @@ test("converts recorder dBFS metering into visible normalized levels", () => {
   assert.equal(recordingMeterLevel(-60), 0.06);
   assert.equal(recordingMeterLevel(0), 1);
   assert.ok(recordingMeterLevel(-12) > recordingMeterLevel(-36));
+});
+
+test("retains a bounded recording envelope and produces an immediate server-shaped waveform", () => {
+  let samples: number[] = [];
+  for (let index = 0; index < 2_000; index += 1) samples = appendRecordingWaveformSample(samples, index % 2 ? -8 : -50, 128);
+  assert.ok(samples.length <= 128);
+  const waveform = finalizeRecordingWaveform(samples);
+  assert.equal(waveform.length, 100);
+  assert.ok(waveform.every((value) => Number.isInteger(value) && value >= 0 && value <= 100));
 });
 
 test("smooths live levels and caps visible history", () => {

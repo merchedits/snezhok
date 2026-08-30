@@ -95,6 +95,7 @@ export async function enqueueBackgroundAttachmentBatch(input: {
   text?: string;
   silent?: boolean;
   inputs: UploadInput[];
+  deferScheduling?: boolean;
   onCreated?: (batch: QueuedAttachmentBatch) => void;
 }): Promise<string> {
   const batchId = Crypto.randomUUID();
@@ -124,8 +125,39 @@ export async function enqueueBackgroundAttachmentBatch(input: {
   input.onCreated?.(batch);
   // Persistence is the acknowledgement boundary. Scheduling is best effort so
   // offline selections remain queued for the next online reconciliation.
-  await schedulePendingTransfers(batchId).catch(() => undefined);
+  if (!input.deferScheduling) await schedulePendingTransfers(batchId).catch(() => undefined);
   return batchId;
+}
+
+export async function replaceBackgroundAttachmentBatchInputs(batchId: string, inputs: UploadInput[]): Promise<void> {
+  await mutateBackgroundTransferBatches((current) => current.map((batch) => {
+    if (batch.id !== batchId) return batch;
+    if (batch.transfers.length !== inputs.length) throw new Error("Prepared attachment count changed");
+    if (batch.transfers.some((transfer) => transfer.status !== "pending" || transfer.attachment)) return batch;
+    return {
+      ...batch,
+      updatedAt: Date.now(),
+      transfers: batch.transfers.map((transfer, index) => ({ ...transfer, input: inputs[index]! })),
+    };
+  }));
+}
+
+export async function resumeBackgroundAttachmentBatch(batchId: string): Promise<void> {
+  await schedulePendingTransfers(batchId);
+  notifyWakeCallbacks();
+}
+
+export async function failBackgroundAttachmentBatch(batchId: string, errorCode = "preparation_failed"): Promise<void> {
+  await mutateBackgroundTransferBatches((current) => current.map((batch) => batch.id !== batchId ? batch : {
+    ...batch,
+    updatedAt: Date.now(),
+    transfers: batch.transfers.map((transfer) => transfer.status === "succeeded" ? transfer : {
+      ...transfer,
+      status: "failed" as const,
+      errorCode,
+    }),
+  }));
+  notifyWakeCallbacks();
 }
 
 export async function reconcileBackgroundTransfers(input: {

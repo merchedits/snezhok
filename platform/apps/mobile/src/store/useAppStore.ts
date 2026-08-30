@@ -8,7 +8,7 @@ import { clearAttachmentDownloads } from "../lib/attachmentDownloadManager";
 import { clearLocalData, ensureOfflineOwner, readCache, readCachedMessagePage, readCachedMessagePages, readDirtyDraftIds, readDrafts, readOutbox, readPendingSettingsPatch, writeCacheDelta, writeDirtyDraftIds, writeDrafts, writeOutbox, writePendingSettingsPatch } from "../lib/offlineRepository";
 import { clearSession, getRuntimeSession, readSession, sessionOwnerId, subscribeToSessionEvents, writeSession } from "../lib/secureSession";
 import { rememberStoredAccount } from "../lib/accountVault";
-import { cancelBackgroundBatch, clearBackgroundTransfersForOwner, enqueueBackgroundAttachmentBatch, installBackgroundTransferWakeListener, reconcileBackgroundTransfers, retryBackgroundBatchForMessage, waitForBackgroundBatch } from "../transfers/backgroundTransfers";
+import { cancelBackgroundBatch, clearBackgroundTransfersForOwner, enqueueBackgroundAttachmentBatch, failBackgroundAttachmentBatch, installBackgroundTransferWakeListener, reconcileBackgroundTransfers, replaceBackgroundAttachmentBatchInputs, resumeBackgroundAttachmentBatch, retryBackgroundBatchForMessage, waitForBackgroundBatch } from "../transfers/backgroundTransfers";
 import { backgroundTransferAvailable } from "../../modules/snezhok-background-transfer";
 import { prepareMediaUpload, prepareMediaUploads } from "../lib/prepareMediaUpload";
 import { transferManager } from "../transfers/transferManager";
@@ -168,6 +168,9 @@ export const useAppStore = create<AppState>((setRaw, get) => {
     background: {
       available: backgroundTransferAvailable,
       enqueueBatch: enqueueBackgroundAttachmentBatch,
+      replaceBatchInputs: replaceBackgroundAttachmentBatchInputs,
+      resumeBatch: resumeBackgroundAttachmentBatch,
+      failBatch: failBackgroundAttachmentBatch,
       waitForBatch: waitForBackgroundBatch,
       cancelBatch: cancelBackgroundBatch,
       reconcile: reconcileBackgroundTransfers,

@@ -42,6 +42,8 @@ export const messageBubbleStyles = StyleSheet.create({
   time: { fontSize: 10 },
   edited: { fontSize: 10 },
   mediaStage: { position: "relative" },
+  pendingAttachmentFrame: { position: "relative", overflow: "hidden" },
+  pendingAttachmentMask: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(35,38,45,0.34)" },
   mediaSenderOverlay: { position: "absolute", left: 6, top: 6, maxWidth: "72%" },
   mediaSender: { color: "white", fontSize: 12, fontWeight: "800" },
   mediaReactionOverlay: { position: "absolute", left: 6, bottom: 6, maxWidth: "62%" },

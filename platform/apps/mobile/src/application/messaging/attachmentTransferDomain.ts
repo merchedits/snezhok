@@ -20,6 +20,9 @@ export interface AttachmentTransferDependencies<Guard> {
   background: {
     available: boolean;
     enqueueBatch: typeof import("../../transfers/backgroundTransfers").enqueueBackgroundAttachmentBatch;
+    replaceBatchInputs: typeof import("../../transfers/backgroundTransfers").replaceBackgroundAttachmentBatchInputs;
+    resumeBatch: typeof import("../../transfers/backgroundTransfers").resumeBackgroundAttachmentBatch;
+    failBatch: typeof import("../../transfers/backgroundTransfers").failBackgroundAttachmentBatch;
     waitForBatch: typeof import("../../transfers/backgroundTransfers").waitForBackgroundBatch;
     cancelBatch: typeof import("../../transfers/backgroundTransfers").cancelBackgroundBatch;
     reconcile: typeof import("../../transfers/backgroundTransfers").reconcileBackgroundTransfers;
@@ -184,10 +187,10 @@ export function createAttachmentTransferDomain<Guard>({
         });
         try {
           transfer.updateProgress(0);
-          const compressed = await media.prepareMany(inputs);
-          if (!guardIsCurrent(guard)) throw new StaleAccountOperationError();
-          const prepared = compressed.map((input) => ({ ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation }));
           if (!background.available) {
+            const compressed = await media.prepareMany(inputs);
+            if (!guardIsCurrent(guard)) throw new StaleAccountOperationError();
+            const prepared = compressed.map((input) => ({ ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation }));
             accept();
             await sendForegroundAttachmentBatch(streamId, prepared, messageKind, replyToId, text, guard, transfer, transferId);
           } else {
@@ -197,7 +200,8 @@ export function createAttachmentTransferDomain<Guard>({
               messageKind,
               replyToId,
               text,
-              inputs: prepared,
+              inputs: inputs.map((input) => ({ ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation })),
+              deferScheduling: true,
               onCreated: (createdBatch) => {
                 batchId = createdBatch.id;
                 projectedBatch = createdBatch;
@@ -207,6 +211,11 @@ export function createAttachmentTransferDomain<Guard>({
             });
             activeBackgroundBatches.set(batchId, transfer);
             accept();
+            const compressed = await media.prepareMany(inputs);
+            if (!guardIsCurrent(guard)) throw new StaleAccountOperationError();
+            const prepared = compressed.map((input) => ({ ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation }));
+            await background.replaceBatchInputs(batchId, prepared);
+            await background.resumeBatch(batchId);
             await background.waitForBatch({
               batchId,
               ownerId: me.id,
@@ -220,6 +229,7 @@ export function createAttachmentTransferDomain<Guard>({
         } catch (error) {
           rejectAcceptance(error);
           const paused = error instanceof Error && error.name === "BackgroundTransferPausedError";
+          if (!paused && batchId) await background.failBatch(batchId).catch(() => undefined);
           if (!paused && projectedBatch) markBatchFailed(projectedBatch);
           if (!transfer.cancelled) paused ? transfer.complete() : transfer.fail();
           if (paused) return;

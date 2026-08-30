@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createCheckers, createChess, playChess } from "@snezhok/game-engine";
-import { materialAdvantage, poolPlaybackDuration, poolPullPoint, poolShotFromPull } from "./gamePresentation";
+import { materialAdvantage, poolCueStrikeTiming, poolPlaybackDuration, poolPullPoint, poolShotFromPull } from "./gamePresentation";
 
 const players: [string, string] = ["alice", "bob"];
 
@@ -44,4 +44,11 @@ test("pool playback preserves the engine's physical 60 Hz clock", () => {
   assert.equal(poolPlaybackDuration(1), 0);
   assert.equal(poolPlaybackDuration(61), 1_000);
   assert.equal(poolPlaybackDuration(181), 3_000);
+});
+
+test("pool cue impact becomes faster and pulls farther for powerful shots", () => {
+  const gentle = poolCueStrikeTiming(0.2);
+  const powerful = poolCueStrikeTiming(1);
+  assert.ok(powerful.impactMs < gentle.impactMs);
+  assert.ok(powerful.pullbackDistance > gentle.pullbackDistance);
 });

@@ -103,6 +103,9 @@ export interface UploadInput {
   /** Picker dimensions let the normal-send compressor avoid upscaling. */
   sourceWidth?: number | null;
   sourceHeight?: number | null;
+  /** Recorder metering renders the optimistic voice bubble immediately. */
+  localWaveform?: number[];
+  localDurationMs?: number;
 }
 
 export type UploadProgressCallback = (progress: number) => void;

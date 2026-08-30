@@ -27,3 +27,23 @@ export function appendRecordingLevel(levels: number[], metering: number | undefi
   const smoothed = raw > previous ? raw * 0.72 + previous * 0.28 : raw * 0.42 + previous * 0.58;
   return [...levels, smoothed].slice(-Math.max(1, limit));
 }
+
+export function appendRecordingWaveformSample(samples: number[], metering: number | undefined, limit = 512): number[] {
+  const next = [...samples, recordingMeterLevel(metering)];
+  if (next.length <= limit) return next;
+  const compacted: number[] = [];
+  for (let index = 0; index < next.length; index += 2) compacted.push(Math.max(next[index] ?? 0, next[index + 1] ?? 0));
+  return compacted;
+}
+
+export function finalizeRecordingWaveform(samples: readonly number[], bins = 100): number[] {
+  const count = Math.max(1, Math.floor(bins));
+  if (!samples.length) return Array<number>(count).fill(6);
+  return Array.from({ length: count }, (_, index) => {
+    const start = Math.floor(index * samples.length / count);
+    const end = Math.max(start + 1, Math.ceil((index + 1) * samples.length / count));
+    let peak = 0;
+    for (let cursor = start; cursor < Math.min(samples.length, end); cursor += 1) peak = Math.max(peak, samples[cursor] ?? 0);
+    return Math.max(0, Math.min(100, Math.round(peak * 100)));
+  });
+}

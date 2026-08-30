@@ -34,6 +34,37 @@ test("attachment captions stay on the first group and optimistic media uses loca
   assert.equal(messages[0]?.sequence, 4);
 });
 
+test("optimistic voice notes expose the locally recorded waveform immediately and retain it through initialization", () => {
+  const voiceInput = {
+    ...input,
+    kind: "audio" as const,
+    filename: "voice.m4a",
+    mimeType: "audio/mp4",
+    localDurationMs: 2_400,
+    localWaveform: [12, 48, 91],
+  };
+  const batch = createAttachmentBatch({
+    id: "voice-batch", ownerId: "owner", streamId: "stream", messageKind: "voice", replyToId: null,
+    inputs: [voiceInput], transferIds: ["voice-transfer"], clientIds: ["voice-message"], now: 10,
+  });
+  const optimistic = optimisticMessagesForAttachmentBatch({
+    batch,
+    sender: { id: "owner", username: "owner", displayName: "Owner", avatarUrl: null, avatarColor: "#000", bio: "", statusText: "", presence: "offline", lastSeenAt: 0 },
+    streamKind: "conversation",
+    startingSequence: 1,
+  });
+  assert.deepEqual(optimistic[0]?.attachments[0]?.waveform, voiceInput.localWaveform);
+  assert.equal(optimistic[0]?.attachments[0]?.durationMs, voiceInput.localDurationMs);
+
+  const initialized = applyInitializedAttachment(batch, "voice-transfer", {
+    id: "voice-server", ownerId: "owner", kind: "audio", filename: "voice.m4a", mimeType: "audio/mp4",
+    bytes: 4, width: null, height: null, durationMs: null, quality: "auto", url: "/files/voice-server",
+    thumbnailUrl: null, checksum: "a".repeat(64), waveform: null,
+  });
+  assert.deepEqual(initialized.transfers[0]?.attachment?.waveform, voiceInput.localWaveform);
+  assert.equal(initialized.transfers[0]?.attachment?.durationMs, voiceInput.localDurationMs);
+});
+
 test("file batches obey the server's ten-attachment message limit", () => {
   const batch = createAttachmentBatch({
     id: "batch", ownerId: "owner", streamId: "stream", messageKind: "file", replyToId: null,

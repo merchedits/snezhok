@@ -130,13 +130,14 @@ export function optimisticMessagesForAttachmentBatch(input: {
         bytes: transfer.declaredBytes ?? 0,
         width: transfer.input.sourceWidth ?? null,
         height: transfer.input.sourceHeight ?? null,
-        durationMs: null,
+        durationMs: transfer.input.localDurationMs ?? null,
         quality: transfer.input.quality,
         url: transfer.input.uri,
         thumbnailUrl: null,
         checksum: "",
         status: failed ? "failed" : "processing",
         updatedAt: input.batch.updatedAt,
+        waveform: transfer.input.localWaveform ?? null,
       }];
     }),
     reactions: [],
@@ -161,7 +162,7 @@ export function applyInitializedAttachment(
   const transfers = batch.transfers.map((transfer) => {
     if (transfer.transferId !== transferId) return transfer;
     changed = transfer.status !== "succeeded" || transfer.attachment?.id !== attachment.id || transfer.progress !== 100;
-    return { ...transfer, status: "succeeded" as const, progress: 100, attachment, errorCode: null, input: { ...transfer.input, uri: "" } };
+    return { ...transfer, status: "succeeded" as const, progress: 100, attachment: withLocalVoiceMetadata(attachment, transfer.input), errorCode: null, input: { ...transfer.input, uri: "" } };
   });
   return changed ? { ...batch, transfers, updatedAt: Date.now() } : batch;
 }
@@ -183,11 +184,20 @@ export function applyNativeSnapshot(batch: QueuedAttachmentBatch, snapshot: Nati
       status,
       progress: snapshot.progress,
       errorCode,
-      attachment: attachment ?? transfer.attachment,
+      attachment: attachment ? withLocalVoiceMetadata(attachment, transfer.input) : transfer.attachment,
       ...(snapshot.status === "succeeded" && (attachment || transfer.attachment) ? { input: { ...transfer.input, uri: "" } } : {}),
     };
   });
   return changed ? { ...batch, transfers, updatedAt: Date.now() } : batch;
+}
+
+function withLocalVoiceMetadata(attachment: Attachment, input: UploadInput): Attachment {
+  if (attachment.kind !== "audio") return attachment;
+  return {
+    ...attachment,
+    durationMs: attachment.durationMs ?? input.localDurationMs ?? null,
+    waveform: attachment.waveform?.length ? attachment.waveform : input.localWaveform ?? attachment.waveform ?? null,
+  };
 }
 
 export function batchProgress(batch: QueuedAttachmentBatch): number {

@@ -9,7 +9,7 @@ import { useTranslation } from "../../i18n";
 import { activeMentionQuery, insertMention, mentionSuggestions } from "../../lib/mentionAutocomplete";
 import { applyTextFormat, type TextFormat } from "../../domains/messaging/textFormatting";
 import { emitRealtimeTyping } from "../../lib/realtimeBridge";
-import { appendRecordingLevel } from "../../lib/recordingWaveform";
+import { appendRecordingLevel, appendRecordingWaveformSample, finalizeRecordingWaveform } from "../../lib/recordingWaveform";
 import { stopVoicePlayback } from "../../lib/voicePlaybackCoordinator";
 import { isUploadCancelled } from "../../lib/uploadPolicy";
 import { userFacingError } from "../../lib/userFacingError";
@@ -67,6 +67,8 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [voiceCommand, setVoiceCommand] = useState<VoiceRecordCommand>("idle");
   const voiceCommandRef = useRef<VoiceRecordCommand>("idle");
+  const recordingWaveformSamples = useRef<number[]>([]);
+  const recordingDurationRef = useRef(0);
   const typingActive = useRef(false);
   const typingStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftBeforeEdit = useRef("");
@@ -97,6 +99,8 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
     setRecording(false);
     setRecordingLevels([]);
     setRecordingDuration(0);
+    recordingWaveformSamples.current = [];
+    recordingDurationRef.current = 0;
     updateVoiceCommand("idle");
     editingId.current = null;
   }, [stopTyping, streamId, updateVoiceCommand]);
@@ -255,6 +259,8 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
     stopVoicePlayback();
     setRecordingLevels([]);
     setRecordingDuration(0);
+    recordingWaveformSamples.current = [];
+    recordingDurationRef.current = 0;
     updateVoiceCommand("holding");
     void beginRecording();
   }, [beginRecording, recording, updateVoiceCommand, uploading]);
@@ -273,9 +279,16 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
     voiceCommand, updateVoiceCommand, suggestedMentions, chooseMention, formatSelection, cancelEditing,
     handleTextChange, sendText, showSendOptions, handleUploads, startVoiceRecording,
     resetRecorder,
+    prepareVoiceUpload: (upload: UploadInput): UploadInput => ({
+      ...upload,
+      localWaveform: finalizeRecordingWaveform(recordingWaveformSamples.current),
+      localDurationMs: recordingDurationRef.current,
+    }),
     handleMetering: (metering: number | undefined, durationMillis: number) => {
       setRecordingLevels((levels) => appendRecordingLevel(levels, metering));
       setRecordingDuration(durationMillis);
+      recordingWaveformSamples.current = appendRecordingWaveformSample(recordingWaveformSamples.current, metering);
+      recordingDurationRef.current = durationMillis;
     },
     cancelUpload: () => cancelTransfer(activeTransferId ?? undefined),
   };

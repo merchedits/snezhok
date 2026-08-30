@@ -24,7 +24,7 @@ interface MediaMessageInteractions {
   onMessageLongPress?: (() => void) | undefined;
 }
 
-export function MediaAlbum({ attachments, onMessageReaction, onMessageLongPress }: { attachments: Attachment[] } & MediaMessageInteractions) {
+export function MediaAlbum({ attachments, pending = false, onMessageReaction, onMessageLongPress }: { attachments: Attachment[]; pending?: boolean } & MediaMessageInteractions) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const rows = mediaAlbumRows(attachments);
   const rowHeight = rows.length === 1 ? 178 : rows.length === 2 ? 126 : 94;
@@ -36,19 +36,23 @@ export function MediaAlbum({ attachments, onMessageReaction, onMessageLongPress 
             {row.map((attachment) => <SafeAlbumMediaTile key={attachment.id} attachment={attachment} onOpen={() => setOpenIndex(attachments.indexOf(attachment))} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />)}
           </View>
         ))}
+        {pending ? <View pointerEvents="none" style={styles.pendingAttachmentMask} /> : null}
       </View>
       {openIndex !== null ? <AlbumAttachmentViewer attachments={attachments} index={openIndex} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} /> : null}
     </>
   );
 }
 
-export function SafeAttachmentView({ attachment, streamId, mine, foreground, mutedForeground, onMessageReaction, onMessageLongPress }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string } & MediaMessageInteractions) {
+export function SafeAttachmentView({ attachment, streamId, mine, foreground, mutedForeground, pending = false, onMessageReaction, onMessageLongPress }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string; pending?: boolean } & MediaMessageInteractions) {
   const palette = usePalette();
   const { t } = useTranslation();
   return (
-    <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}>
-      <AttachmentView attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />
-    </AttachmentFailureBoundary>
+    <View style={styles.pendingAttachmentFrame}>
+      <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}>
+        <AttachmentView attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />
+      </AttachmentFailureBoundary>
+      {pending ? <View pointerEvents="none" style={styles.pendingAttachmentMask} /> : null}
+    </View>
   );
 }
 

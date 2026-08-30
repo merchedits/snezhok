@@ -16,12 +16,13 @@ interface AttachmentSheetProps {
   progress?: number | null;
   onClose: () => void;
   onCancel?: () => void;
+  showBusyState?: boolean;
   imagesOnly?: boolean;
   onSelect: (inputs: UploadInput[], messageKind?: "media" | "file" | "video-note") => Promise<void>;
 }
 
 /** Telegram-style recent-media drawer with explicit original-file and camera actions. */
-export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onCancel, imagesOnly = false, onSelect }: AttachmentSheetProps) {
+export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, progress = null, onClose, onCancel, showBusyState = true, imagesOnly = false, onSelect }: AttachmentSheetProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -251,7 +252,7 @@ export const AttachmentSheet = memo(function AttachmentSheet({ visible, busy, pr
               <Text style={[styles.qualityToastText, { color: palette.elevated }]}>{qualityNotice}</Text>
             </Animated.View>
           ) : null}
-          {busy ? (
+          {busy && showBusyState ? (
             <View
               style={[
                 styles.busy,

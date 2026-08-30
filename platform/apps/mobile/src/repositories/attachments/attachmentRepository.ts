@@ -109,8 +109,16 @@ function chooseCanonical(current: Attachment | undefined, incoming: Attachment):
   if (!current) return incoming;
   const currentVersion = current.updatedAt ?? 0;
   const incomingVersion = incoming.updatedAt ?? 0;
-  if (incomingVersion !== currentVersion) return incomingVersion > currentVersion ? incoming : current;
-  return attachmentCompleteness(incoming) > attachmentCompleteness(current) ? incoming : current;
+  const preferred = incomingVersion !== currentVersion
+    ? incomingVersion > currentVersion ? incoming : current
+    : attachmentCompleteness(incoming) > attachmentCompleteness(current) ? incoming : current;
+  const fallback = preferred === incoming ? current : incoming;
+  if (preferred.kind !== "audio") return preferred;
+  return {
+    ...preferred,
+    durationMs: preferred.durationMs ?? fallback.durationMs,
+    waveform: preferred.waveform?.length ? preferred.waveform : fallback.waveform ?? null,
+  };
 }
 
 function attachmentCompleteness(attachment: Attachment): number {

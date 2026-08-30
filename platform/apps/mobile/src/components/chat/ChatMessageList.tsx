@@ -3,7 +3,7 @@ import { useIsFocused } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View, type ViewToken } from "react-native";
+import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type ViewToken } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
 
 import type { ConversationSummary, Message, UserSummary } from "@snezhok/contracts";
@@ -21,6 +21,8 @@ import { dismissMessageNotifications } from "../../notifications/androidNotifica
 import { visibleMessages } from "../../domains/messaging/messageReconciliation";
 import { useAppStore } from "../../store/useAppStore";
 import type { RootStackParamList } from "../../types";
+import { initialChatTimelineIndex, readChatTimelineMemory, rememberChatTimelinePosition } from "../../ui/chat/chatTimelineMemory";
+import { AppIcon } from "../AppIcon";
 import { ContentFailureBoundary } from "../ContentFailureBoundary";
 import { MessageBubble } from "../MessageBubble";
 import { SwipeReplyRow } from "../SwipeReplyRow";
@@ -29,7 +31,11 @@ import { ChatDayDivider, ChatUnreadDivider } from "./ChatTimelineDividers";
 
 const INITIAL_RENDERED_MESSAGES = 80, MESSAGE_PAGE_SIZE = 60;
 // FlashList uses a viewport ratio; a pixel-like value made history focus jump.
-const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2 } as const;
+const maintainVisibleMessagePosition = {
+  startRenderingFromBottom: true,
+  autoscrollToBottomThreshold: 0.2,
+  animateAutoScrollToBottom: false,
+} as const;
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
   if (message.activity) return `activity-${message.activity.type}`;
@@ -87,6 +93,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   const showDialog = useAppDialog();
   const isFocused = useIsFocused();
   const list = useRef<FlashListRef<Message>>(null);
+  const rememberedPosition = useRef(readChatTimelineMemory(streamId)).current;
   const preloadCachedMessages = useAppStore((state) => state.preloadCachedMessages);
   const loadMessages = useAppStore((state) => state.loadMessages);
   const loadPinnedMessages = useAppStore((state) => state.loadPinnedMessages);
@@ -99,8 +106,10 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   const [routeSettled, setRouteSettled] = useState(false);
   const [appActive, setAppActive] = useState(AppState.currentState === "active");
   const [historyState, setHistoryState] = useState<"waiting" | "loading" | "ready" | "error">("waiting");
-  const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
+  const [renderLimit, setRenderLimit] = useState(() => Math.max(INITIAL_RENDERED_MESSAGES, rememberedPosition?.renderLimit ?? 0));
+  const [showJumpToBottom, setShowJumpToBottom] = useState(!(rememberedPosition?.atBottom ?? true));
   const userDraggedHistory = useRef(false);
+  const atBottom = useRef(rememberedPosition?.atBottom ?? true);
   const loadingOlder = useRef(false);
   const firstPaintRecorded = useRef(false);
   const cachedMessageCountAtOpen = useRef(messages.length);
@@ -163,7 +172,10 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     cachedMessageCountAtOpen.current = useAppStore.getState().messages[streamId]?.length ?? 0;
     setRouteSettled(false);
     setHistoryState("waiting");
-    setRenderLimit(INITIAL_RENDERED_MESSAGES);
+    const remembered = readChatTimelineMemory(streamId);
+    atBottom.current = remembered?.atBottom ?? true;
+    setShowJumpToBottom(!(remembered?.atBottom ?? true));
+    setRenderLimit(Math.max(INITIAL_RENDERED_MESSAGES, remembered?.renderLimit ?? 0));
   }, [streamId]);
 
   const displayMessages = useMemo(() => visibleMessages(messages), [messages]);
@@ -172,6 +184,10 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     unreadBoundary.current.sequence = displayMessages[boundaryIndex]?.sequence ?? null;
   }
   const renderedMessages = useMemo(() => displayMessages.slice(-renderLimit), [displayMessages, renderLimit]);
+  const initialScrollIndex = useMemo(() => initialChatTimelineIndex(
+    renderedMessages.map((message) => message.id),
+    rememberedPosition,
+  ), [rememberedPosition, renderedMessages]);
   const readableSequence = useMemo(() => visibleReadSequence(messages, meId, {
     appActive,
     screenFocused: isFocused,
@@ -206,17 +222,34 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     }));
   }, [loadMessageContext, renderLimit, streamId]);
 
+  const trackBottomDistance = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const nextAtBottom = contentSize.height - layoutMeasurement.height - contentOffset.y <= 96;
+    if (nextAtBottom === atBottom.current) return;
+    atBottom.current = nextAtBottom;
+    setShowJumpToBottom(!nextAtBottom);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    atBottom.current = true;
+    setShowJumpToBottom(false);
+    rememberChatTimelinePosition(streamId, { anchorMessageId: null, renderLimit, atBottom: true });
+    list.current?.scrollToEnd({ animated: true });
+  }, [renderLimit, streamId]);
+
   useImperativeHandle(forwardedRef, () => ({
     jumpToMessage,
-    scrollToEnd: () => list.current?.scrollToEnd({ animated: true }),
-  }), [jumpToMessage]);
+    scrollToEnd: scrollToBottom,
+  }), [jumpToMessage, scrollToBottom]);
 
   useEffect(() => { if (targetMessageId) void jumpToMessage(targetMessageId); }, [jumpToMessage, targetMessageId]);
 
-  const warmVisibleMedia = useCallback(({ viewableItems }: { viewableItems: ViewToken<Message>[] }) => {
+  const handleVisibleMessages = useCallback(({ viewableItems }: { viewableItems: ViewToken<Message>[] }) => {
     const pending: string[] = [];
+    let firstVisible: ViewToken<Message> | null = null;
     for (const token of viewableItems) {
       if (!token.isViewable || !token.item) continue;
+      if (token.index !== null && (firstVisible?.index == null || token.index < firstVisible.index)) firstVisible = token;
       for (const attachment of renderableAttachments(token.item.attachments)) {
         const candidates = attachment.kind === "image"
           ? [attachment.thumbnailUrl, attachment.url]
@@ -231,7 +264,14 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
       }
     }
     if (pending.length > 0) void prefetchAuthorizedMedia(pending.slice(0, 18)).catch(() => false);
-  }, []);
+    if (firstVisible?.item) {
+      rememberChatTimelinePosition(streamId, {
+        anchorMessageId: firstVisible.item.id,
+        renderLimit,
+        atBottom: atBottom.current,
+      });
+    }
+  }, [renderLimit, streamId]);
 
   const revealOlderMessages = useCallback(async () => {
     if (!userDraggedHistory.current || loadingOlder.current) return;
@@ -303,6 +343,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   return (
     <View testID="chat_timeline" style={styles.viewport}>
       <FlashList
+        key={`${streamId}:${renderedMessages.length > 0 ? "loaded" : "empty"}`}
         ref={list}
         data={renderedMessages}
         keyExtractor={messageKey}
@@ -313,8 +354,11 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
         drawDistance={360}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
+        initialScrollIndex={initialScrollIndex}
         maintainVisibleContentPosition={maintainVisibleMessagePosition}
-        onViewableItemsChanged={warmVisibleMedia}
+        onViewableItemsChanged={handleVisibleMessages}
+        onScroll={trackBottomDistance}
+        scrollEventThrottle={32}
         onScrollBeginDrag={() => { userDraggedHistory.current = true; }}
         onStartReached={() => void revealOlderMessages().catch(() => undefined)}
         onStartReachedThreshold={0.2}
@@ -325,6 +369,16 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
             ? <View style={styles.empty}><ActivityIndicator color={palette.accent} /></View>
             : <View style={styles.empty}><Text style={[styles.emptyTitle, { color: palette.text }]}>{title}</Text><Text style={[styles.emptyText, { color: palette.secondaryText }]}>{t("noMessages")}</Text></View>}
       />
+      {showJumpToBottom ? (
+        <Pressable
+          accessibilityLabel={t("jumpToLatest")}
+          accessibilityRole="button"
+          onPress={scrollToBottom}
+          style={({ pressed }) => [styles.jumpToBottom, { backgroundColor: palette.elevated, borderColor: palette.outline, opacity: pressed ? 0.72 : 1 }]}
+        >
+          <AppIcon name="chevron-down" size={23} color={palette.accent} strokeWidth={2.2} />
+        </Pressable>
+      ) : null}
     </View>
   );
 });
@@ -338,4 +392,5 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, marginTop: 6 },
   retry: { minWidth: 132, height: 44, marginTop: 16, paddingHorizontal: 18, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   retryText: { fontSize: 15, fontWeight: "800" },
+  jumpToBottom: { position: "absolute", right: 12, bottom: 12, width: 44, height: 44, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center", elevation: 5 },
 });

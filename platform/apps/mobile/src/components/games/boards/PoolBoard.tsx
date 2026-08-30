@@ -2,14 +2,15 @@ import { POOL_GEOMETRY, tracePoolShot, type PoolBall, type PoolLastShot, type Po
 import { Canvas, Circle as SkiaCircle, Group, Rect as SkiaRect, select, Text as SkiaText, useFont, type SkFont } from "@shopify/react-native-skia";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type GestureResponderEvent, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { cancelAnimation, Easing, runOnJS, useDerivedValue, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
+import Animated, { cancelAnimation, Easing, runOnJS, useAnimatedProps, useDerivedValue, useSharedValue, withTiming, type SharedValue } from "react-native-reanimated";
 import Svg, { Circle as SvgCircle, Line as SvgLine, Rect as SvgRect, Text as SvgText } from "react-native-svg";
 
-import { poolPlaybackDuration, poolPullPoint, poolShotFromPull } from "../../../domains/games/gamePresentation";
+import { poolCueStrikeTiming, poolPlaybackDuration, poolPullPoint, poolShotFromPull } from "../../../domains/games/gamePresentation";
 import { usePalette } from "../../../hooks/usePalette";
 
 const BALL_COLORS: Record<number, string> = { 1: "#F5D04C", 2: "#3479D2", 3: "#D64C49", 4: "#8255B7", 5: "#EA812B", 6: "#3B9B69", 7: "#7C2830", 8: "#17131A", 9: "#F5D04C", 10: "#3479D2", 11: "#D64C49", 12: "#8255B7", 13: "#EA812B", 14: "#3B9B69", 15: "#7C2830" };
 const POCKETS = POOL_GEOMETRY.pockets;
+const AnimatedCueLine = Animated.createAnimatedComponent(SvgLine);
 
 interface PoolPlayback {
   key: number;
@@ -37,16 +38,43 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
   const [pull, setPull] = useState<{ x: number; y: number } | null>(null);
   const [visualBalls, setVisualBalls] = useState<PoolBall[]>(state.balls);
   const [playback, setPlayback] = useState<PoolPlayback | null>(null);
+  const [playbackReady, setPlaybackReady] = useState(false);
   const [pocketBurst, setPocketBurst] = useState<{ x: number; y: number; key: number } | null>(null);
   const previousState = useRef(state);
   const animationProgress = useSharedValue(0);
+  const cueStrikeProgress = useSharedValue(0);
+  const cueStrikeVisible = useSharedValue(0);
+  const cueStrikeAngle = useSharedValue(0);
+  const cueStrikePower = useSharedValue(0.12);
+  const cueStrikeX = useSharedValue(cue.x);
+  const cueStrikeY = useSharedValue(cue.y);
   const ballFont = useFont(require("@expo-google-fonts/onest/900Black/Onest_900Black.ttf"), Math.max(5, tableWidth * 0.016));
   const playbackRef = useRef<PoolPlayback | null>(null);
   const pocketTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackKey = useRef(0);
+  const playbackStartFrame = useRef<number | null>(null);
   const gestureOrigin = useRef<{ x: number; y: number; pageX: number; pageY: number } | null>(null);
   const pendingLocalShot = useRef<PoolLastShot | null>(null);
   const playbackTracks = useMemo(() => playback ? buildPoolTracks(playback.frames) : [], [playback]);
+  const cueAnimatedProps = useAnimatedProps(() => {
+    const boundedPower = Math.max(0.12, Math.min(1, cueStrikePower.value));
+    const pullbackDistance = Math.round(44 + boundedPower * 86);
+    const progress = cueStrikeProgress.value;
+    const gap = progress <= 0.65
+      ? 20 + (pullbackDistance - 20) * (progress / 0.65)
+      : pullbackDistance * (1 - (progress - 0.65) / 0.35);
+    const dx = Math.cos(cueStrikeAngle.value);
+    const dy = Math.sin(cueStrikeAngle.value);
+    const cueX = cueStrikeX.value * 1_000;
+    const cueY = cueStrikeY.value * 1_000;
+    return {
+      x1: cueX - dx * gap,
+      y1: cueY - dy * gap,
+      x2: cueX - dx * (gap + 250),
+      y2: cueY - dy * (gap + 250),
+      opacity: cueStrikeVisible.value,
+    };
+  });
 
   useEffect(() => {
     setCuePosition({ x: cue.x, y: cue.y });
@@ -70,8 +98,10 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
 
   useEffect(() => () => {
     cancelAnimation(animationProgress);
+    cancelAnimation(cueStrikeProgress);
+    if (playbackStartFrame.current !== null) cancelAnimationFrame(playbackStartFrame.current);
     if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
-  }, [animationProgress]);
+  }, [animationProgress, cueStrikeProgress]);
 
   const canPlay = state.status === "playing" && state.turnUserId === meId && !busy && !playback;
   const activeCue = ballInHand ? cuePosition : cue;
@@ -121,11 +151,15 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
     const shot: PoolLastShot = { shooterId: meId, angle: gesture.angle, power: gesture.power, pocketed: [], foul: false, ...(ballInHand ? { cueX: cuePosition.x, cueY: cuePosition.y } : {}) };
     pendingLocalShot.current = shot;
     setPull(null);
-    const frames = tracePoolShot(state.balls, shot.angle, shot.power, ballInHand ? cuePosition : undefined);
-    const finalBalls = frames.at(-1) ?? state.balls;
-    const newlyPocketed = finalBalls.filter((ball) => ball.pocketed && !state.balls.find((before) => before.id === ball.id)?.pocketed).map((ball) => ball.id);
-    playFrames(frames, finalBalls, newlyPocketed);
-    void run("game-move", { angle: shot.angle, power: shot.power, ...(ballInHand ? { cueX: cuePosition.x, cueY: cuePosition.y } : {}) }).then((ok) => {
+    primeCueStrike(activeCue, shot);
+    const submission = run("game-move", { angle: shot.angle, power: shot.power, ...(ballInHand ? { cueX: cuePosition.x, cueY: cuePosition.y } : {}) });
+    requestAnimationFrame(() => {
+      const frames = tracePoolShot(state.balls, shot.angle, shot.power, ballInHand ? cuePosition : undefined);
+      const finalBalls = frames.at(-1) ?? state.balls;
+      const newlyPocketed = finalBalls.filter((ball) => ball.pocketed && !state.balls.find((before) => before.id === ball.id)?.pocketed).map((ball) => ball.id);
+      playFrames(frames, finalBalls, newlyPocketed);
+    });
+    void submission.then((ok) => {
       if (!ok) {
         pendingLocalShot.current = null;
         stopAnimation(state.balls);
@@ -134,8 +168,21 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
   };
 
   const playShot = (balls: PoolBall[], shot: PoolLastShot, finalBalls: PoolBall[]) => {
+    const startingCue = shot.cueX != null && shot.cueY != null ? { x: shot.cueX, y: shot.cueY } : balls.find((ball) => ball.id === 0) ?? { x: 0.25, y: 0.25 };
+    primeCueStrike(startingCue, shot);
     const frames = tracePoolShot(balls, shot.angle, shot.power, shot.cueX != null && shot.cueY != null ? { x: shot.cueX, y: shot.cueY } : undefined);
     playFrames(frames, finalBalls, shot.pocketed);
+  };
+  const primeCueStrike = (cuePoint: { x: number; y: number }, shot: Pick<PoolLastShot, "angle" | "power">) => {
+    const timing = poolCueStrikeTiming(shot.power);
+    cancelAnimation(cueStrikeProgress);
+    cueStrikeX.value = cuePoint.x;
+    cueStrikeY.value = cuePoint.y;
+    cueStrikeAngle.value = shot.angle;
+    cueStrikePower.value = shot.power;
+    cueStrikeVisible.value = 1;
+    cueStrikeProgress.value = 0;
+    cueStrikeProgress.value = withTiming(0.65, { duration: timing.pullbackMs, easing: Easing.out(Easing.cubic) });
   };
   const playFrames = (frames: PoolBall[][], finalBalls: PoolBall[], pocketed: number[]) => {
     if (frames.length < 2) {
@@ -145,6 +192,7 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
     cancelAnimation(animationProgress);
     if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
     animationProgress.value = 0;
+    setPlaybackReady(false);
     setPocketBurst(null);
     playbackKey.current += 1;
     const next = { key: playbackKey.current, frames, finalBalls, pocketed, duration: poolPlaybackDuration(frames.length) };
@@ -157,6 +205,8 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
     if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
     pocketTimer.current = null;
     playbackRef.current = null;
+    cueStrikeVisible.value = 0;
+    setPlaybackReady(false);
     setPocketBurst(null);
     setPlayback(null);
     setVisualBalls(balls);
@@ -167,6 +217,7 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
     if (!current || current.key !== key) return;
     playbackRef.current = null;
     setVisualBalls(current.finalBalls);
+    setPlaybackReady(false);
     setPlayback(null);
   }, []);
 
@@ -183,14 +234,27 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
       }, pocketEvent.delay);
     }
     animationProgress.value = 0;
-    animationProgress.value = withTiming(1, {
-      duration: Math.max(1, playback.duration),
-      easing: Easing.linear,
-    }, (finished) => {
-      if (finished) runOnJS(completePlayback)(playback.key);
+    playbackStartFrame.current = requestAnimationFrame(() => {
+      playbackStartFrame.current = requestAnimationFrame(() => {
+        playbackStartFrame.current = null;
+        setPlaybackReady(true);
+        const timing = poolCueStrikeTiming(cueStrikePower.value);
+        cueStrikeProgress.value = withTiming(1, { duration: timing.impactMs, easing: Easing.in(Easing.quad) }, (struck) => {
+          if (!struck) return;
+          cueStrikeVisible.value = 0;
+          animationProgress.value = withTiming(1, {
+            duration: Math.max(1, playback.duration),
+            easing: Easing.linear,
+          }, (finished) => {
+            if (finished) runOnJS(completePlayback)(playback.key);
+          });
+        });
+      });
     });
     return () => {
       cancelAnimation(animationProgress);
+      if (playbackStartFrame.current !== null) cancelAnimationFrame(playbackStartFrame.current);
+      playbackStartFrame.current = null;
       if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
       pocketTimer.current = null;
     };
@@ -222,8 +286,9 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
           <SvgLine x1={activeCue.x * 1000} y1={activeCue.y * 1000} x2={(activeCue.x + Math.cos(gesture.angle) * aimLength) * 1000} y2={(activeCue.y + Math.sin(gesture.angle) * aimLength) * 1000} stroke="#FFF9DB" strokeWidth="5" strokeDasharray="16 12" strokeLinecap="round" />
           <SvgLine x1={activeCue.x * 1000} y1={activeCue.y * 1000} x2={(pull?.x ?? activeCue.x) * 1000} y2={(pull?.y ?? activeCue.y) * 1000} stroke="#D7FF29" strokeWidth="9" strokeLinecap="round" opacity={0.78} />
         </> : null}
-        {!playback ? visualBalls.filter((ball) => !ball.pocketed && ball.id !== 0).map((ball) => <PoolBallGlyph key={ball.id} ball={ball} />) : null}
-        {!playback && (ballInHand || !cue.pocketed) ? <PoolBallGlyph ball={{ id: 0, kind: "cue", x: activeCue.x, y: activeCue.y, pocketed: false }} /> : null}
+        <AnimatedCueLine animatedProps={cueAnimatedProps} stroke="#D7B37A" strokeWidth="12" strokeLinecap="round" />
+        {!playbackReady ? visualBalls.filter((ball) => !ball.pocketed && ball.id !== 0).map((ball) => <PoolBallGlyph key={ball.id} ball={ball} />) : null}
+        {!playbackReady && (ballInHand || !cue.pocketed) ? <PoolBallGlyph ball={{ id: 0, kind: "cue", x: activeCue.x, y: activeCue.y, pocketed: false }} /> : null}
         {pocketBurst ? <><SvgCircle key={pocketBurst.key} cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="48" fill="none" stroke="#D7FF29" strokeWidth="8" opacity="0.9" /><SvgCircle cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="62" fill="none" stroke="#FFF9DB" strokeWidth="4" opacity="0.55" /></> : null}
       </Svg>
       <Canvas androidWarmup pointerEvents="none" style={StyleSheet.absoluteFill}>

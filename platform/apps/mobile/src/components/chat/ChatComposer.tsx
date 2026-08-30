@@ -56,7 +56,7 @@ export function ChatComposer({
     recorderMounted, recording, setRecording, recordingLevels, recordingDuration,
     voiceCommand, updateVoiceCommand, suggestedMentions, chooseMention, formatSelection, cancelEditing,
     handleTextChange, sendText, showSendOptions, handleUploads, startVoiceRecording,
-    resetRecorder, handleMetering, cancelUpload,
+    resetRecorder, prepareVoiceUpload, handleMetering, cancelUpload,
   } = controller;
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const composerClosedPadding = composerBottomPadding(insets.bottom, false);
@@ -146,8 +146,9 @@ export function ChatComposer({
           onTooShort={() => showDialog(t("voiceMessage"), t("voiceTooShort"))}
           onCancel={resetRecorder}
           onComplete={async (input) => {
+            const optimisticVoice = prepareVoiceUpload(input);
             resetRecorder();
-            await handleUploads([input], "voice");
+            await handleUploads([optimisticVoice], "voice");
           }}
         />
       ) : null}
@@ -155,7 +156,7 @@ export function ChatComposer({
         <AttachmentSheet
           visible={attachmentSheet}
           busy={uploading}
-          progress={uploadProgress}
+          showBusyState={false}
           onClose={() => setAttachmentSheet(false)}
           onCancel={() => void cancelUpload()}
           onSelect={handleUploads}

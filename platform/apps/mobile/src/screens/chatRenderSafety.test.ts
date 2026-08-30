@@ -113,6 +113,9 @@ test("audited native background transfers retain the resumable foreground fallba
   assert.match(storeSource, /available: backgroundTransferAvailable/);
   assert.match(attachmentTransferDomainSource, /if \(!background\.available\)/);
   assert.match(attachmentTransferDomainSource, /sendForegroundAttachmentBatch/);
+  assert.match(attachmentTransferDomainSource, /deferScheduling: true/);
+  assert.match(attachmentTransferDomainSource, /accept\(\);[\s\S]{0,120}media\.prepareMany/);
+  assert.match(composerSource, /showBusyState=\{false\}/);
 });
 
 test("cached chats use one bottom-anchor mechanism without a duplicate overlay", () => {
@@ -122,6 +125,10 @@ test("cached chats use one bottom-anchor mechanism without a duplicate overlay",
   assert.doesNotMatch(timelineSource, /FIRST_FRAME_MESSAGES|firstFrameMessages|onContentSizeChange=/);
   assert.match(timelineSource, /onScrollBeginDrag=\{\(\) => \{[\s\S]{0,40}userDraggedHistory\.current = true/);
   assert.doesNotMatch(timelineSource, /initialBottomAnchored|scrollToEnd\(\{ animated: false \}\)/);
+  assert.match(timelineSource, /animateAutoScrollToBottom: false/);
+  assert.match(timelineSource, /initialScrollIndex=\{initialScrollIndex\}/);
+  assert.match(timelineSource, /rememberChatTimelinePosition/);
+  assert.match(timelineSource, /accessibilityLabel=\{t\("jumpToLatest"\)\}/);
 });
 
 test("conversation touch warms SQLite without pre-mounting the native route", () => {
@@ -152,6 +159,7 @@ test("chat composer follows keyboard progress without late JS visibility jumps",
   assert.match(composerSource, /useReanimatedKeyboardAnimation/);
   assert.match(composerSource, /interpolate\([\s\S]{0,40}keyboardProgress\.value/);
   assert.doesNotMatch(composerSource, /Keyboard\.addListener|keyboardDidShow|keyboardDidHide|keyboardVisible/);
+  assert.match(appSource, /KeyboardController\.preload\(\)/);
 });
 
 test("chat identity header stays outside the keyboard-translated region", () => {
