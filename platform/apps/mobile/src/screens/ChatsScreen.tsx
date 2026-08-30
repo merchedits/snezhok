@@ -4,12 +4,15 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, InteractionManager, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 
-import type { ConversationSummary } from "@snezhok/contracts";
+import type { ConversationSummary, Message } from "@snezhok/contracts";
 
 import { AppIcon } from "../components/AppIcon";
 import { useAppDialog } from "../components/AppDialogProvider";
 import { Avatar } from "../components/Avatar";
 import { ConversationActionsSheet } from "../components/ConversationActionsSheet";
+import { ChatFolderCreateModal } from "../components/chat/ChatFolderCreateModal";
+import { ChatListFilters, type ChatListFilter } from "../components/chat/ChatListFilters";
+import { MessageSearchModal } from "../components/MessageSearchModal";
 import { NewConversationModal } from "../components/NewConversationModal";
 import { PlayfulBackdrop } from "../components/PlayfulBackdrop";
 import { ScreenHeader } from "../components/ScreenHeader";
@@ -36,6 +39,8 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const { language, t } = useTranslation();
   const showDialog = useAppDialog();
   const conversations = useAppStore((state) => state.conversations);
+  const channels = useAppStore((state) => state.channels);
+  const folders = useAppStore((state) => state.folders);
   const me = useAppStore((state) => state.me);
   const applyConversation = useAppStore((state) => state.applyConversation);
   const syncing = useAppStore((state) => state.syncing);
@@ -44,8 +49,12 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const drafts = useAppStore((state) => state.drafts);
   const setConversationPreference = useAppStore((state) => state.setConversationPreference);
   const markStreamUnread = useAppStore((state) => state.markStreamUnread);
+  const createFolder = useAppStore((state) => state.createFolder);
   const preloadCachedMessages = useAppStore((state) => state.preloadCachedMessages);
   const [newMessage, setNewMessage] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [folderCreateOpen, setFolderCreateOpen] = useState(false);
+  const [filter, setFilter] = useState<ChatListFilter>("all");
   const [selectedConversation, setSelectedConversation] = useState<ConversationSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const foregroundActive = active && screenFocused;
@@ -65,12 +74,15 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
     return () => task.cancel();
   }, [foregroundActive, preloadCachedMessages, warmConversationKey]);
 
-  const filtered = useMemo(() => visibleConversationSummaries(
-    conversations,
-    "",
-    (conversation) => conversationTitle(conversation, language),
-    true,
-  ), [conversations, language]);
+  useEffect(() => {
+    if (filter.startsWith("folder:") && !folders.some((folder) => `folder:${folder.id}` === filter)) setFilter("all");
+  }, [filter, folders]);
+  const filtered = useMemo(() => {
+    const folder = filter.startsWith("folder:") ? folders.find((item) => item.id === filter.slice(7)) : undefined;
+    const allowed = folder ? new Set(folder.streams.filter((item) => item.streamKind === "conversation").map((item) => item.streamId)) : null;
+    return visibleConversationSummaries(conversations, "", (conversation) => conversationTitle(conversation, language), filter === "archived" || Boolean(folder?.includeArchived))
+      .filter((conversation) => filter === "archived" ? conversation.archived : allowed ? allowed.has(conversation.id) : !conversation.archived);
+  }, [conversations, filter, folders, language]);
   const rows = useMemo(() => filtered.map((conversation, index) => ({
     conversation,
     sectionBreak: startsRegularConversationSection(filtered, index),
@@ -86,6 +98,13 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   const openConversation = useCallback((conversation: ConversationSummary) => {
     navigation.navigate("Chat", chatParams(conversation, performance.now()));
   }, [chatParams, navigation]);
+  const openSearchMessage = useCallback((message: Message) => {
+    const conversation = conversations.find((item) => item.id === message.streamId);
+    const channel = channels.find((item) => item.id === message.streamId);
+    if (!conversation && !channel) return;
+    setSearchOpen(false);
+    requestAnimationFrame(() => navigation.navigate("Chat", { streamId: message.streamId, streamKind: message.streamKind, title: conversation ? conversationTitle(conversation, language) : `#${channel!.name}`, targetMessageId: message.id, openedAt: performance.now() }));
+  }, [channels, conversations, language, navigation]);
   const warmConversation = useCallback((conversation: ConversationSummary) => {
     void preloadCachedMessages([conversation.id]).catch(() => undefined);
   }, [preloadCachedMessages]);
@@ -125,7 +144,8 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
   return (
     <View testID="messaging_e2e_v1" style={[styles.screen, { backgroundColor: palette.background }]}>
       <PlayfulBackdrop variant="chats" />
-      <ScreenHeader prominent title={t("chats")} right={[{ icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
+      <ScreenHeader prominent title={t("chats")} right={[{ icon: "search", label: t("search"), onPress: () => setSearchOpen(true) }, { icon: "person-circle-outline", label: t("contacts"), onPress: () => navigation.navigate("Contacts") }]} />
+      <ChatListFilters folders={folders} selected={filter} onSelect={setFilter} onCreate={() => setFolderCreateOpen(true)} />
       <FlatList
         style={styles.list}
         contentContainerStyle={styles.listContent}
@@ -154,6 +174,11 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
           navigation.navigate("Chat", { streamId: conversation.id, streamKind: "conversation", title: conversation.title, openedAt: performance.now() });
         }}
       />
+      <MessageSearchModal visible={searchOpen} onClose={() => setSearchOpen(false)} onOpenMessage={openSearchMessage} onOpenUser={(user) => { setSearchOpen(false); requestAnimationFrame(() => navigation.navigate("Profile", { userId: user.id })); }} />
+      <ChatFolderCreateModal visible={folderCreateOpen} conversations={conversations} titleFor={(conversation) => conversationTitle(conversation, language)} onClose={() => setFolderCreateOpen(false)} onCreate={async (name, ids) => {
+        try { await createFolder(name, ids.map((streamId) => ({ streamKind: "conversation" as const, streamId }))); }
+        catch (error) { showDialog(t("requestFailed"), t("tryAgain")); throw error; }
+      }} />
       <ConversationActionsSheet
         visible={Boolean(selectedConversation)}
         title={selectedConversation ? conversationTitle(selectedConversation, language) : ""}
@@ -161,9 +186,11 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
         pinned={selectedConversation?.pinned ?? false}
         muted={selectedConversation?.muted ?? false}
         unread={(selectedConversation?.unreadCount ?? 0) > 0}
+        archived={selectedConversation?.archived ?? false}
         onClose={() => { if (!deleting) setSelectedConversation(null); }}
         onPin={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { pinned: !selectedConversation.pinned }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
         onMute={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { muted: !selectedConversation.muted }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
+        onArchive={() => { if (selectedConversation) void setConversationPreference(selectedConversation, { archived: !selectedConversation.archived }).then(() => setSelectedConversation(null)).catch(() => showDialog(t("requestFailed"), t("tryAgain"))); }}
         onMarkUnread={() => {
           const conversation = selectedConversation;
           if (!conversation) return;

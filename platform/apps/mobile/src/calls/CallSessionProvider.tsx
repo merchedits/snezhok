@@ -25,7 +25,6 @@ import { useCallStatsSampler } from "./useCallStatsSampler";
 
 export type CallKind = "direct" | "group" | "voice";
 export type CallSessionStatus = "connecting" | "connected" | "reconnecting";
-
 export interface ActiveCallSession {
   streamId: string;
   title: string;
@@ -39,8 +38,8 @@ export interface ActiveCallSession {
   audioRoutes: Exclude<CallAudioRoute, "auto">[];
   audioRoute: Exclude<CallAudioRoute, "auto"> | null;
   stats: CallNetworkStats;
+  cameraFailure: boolean;
 }
-
 interface StartCallInput {
   streamId: string;
   title: string;
@@ -54,12 +53,12 @@ interface CallSessionContextValue {
   startCall(input: StartCallInput): Promise<void>;
   leaveCall(options?: { endForEveryone?: boolean }): Promise<void>;
   toggleMicrophone(): Promise<void>;
+  setCameraFailure(failed: boolean): void;
   setAudioRoute(route: Exclude<CallAudioRoute, "auto">): Promise<void>;
   setCallScreenVisible(visible: boolean): void;
   answerIncoming(video: boolean): void;
   declineIncoming(): void;
 }
-
 const emptyStats: CallNetworkStats = { pingMs: null, jitterMs: null, packetLossPercent: null, inboundKbps: 0, outboundKbps: 0, codecs: [], iceCandidateType: null, transportProtocol: null, sampledAt: 0 };
 const CallSessionContext = createContext<CallSessionContextValue | null>(null);
 
@@ -69,7 +68,6 @@ export class ActiveCallConflictError extends Error {
     this.name = "ActiveCallConflictError";
   }
 }
-
 export function CallSessionProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const settings = useAppStore((state) => state.settings);
@@ -215,7 +213,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
       const kind = callKind(input.streamId, conversations, channels);
       const provisional: ActiveCallSession = {
         streamId: input.streamId, title: input.title, callId: null, roomName: null, kind, canEnd: false,
-        status: "connecting", startedAt: Date.now(), reconnects: 0, audioRoutes: [], audioRoute: null, stats: emptyStats,
+        status: "connecting", startedAt: Date.now(), reconnects: 0, audioRoutes: [], audioRoute: null, stats: emptyStats, cameraFailure: false,
       };
       sessionRef.current = provisional;
       setSession(provisional);
@@ -288,6 +286,7 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
               throw new Error("CALL_FOREGROUND_SERVICE_UPDATE_FAILED");
             }
           }).catch((error) => {
+            updateSession((value) => ({ ...value, cameraFailure: true }));
             recordDiagnostic("warn", "call", "Initial camera publication failed", { failure: classifyCallFailure(error) });
           });
         }
@@ -352,7 +351,8 @@ export function CallSessionProvider({ children }: { children: ReactNode }) {
     navigationRef.navigate("Call", { streamId: active.streamId, title: active.title });
   }, []);
 
-  const value = useMemo<CallSessionContextValue>(() => ({ room, session, startCall, leaveCall, toggleMicrophone, setAudioRoute, setCallScreenVisible, answerIncoming, declineIncoming }), [answerIncoming, declineIncoming, leaveCall, room, session, setAudioRoute, startCall, toggleMicrophone]);
+  const setCameraFailure = useCallback((failed: boolean) => updateSession((current) => ({ ...current, cameraFailure: failed })), [updateSession]);
+  const value = useMemo<CallSessionContextValue>(() => ({ room, session, startCall, leaveCall, toggleMicrophone, setCameraFailure, setAudioRoute, setCallScreenVisible, answerIncoming, declineIncoming }), [answerIncoming, declineIncoming, leaveCall, room, session, setAudioRoute, setCameraFailure, startCall, toggleMicrophone]);
   return <CallSessionContext.Provider value={value}>
     {children}
     <IncomingCallOverlay call={phase === "ready" ? incoming : null} language={language} onAnswer={answerIncoming} onDecline={declineIncoming} />

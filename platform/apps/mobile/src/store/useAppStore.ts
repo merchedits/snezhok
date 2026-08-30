@@ -4,16 +4,11 @@ import { create } from "zustand";
 import { api } from "../infrastructure/http/apiClient";
 import { recordDiagnostic } from "../diagnostics/diagnostics";
 import { clearMediaCache } from "../lib/mediaCache";
+import { clearAttachmentDownloads } from "../lib/attachmentDownloadManager";
 import { clearLocalData, ensureOfflineOwner, readCache, readCachedMessagePage, readCachedMessagePages, readDirtyDraftIds, readDrafts, readOutbox, readPendingSettingsPatch, writeCacheDelta, writeDirtyDraftIds, writeDrafts, writeOutbox, writePendingSettingsPatch } from "../lib/offlineRepository";
-import { clearSession, getRuntimeSession, readSession, sessionOwnerId, subscribeToSession, writeSession } from "../lib/secureSession";
-import {
-  cancelBackgroundBatch,
-  clearAllBackgroundTransfers,
-  enqueueBackgroundAttachmentBatch,
-  installBackgroundTransferWakeListener,
-  reconcileBackgroundTransfers,
-  waitForBackgroundBatch,
-} from "../transfers/backgroundTransfers";
+import { clearSession, getRuntimeSession, readSession, sessionOwnerId, subscribeToSessionEvents, writeSession } from "../lib/secureSession";
+import { rememberStoredAccount } from "../lib/accountVault";
+import { cancelBackgroundBatch, clearBackgroundTransfersForOwner, enqueueBackgroundAttachmentBatch, installBackgroundTransferWakeListener, reconcileBackgroundTransfers, retryBackgroundBatchForMessage, waitForBackgroundBatch } from "../transfers/backgroundTransfers";
 import { backgroundTransferAvailable } from "../../modules/snezhok-background-transfer";
 import { prepareMediaUpload, prepareMediaUploads } from "../lib/prepareMediaUpload";
 import { transferManager } from "../transfers/transferManager";
@@ -34,7 +29,6 @@ import { reconcileBootstrapConversations } from "../domains/session/bootstrapRec
 import { createProductivityDomain, type ProductivityDomain } from "../application/productivity/productivityDomain";
 import { createRealtimeProjectionActions } from "../application/sync/realtimeProjectionActions";
 import { appStateBootstrap, defaultRuntimeCapabilities, defaultSettings, productRuntimeCapabilities, productServerProjection, type AppState, type AppStorePatch } from "./appState";
-
 const appPersistence = new AppPersistenceCoordinator({
   snapshot: () => {
     const state = useAppStore.getState();
@@ -44,7 +38,6 @@ const appPersistence = new AppPersistenceCoordinator({
   writeOutbox,
   reportFailure: (message) => recordDiagnostic("warn", "storage", message),
 });
-
 function persistState(request: PersistenceRequest): Promise<void> {
   return appPersistence.persist(request);
 }
@@ -56,7 +49,6 @@ function schedulePersistence(request: PersistenceRequest): void {
 function cancelScheduledPersistence(): void {
   appPersistence.cancel();
 }
-
 let bootstrapRefresh: Promise<void> | null = null;
 let bootstrapRefreshPending = false;
 let lastBootstrapCompletedAt = 0;
@@ -64,7 +56,6 @@ let backgroundWakeListenerInstalled = false;
 let sessionListenerInstalled = false;
 let terminalDataClear: Promise<void> = Promise.resolve();
 let accountEpoch = 0;
-
 interface AccountOperationGuard {
   epoch: number;
   userId: string;
@@ -73,23 +64,20 @@ function captureAccountOperation(): AccountOperationGuard | null {
   const userId = useAppStore.getState().me?.id ?? sessionOwnerId(getRuntimeSession());
   return userId ? { epoch: accountEpoch, userId } : null;
 }
-
 function accountOperationIsCurrent(guard: AccountOperationGuard | null): guard is AccountOperationGuard {
   return Boolean(guard
     && guard.epoch === accountEpoch
     && (!useAppStore.getState().me || useAppStore.getState().me?.id === guard.userId)
     && sessionOwnerId(getRuntimeSession()) === guard.userId);
 }
-
 function invalidateAccountOperations(): number {
   accountEpoch += 1;
   return accountEpoch;
 }
-
 function ensureSessionLossListener(productivityDomain: ProductivityDomain<AccountOperationGuard | null>, resetMutations: () => void): void {
   if (sessionListenerInstalled) return;
   sessionListenerInstalled = true;
-  subscribeToSession(() => {
+  subscribeToSessionEvents((event) => {
     if (getRuntimeSession() || useAppStore.getState().phase === "signed-out") return;
     invalidateAccountOperations();
     cancelScheduledPersistence();
@@ -111,8 +99,11 @@ function ensureSessionLossListener(productivityDomain: ProductivityDomain<Accoun
       const results = await Promise.allSettled([
         clearLocalData(),
         clearMediaCache(),
-        clearAllBackgroundTransfers(),
+        event.preservedStoredAccount || !event.previousOwnerId
+          ? Promise.resolve()
+          : clearBackgroundTransfersForOwner(event.previousOwnerId),
       ]);
+      clearAttachmentDownloads();
       if (results.some((result) => result.status === "rejected")) {
         recordDiagnostic("warn", "storage", "Expired session cleanup was incomplete");
       }
@@ -180,6 +171,7 @@ export const useAppStore = create<AppState>((setRaw, get) => {
       waitForBatch: waitForBackgroundBatch,
       cancelBatch: cancelBackgroundBatch,
       reconcile: reconcileBackgroundTransfers,
+      retryForMessage: retryBackgroundBatchForMessage,
     },
     manager: transferManager,
   });
@@ -301,6 +293,8 @@ export const useAppStore = create<AppState>((setRaw, get) => {
         expiresAt: Date.now() + result.expiresIn * 1_000,
         ownerId: result.user.id,
       });
+      const evictedOwners = await rememberStoredAccount(getRuntimeSession()!, result.user);
+      await Promise.all(evictedOwners.map((ownerId) => clearBackgroundTransfersForOwner(ownerId)));
       if (accountEpoch !== operationEpoch) {
         throw new StaleAccountOperationError();
       }
@@ -329,6 +323,8 @@ export const useAppStore = create<AppState>((setRaw, get) => {
       const result = await api.register(input);
       if (accountEpoch !== operationEpoch) throw new StaleAccountOperationError();
       await writeSession({ accessToken: result.accessToken, refreshToken: result.refreshToken, expiresAt: Date.now() + result.expiresIn * 1_000, ownerId: result.user.id });
+      const evictedOwners = await rememberStoredAccount(getRuntimeSession()!, result.user);
+      await Promise.all(evictedOwners.map((ownerId) => clearBackgroundTransfersForOwner(ownerId)));
       if (accountEpoch !== operationEpoch) {
         throw new StaleAccountOperationError();
       }
@@ -349,7 +345,6 @@ export const useAppStore = create<AppState>((setRaw, get) => {
   },
 
   clearError: () => set({ error: null }),
-
   signOut: async () => {
     invalidateAccountOperations();
     cancelScheduledPersistence();
@@ -366,8 +361,13 @@ export const useAppStore = create<AppState>((setRaw, get) => {
         recordDiagnostic("warn", "auth", "Remote device session cleanup failed", { error });
       });
     }
-    void Promise.all([attachmentTransferDomain.cancelAll().catch(() => undefined), clearAllBackgroundTransfers().catch(() => undefined)]);
+    const ownerId = sessionOwnerId(session);
+    void Promise.all([
+      attachmentTransferDomain.cancelAll().catch(() => undefined),
+      ...(ownerId ? [clearBackgroundTransfersForOwner(ownerId).catch(() => undefined)] : []),
+    ]);
     await Promise.all([clearSession(), clearLocalData(), clearMediaCache().catch(() => undefined)]);
+    clearAttachmentDownloads();
     set({
       phase: "signed-out",
       error: null,

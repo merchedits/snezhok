@@ -27,11 +27,8 @@ import { SwipeReplyRow } from "../SwipeReplyRow";
 import { useAppDialog } from "../AppDialogProvider";
 import { ChatDayDivider, ChatUnreadDivider } from "./ChatTimelineDividers";
 
-const INITIAL_RENDERED_MESSAGES = 80;
-const MESSAGE_PAGE_SIZE = 60;
-// FlashList expresses this threshold as a viewport ratio, not density pixels.
-// A value of 120 classified every scroll position as "near bottom", so merely
-// focusing the composer jumped someone reading history to the newest message.
+const INITIAL_RENDERED_MESSAGES = 80, MESSAGE_PAGE_SIZE = 60;
+// FlashList uses a viewport ratio; a pixel-like value made history focus jump.
 const maintainVisibleMessagePosition = { startRenderingFromBottom: true, autoscrollToBottomThreshold: 0.2 } as const;
 const messageKey = (message: Message) => message.id;
 const messageCellType = (message: Message) => {
@@ -42,10 +39,7 @@ const messageCellType = (message: Message) => {
   return message.kind;
 };
 
-export interface ChatMessageListHandle {
-  jumpToMessage: (messageId: string) => Promise<void>;
-  scrollToEnd: () => void;
-}
+export interface ChatMessageListHandle { jumpToMessage: (messageId: string) => Promise<void>; scrollToEnd: () => void }
 
 interface Props {
   navigation: NativeStackNavigationProp<RootStackParamList, "Chat">;
@@ -100,12 +94,13 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   const loadMessageContext = useAppStore((state) => state.loadMessageContext);
   const markStreamRead = useAppStore((state) => state.markStreamRead);
   const toggleReaction = useAppStore((state) => state.toggleReaction);
+  const retryAttachmentTransfer = useAppStore((state) => state.retryAttachmentTransfer);
+  const retryOutbox = useAppStore((state) => state.retryOutbox);
   const [routeSettled, setRouteSettled] = useState(false);
   const [appActive, setAppActive] = useState(AppState.currentState === "active");
   const [historyState, setHistoryState] = useState<"waiting" | "loading" | "ready" | "error">("waiting");
   const [renderLimit, setRenderLimit] = useState(INITIAL_RENDERED_MESSAGES);
   const userDraggedHistory = useRef(false);
-  const initialBottomAnchored = useRef(false);
   const loadingOlder = useRef(false);
   const firstPaintRecorded = useRef(false);
   const cachedMessageCountAtOpen = useRef(messages.length);
@@ -162,7 +157,6 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
   }, [isFocused, routeSettled, streamId]);
   useEffect(() => {
     userDraggedHistory.current = false;
-    initialBottomAnchored.current = false;
     loadingOlder.current = false;
     firstPaintRecorded.current = false;
     warmedMediaUris.current.clear();
@@ -187,14 +181,6 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
     .filter((attachment) => attachment.kind === "audio")
     .map((attachment) => attachment.id)), [displayMessages]);
   const voiceAttachmentKey = voiceAttachmentIds.join(",");
-
-  useEffect(() => {
-    if (initialBottomAnchored.current || targetMessageId || userDraggedHistory.current || renderedMessages.length === 0) return;
-    initialBottomAnchored.current = true;
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      list.current?.scrollToEnd({ animated: false });
-    }));
-  }, [renderedMessages.length, streamId, targetMessageId]);
 
   useEffect(() => { setVoicePlaybackQueue(streamId, voiceAttachmentIds); }, [streamId, voiceAttachmentKey]);
   useEffect(() => () => clearVoicePlaybackQueue(streamId), [streamId]);
@@ -302,6 +288,8 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
                 void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
               }}
               onOpenReactions={(anchorY) => onOpenReactions(item, anchorY)}
+              onRetry={() => void (item.attachments.length ? retryAttachmentTransfer(item.clientId ?? item.id) : retryOutbox())
+                .catch(() => showDialog(t("requestFailed"), t("tryAgain")))}
               onReplyPress={(messageId) => void jumpToMessage(messageId)}
               onReact={(emoji) => void toggleReaction(item, emoji).catch(() => showDialog(t("requestFailed"), t("tryAgain")))}
               onOpenActivity={() => onOpenActivity(item)}
@@ -310,7 +298,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
         </SwipeReplyRow>
       </View>
     );
-  }, [isGroup, jumpToMessage, meId, onOpenActivity, onOpenReactions, onReply, onToggleSelection, renderedMessages, selectedIds, selectionMode, selectionProgress, showDialog, streamId, streamKind, t, toggleReaction]);
+  }, [isGroup, jumpToMessage, meId, onOpenActivity, onOpenReactions, onReply, onToggleSelection, renderedMessages, retryAttachmentTransfer, retryOutbox, selectedIds, selectionMode, selectionProgress, showDialog, streamId, streamKind, t, toggleReaction]);
 
   return (
     <View testID="chat_timeline" style={styles.viewport}>

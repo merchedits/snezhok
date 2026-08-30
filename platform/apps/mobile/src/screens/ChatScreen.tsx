@@ -151,6 +151,7 @@ export function ChatScreen({ navigation, route }: Props) {
   const selectionActions: ChatSelectionAction[] = [
     ...(selection.hasClipboardText ? [{ icon: "copy-outline" as const, label: t("copy"), onPress: () => void selection.copy() }] : []),
     ...(selection.editableMessage ? [{ icon: "create-outline" as const, label: t("editMessage"), onPress: selection.edit }] : []),
+    ...(selection.hasAttachments ? [{ icon: "download-outline" as const, label: t("downloadAttachments"), onPress: () => void selection.downloadAttachments() }] : []),
     { icon: "return-up-forward-outline", label: t("forward"), onPress: selection.openForwardPicker },
     {
       icon: selection.allPinned ? "pin-outline" : "pin",

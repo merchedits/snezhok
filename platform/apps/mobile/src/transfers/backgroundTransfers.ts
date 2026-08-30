@@ -53,6 +53,13 @@ export class BackgroundTransferQueueFullError extends Error {
   }
 }
 
+export class BackgroundTransferPausedError extends Error {
+  constructor() {
+    super("The active account changed while this transfer was running");
+    this.name = "BackgroundTransferPausedError";
+  }
+}
+
 type DispatchGroup = (input: BackgroundGroupDispatch) => Promise<Message>;
 type WakeCallback = () => void;
 
@@ -85,9 +92,10 @@ export async function enqueueBackgroundAttachmentBatch(input: {
   streamId: string;
   messageKind: AttachmentMessageKind;
   replyToId: string | null;
+  text?: string;
   silent?: boolean;
   inputs: UploadInput[];
-  onCreated?: (batchId: string) => void;
+  onCreated?: (batch: QueuedAttachmentBatch) => void;
 }): Promise<string> {
   const batchId = Crypto.randomUUID();
   const groupSize = attachmentGroupSize(input.messageKind);
@@ -97,6 +105,7 @@ export async function enqueueBackgroundAttachmentBatch(input: {
     streamId: input.streamId,
     messageKind: input.messageKind,
     replyToId: input.replyToId,
+    ...(input.text === undefined ? {} : { text: input.text }),
     ...(input.silent === undefined ? {} : { silent: input.silent }),
     inputs: input.inputs,
     transferIds: input.inputs.map(() => Crypto.randomUUID()),
@@ -112,16 +121,20 @@ export async function enqueueBackgroundAttachmentBatch(input: {
     if (activeTransferCount + batch.transfers.length > MAX_ACTIVE_TRANSFERS) throw new BackgroundTransferQueueFullError();
     return [batch, ...current.filter((item) => item.id !== batch.id)];
   });
-  input.onCreated?.(batchId);
-  await schedulePendingTransfers(batchId);
+  input.onCreated?.(batch);
+  // Persistence is the acknowledgement boundary. Scheduling is best effort so
+  // offline selections remain queued for the next online reconciliation.
+  await schedulePendingTransfers(batchId).catch(() => undefined);
   return batchId;
 }
 
 export async function reconcileBackgroundTransfers(input: {
   ownerId: string;
   online: boolean;
+  isActive?: () => boolean;
   dispatchGroup: DispatchGroup;
   onProgress?: (batchId: string, progress: number) => void;
+  onBatch?: (batch: QueuedAttachmentBatch) => void;
 }): Promise<void> {
   const active = reconciliations.get(input.ownerId);
   if (active) return active;
@@ -134,13 +147,16 @@ export async function waitForBackgroundBatch(input: {
   batchId: string;
   ownerId: string;
   isOnline: () => boolean;
+  isActive?: () => boolean;
   dispatchGroup: DispatchGroup;
   onProgress?: (progress: number) => void;
 }): Promise<void> {
   while (true) {
+    if (input.isActive && !input.isActive()) throw new BackgroundTransferPausedError();
     await reconcileBackgroundTransfers({
       ownerId: input.ownerId,
       online: input.isOnline(),
+      ...(input.isActive ? { isActive: input.isActive } : {}),
       dispatchGroup: input.dispatchGroup,
       ...(input.onProgress ? { onProgress: (batchId, progress) => { if (batchId === input.batchId) input.onProgress!(progress); } } : {}),
     });
@@ -155,12 +171,28 @@ export async function waitForBackgroundBatch(input: {
       throw new UploadCancelledError();
     }
     if (batchFailed(batch)) {
-      await cancelBackgroundBatch(batch.id);
-      await forgetBackgroundBatch(batch.id);
       throw new BackgroundTransferFailedError(input.batchId);
     }
     await waitForWake(1_000);
   }
+}
+
+export async function retryBackgroundBatchForMessage(clientId: string): Promise<QueuedAttachmentBatch | null> {
+  const batch = (await readBackgroundTransferBatches()).find((item) => item.groups.some((group) => group.clientId === clientId));
+  if (!batch || !batch.transfers.some((transfer) => transfer.status === "failed")) return null;
+  const failedIds = batch.transfers.filter((transfer) => transfer.status === "failed").map((transfer) => transfer.transferId);
+  await Promise.all(failedIds.map((transferId) => removeNativeTransfer(transferId).catch(() => false)));
+  const batches = await mutateBackgroundTransferBatches((current) => current.map((item) => item.id !== batch.id ? item : {
+    ...item,
+    updatedAt: Date.now(),
+    transfers: item.transfers.map((transfer) => transfer.status === "failed"
+      ? { ...transfer, status: "pending" as const, progress: 0, errorCode: null }
+      : transfer),
+  }));
+  const retried = batches.find((item) => item.id === batch.id) ?? null;
+  if (retried) await schedulePendingTransfers(retried.id).catch(() => undefined);
+  notifyWakeCallbacks();
+  return retried;
 }
 
 export async function cancelBackgroundBatch(batchId: string): Promise<void> {
@@ -185,6 +217,15 @@ export async function clearAllBackgroundTransfers(): Promise<void> {
     api.cancelInitializedUpload(transfer.transferId).catch(() => undefined),
   ])));
   await clearBackgroundTransferBatches();
+}
+
+export async function clearBackgroundTransfersForOwner(ownerId: string): Promise<void> {
+  const batches = (await readBackgroundTransferBatches()).filter((batch) => batch.ownerId === ownerId);
+  await Promise.all(batches.flatMap((batch) => batch.transfers.flatMap((transfer) => [
+    cancelNativeTransfer(transfer.transferId).catch(() => null),
+    api.cancelInitializedUpload(transfer.transferId).catch(() => undefined),
+  ])));
+  await mutateBackgroundTransferBatches((current) => current.filter((batch) => batch.ownerId !== ownerId));
 }
 
 async function schedulePendingTransfers(batchId: string): Promise<void> {
@@ -245,6 +286,7 @@ async function schedulePendingTransfers(batchId: string): Promise<void> {
       kind: current.messageKind,
       replyToId: group.replyToId,
       silent: current.silent,
+      text: group.text ?? "",
       capabilityUploadIds: pending.map((transfer) => transfer.transferId),
       uploads: grouped.map((transfer) => ({ uploadId: transfer.transferId, input: transfer.input, bytes: bytesById.get(transfer.transferId)! })),
     });
@@ -296,15 +338,20 @@ async function localUploadBytes(uri: string): Promise<number> {
 async function reconcileOnce(input: {
   ownerId: string;
   online: boolean;
+  isActive?: () => boolean;
   dispatchGroup: DispatchGroup;
   onProgress?: (batchId: string, progress: number) => void;
+  onBatch?: (batch: QueuedAttachmentBatch) => void;
 }): Promise<void> {
+  if (input.isActive && !input.isActive()) return;
   let batches = await readBackgroundTransferBatches();
   for (const complete of batches.filter(batchComplete)) await cleanupCompletedBatch(complete);
   batches = await readBackgroundTransferBatches();
-  const mismatched = batches.filter((batch) => batch.ownerId !== input.ownerId && !batchComplete(batch));
-  await Promise.all(mismatched.map((batch) => cancelBackgroundBatch(batch.id)));
-  batches = (await readBackgroundTransferBatches()).filter((batch) => batch.ownerId === input.ownerId);
+  // Other accounts share this durable device queue. Their capability-scoped
+  // native work may finish, but only the active owner may project or dispatch
+  // its message groups. Switching back resumes reconciliation safely.
+  batches = batches.filter((batch) => batch.ownerId === input.ownerId);
+  for (const batch of batches) input.onBatch?.(batch);
   const snapshots = await listNativeTransfers();
   const invalidNativeResults = snapshots.filter((snapshot) => snapshot.status === "succeeded"
     && (!snapshot.resultJson || !parseAttachmentResult(snapshot.resultJson)));
@@ -327,6 +374,7 @@ async function reconcileOnce(input: {
   if (input.online) {
     const errors: unknown[] = [];
     for (const batch of (await readBackgroundTransferBatches()).filter((item) => item.ownerId === input.ownerId && !batchComplete(item))) {
+      if (input.isActive && !input.isActive()) return;
       if (!batch.transfers.some((transfer) => transfer.status === "pending")) continue;
       try {
         await schedulePendingTransfers(batch.id);
@@ -340,9 +388,10 @@ async function reconcileOnce(input: {
   if (!input.online) return;
   for (let batch of (await readBackgroundTransferBatches()).filter((item) => item.ownerId === input.ownerId && !batchFailed(item))) {
     for (const ready of readyAttachmentGroups(batch)) {
+      if (input.isActive && !input.isActive()) return;
       const messageInput: MessageCreateInput = {
         clientId: ready.group.clientId,
-        text: "",
+        text: ready.group.text ?? "",
         kind: batch.messageKind,
         replyToId: ready.group.replyToId,
         attachmentIds: ready.attachments.map((attachment) => attachment.id),

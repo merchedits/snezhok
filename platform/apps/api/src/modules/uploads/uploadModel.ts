@@ -19,6 +19,7 @@ export const waitingGroupSchema = z.object({
   streamId: z.string().uuid(),
   clientId: z.string().uuid(),
   kind: z.enum(["voice", "video-note", "media", "file"]),
+  text: z.string().trim().max(4096).default(""),
   replyToId: z.string().uuid().nullable().default(null),
   silent: z.boolean().default(false),
   uploads: z.array(waitingUploadSchema).min(1).max(10),

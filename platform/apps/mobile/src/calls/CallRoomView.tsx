@@ -23,6 +23,7 @@ import { callMediaProfile } from "../lib/callQuality";
 import { userFacingError } from "../lib/userFacingError";
 import { useAppStore } from "../store/useAppStore";
 import { canPublishSource, useCallSession } from "./CallSessionProvider";
+import { callNetworkQuality } from "./callStats";
 import { shouldRenderCameraTrack } from "./callVideoPresentation";
 import { callCopy } from "./callStrings";
 import { playCallOutputTest, updateCallForegroundService } from "./callForegroundService";
@@ -33,7 +34,7 @@ export function CallRoomView({ onMinimize }: { onMinimize: () => void }) {
   const { t } = useTranslation();
   const settings = useAppStore((state) => state.settings);
   const copy = callCopy(settings.language);
-  const { session, leaveCall, toggleMicrophone, setAudioRoute } = useCallSession();
+  const { session, leaveCall, toggleMicrophone, setCameraFailure, setAudioRoute } = useCallSession();
   const room = useRoomContext();
   const connection = useConnectionState();
   const participants = useParticipants();
@@ -54,6 +55,13 @@ export function CallRoomView({ onMinimize }: { onMinimize: () => void }) {
   const directRemoteTrack = directRemote
     ? cameraTracks.find((track) => track.participant.identity === directRemote.identity)
     : undefined;
+  const directLocalTrack = session.kind === "direct" ? cameraTracks.find((track) => track.participant.isLocal) : undefined;
+  const networkQuality = callNetworkQuality(session.stats);
+  const networkLabel = networkQuality === "good" ? copy.networkGood : networkQuality === "fair" ? copy.networkFair : networkQuality === "poor" ? copy.networkPoor : null;
+  const avatarFor = (participant: Participant) => {
+    if (participant.isLocal) return useAppStore.getState().me?.avatarUrl ?? null;
+    return useAppStore.getState().conversations.find((item) => item.id === session.streamId)?.participants.find((item) => item.id === participant.identity)?.avatarUrl ?? null;
+  };
 
   const run = (action: () => Promise<unknown>, title: string) => {
     void action().catch((error: unknown) => showDialog(title, userFacingError(error, t)));
@@ -66,6 +74,7 @@ export function CallRoomView({ onMinimize }: { onMinimize: () => void }) {
     }
     const nextEnabled = !isCameraEnabled;
     await localParticipant.setCameraEnabled(nextEnabled, { resolution: { width: profile.camera.width, height: profile.camera.height, frameRate: profile.camera.frameRate }, frameRate: profile.camera.frameRate }, { videoEncoding: { maxBitrate: profile.camera.maxBitrate, maxFramerate: profile.camera.frameRate }, simulcast: profile.simulcast });
+    if (nextEnabled) setCameraFailure(false);
     if (!updateCallForegroundService(session.title, copy.active, nextEnabled)) {
       await localParticipant.setCameraEnabled(isCameraEnabled).catch(() => undefined);
       throw new Error("CALL_FOREGROUND_SERVICE_UPDATE_FAILED");
@@ -127,7 +136,7 @@ export function CallRoomView({ onMinimize }: { onMinimize: () => void }) {
 
   return <SafeAreaView style={[styles.call, { backgroundColor: palette.background }]}>
     <View style={styles.header}>
-      <View style={styles.headerCopy}><Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[styles.title, { color: palette.text }]}>{session.title}</Text><Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={[styles.state, { color: connected ? palette.success : palette.warning }]}>{connected ? t("connected", { count: participants.length }) : connectionStateLabel(connection, t)}</Text></View>
+      <View style={styles.headerCopy}><Text numberOfLines={1} style={[styles.title, { color: palette.text }]}>{session.title}</Text><Text numberOfLines={2} style={[styles.state, { color: connected ? networkQuality === "poor" ? palette.danger : networkQuality === "fair" ? palette.warning : palette.success : palette.warning }]}>{connected ? `${t("connected", { count: participants.length })}${networkLabel ? ` · ${networkLabel}` : ""}` : connectionStateLabel(connection, t)}</Text></View>
       <Pressable accessibilityRole="button" accessibilityLabel={copy.minimize} onPress={onMinimize} style={styles.headerButton}><AppIcon name="chevron-down" size={28} color={palette.text} /></Pressable>
     </View>
 
@@ -141,20 +150,23 @@ export function CallRoomView({ onMinimize }: { onMinimize: () => void }) {
         <Avatar uri={null} label={directRemote?.name || directRemote?.identity || session.title} size={112} />
       </View>}
       <View style={styles.directIdentity}>
-        <Text maxFontSizeMultiplier={1.2} numberOfLines={1} style={styles.directName}>{directRemote?.name || directRemote?.identity || session.title}</Text>
+        <Text numberOfLines={1} style={styles.directName}>{directRemote?.name || directRemote?.identity || session.title}</Text>
         <AppIcon name={directRemote?.isMicrophoneEnabled ? "mic" : "mic-off"} size={17} color={directRemote?.isMicrophoneEnabled ? "white" : palette.danger} />
       </View>
+      {directLocalTrack ? <View style={[styles.selfView, { borderColor: palette.border }]}><VideoTrack trackRef={directLocalTrack} style={styles.selfVideo} objectFit="cover" mirror /></View> : null}
     </View> : <ScrollView contentContainerStyle={[styles.participants, screenTrack && styles.participantsWithScreen]}>
       {cameraTracks.length > 0 ? <View style={styles.cameraGrid}>{cameraTracks.map((track) => <View key={`${track.participant.identity}-${track.source}`} style={[styles.cameraTile, { borderColor: track.participant.isSpeaking ? palette.success : palette.border }]}><VideoTrack trackRef={track} style={styles.cameraVideo} objectFit="cover" mirror={track.participant.isLocal} /><Text style={styles.cameraName}>{track.participant.isLocal ? t("you") : track.participant.name || track.participant.identity}</Text></View>)}</View> : null}
       <View style={styles.voiceGrid}>{participants.map((participant) => {
         const volume = participantVolumes[participant.identity] ?? 1;
         return <Pressable key={participant.identity} disabled={participant.isLocal} onLongPress={() => showParticipantVolume(participant)} accessibilityHint={participant.isLocal ? undefined : copy.participantVolume} style={[styles.person, { backgroundColor: palette.surface, borderColor: participant.isSpeaking ? palette.success : palette.border }]}>
-          <Avatar uri={null} label={participant.name || participant.identity} size={58} />
+          <Avatar uri={avatarFor(participant)} label={participant.name || participant.identity} size={58} />
           <Text numberOfLines={1} style={[styles.personName, { color: palette.text }]}>{participant.isLocal ? t("you") : participant.name || participant.identity}</Text>
           <View style={styles.personStatus}><AppIcon name={participant.isMicrophoneEnabled ? "mic" : "mic-off"} size={15} color={participant.isMicrophoneEnabled ? palette.secondaryText : palette.danger} />{!participant.isLocal ? <Pressable hitSlop={9} onPress={() => { const remote = participant as RemoteParticipant; const next = volume === 0 ? 1 : 0; remote.setVolume(next); setParticipantVolumes((current) => ({ ...current, [participant.identity]: next })); }} onLongPress={() => showParticipantVolume(participant)}><AppIcon name={volume === 0 ? "volume-mute" : "volume-high"} size={15} color={volume === 0 ? palette.danger : palette.secondaryText} /></Pressable> : null}</View>
         </Pressable>;
       })}</View>
     </ScrollView>}
+
+    {session.cameraFailure ? <View style={[styles.cameraFailure, { backgroundColor: palette.surface }]}><AppIcon name="warning-outline" size={18} color={palette.warning} /><Text style={[styles.cameraFailureText, { color: palette.text }]}>{copy.cameraFailed}</Text></View> : null}
 
     <View accessibilityLabel={copy.microphoneLevel} style={[styles.meterTrack, { backgroundColor: palette.border }]}><View style={[styles.meterValue, { backgroundColor: microphoneLevel > 0.75 ? palette.warning : palette.success, width: `${Math.max(2, Math.min(100, microphoneLevel * 100))}%` }]} /></View>
 
@@ -200,7 +212,7 @@ async function requestAndroidPermission(permission: typeof PermissionsAndroid.PE
 function CallButton({ icon, label, active = false, danger = false, onPress }: { icon: AppIconName; label: string; active?: boolean; danger?: boolean; onPress: () => void }) {
   const palette = usePalette();
   const background = danger ? palette.danger : active ? palette.accent : palette.elevated;
-  return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [styles.control, danger && styles.dangerControl, pressed && styles.controlPressed]}><View style={[styles.controlCircle, { backgroundColor: background }]}><AppIcon name={icon} size={22} color={danger || active ? "white" : palette.text} /></View><Text maxFontSizeMultiplier={1.1} numberOfLines={1} style={[styles.controlLabel, { color: palette.secondaryText }]}>{label}</Text></Pressable>;
+  return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [styles.control, danger && styles.dangerControl, pressed && styles.controlPressed]}><View style={[styles.controlCircle, { backgroundColor: background }]}><AppIcon name={icon} size={22} color={danger || active ? "white" : palette.text} /></View><Text numberOfLines={2} style={[styles.controlLabel, { color: palette.secondaryText }]}>{label}</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -219,6 +231,8 @@ const styles = StyleSheet.create({
   directAvatar: { flex: 1, alignItems: "center", justifyContent: "center" },
   directIdentity: { position: "absolute", left: 12, right: 12, bottom: 12, minHeight: 42, borderRadius: 15, paddingHorizontal: 13, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.62)" },
   directName: { flex: 1, color: "white", fontSize: 15, lineHeight: 20, fontWeight: "800" },
+  selfView: { position: "absolute", right: 12, top: 12, width: 92, aspectRatio: 0.72, borderWidth: 2, borderRadius: 14, overflow: "hidden", backgroundColor: "black" },
+  selfVideo: { width: "100%", height: "100%" },
   participants: { flexGrow: 1, justifyContent: "center", padding: 14 },
   participantsWithScreen: { justifyContent: "flex-start" },
   cameraGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 12 },
@@ -231,9 +245,11 @@ const styles = StyleSheet.create({
   personStatus: { minHeight: 20, flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
   meterTrack: { height: 3, marginHorizontal: 18, borderRadius: 2, overflow: "hidden" },
   meterValue: { height: "100%", borderRadius: 2 },
+  cameraFailure: { marginHorizontal: 14, marginTop: 6, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 8 },
+  cameraFailureText: { flex: 1, fontSize: 12, lineHeight: 16, fontWeight: "700" },
   controls: { minHeight: 150, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, paddingTop: 9, gap: 7 },
-  controlRow: { width: "100%", flexDirection: "row", justifyContent: "space-evenly", alignItems: "flex-start" },
-  control: { flex: 1, minWidth: 0, maxWidth: 72, alignItems: "center" },
+  controlRow: { width: "100%", flexDirection: "row", flexWrap: "wrap", justifyContent: "space-evenly", alignItems: "flex-start" },
+  control: { flexGrow: 1, flexBasis: 64, minWidth: 58, maxWidth: 76, minHeight: 72, alignItems: "center" },
   dangerControl: { flex: 0, width: 84, maxWidth: 84 },
   controlPressed: { opacity: 0.62, transform: [{ scale: 0.96 }] },
   controlCircle: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },

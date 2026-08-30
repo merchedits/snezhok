@@ -1,7 +1,7 @@
 import type { Attachment, Message } from "@snezhok/contracts";
 
 import type { BackgroundGroupDispatch } from "../../transfers/backgroundTransfers";
-import { attachmentGroupSize, type AttachmentMessageKind } from "../../transfers/backgroundTransferModel";
+import { attachmentGroupSize, optimisticMessagesForAttachmentBatch, type AttachmentMessageKind, type QueuedAttachmentBatch } from "../../transfers/backgroundTransferModel";
 import type { TransferHandle } from "../../transfers/transferManager";
 import type { AppState, AppStoreGet } from "../../store/appState";
 import type { UploadInput } from "../../types";
@@ -23,13 +23,14 @@ export interface AttachmentTransferDependencies<Guard> {
     waitForBatch: typeof import("../../transfers/backgroundTransfers").waitForBackgroundBatch;
     cancelBatch: typeof import("../../transfers/backgroundTransfers").cancelBackgroundBatch;
     reconcile: typeof import("../../transfers/backgroundTransfers").reconcileBackgroundTransfers;
+    retryForMessage: typeof import("../../transfers/backgroundTransfers").retryBackgroundBatchForMessage;
   };
   manager: Pick<typeof import("../../transfers/transferManager").transferManager,
     "begin" | "cancel" | "cancelWhere" | "clearTerminal">;
 }
 
 type AttachmentTransferActions = Pick<AppState,
-  "uploadAttachment" | "sendAttachmentBatch" | "reconcileBackgroundTransfers" | "cancelUpload">;
+  "uploadAttachment" | "sendAttachmentBatch" | "reconcileBackgroundTransfers" | "retryAttachmentTransfer" | "cancelUpload">;
 
 export interface AttachmentTransferDomain {
   actions: AttachmentTransferActions;
@@ -50,6 +51,11 @@ export function createAttachmentTransferDomain<Guard>({
   const activeBackgroundBatches = new Map<string, TransferHandle>();
 
   const dispatchBackgroundAttachmentGroup = async ({ batch, input }: BackgroundGroupDispatch): Promise<Message> => {
+    if (get().me?.id !== batch.ownerId || !sessionIsActive()) {
+      const error = new Error("The active account changed while this transfer was running");
+      error.name = "BackgroundTransferPausedError";
+      throw error;
+    }
     const message = await transport.createMessage(batch.streamId, input);
     if (get().me?.id === batch.ownerId && sessionIsActive()) get().applyMessage(message, "created");
     return message;
@@ -60,6 +66,7 @@ export function createAttachmentTransferDomain<Guard>({
     inputs: UploadInput[],
     messageKind: AttachmentMessageKind,
     replyToId: string | null,
+    text: string,
     guard: Guard,
     transfer: TransferHandle,
     transferId: string,
@@ -81,7 +88,7 @@ export function createAttachmentTransferDomain<Guard>({
           completed += 1;
         }
         await get().sendMessage(streamId, {
-          text: "",
+          text: start === 0 ? text : "",
           kind: messageKind,
           replyToId: start === 0 ? replyToId : null,
           attachmentIds: attachments.map((attachment) => attachment.id),
@@ -105,6 +112,34 @@ export function createAttachmentTransferDomain<Guard>({
     manager.clearTerminal();
   };
 
+  const projectPendingBatch = (batch: QueuedAttachmentBatch) => {
+    const me = get().me;
+    if (!me || me.id !== batch.ownerId) return;
+    const current = get().messages[batch.streamId] ?? [];
+    const knownClientIds = new Set(current.flatMap((message) => message.clientId ? [message.clientId] : []));
+    const startSequence = (current.at(-1)?.sequence ?? 0) + 1;
+    for (const optimistic of optimisticMessagesForAttachmentBatch({
+      batch,
+      sender: me,
+      streamKind: get().channels.some((channel) => channel.id === batch.streamId) ? "channel" : "conversation",
+      startingSequence: startSequence,
+    })) {
+      const existing = current.find((message) => message.id === optimistic.id || message.clientId === optimistic.clientId);
+      if (existing && !existing.pending && !existing.failed) continue;
+      if (!existing && knownClientIds.has(optimistic.clientId ?? "")) continue;
+      get().applyMessage(existing ? { ...optimistic, sequence: existing.sequence, createdAt: existing.createdAt } : optimistic, "updated");
+    }
+  };
+
+  const markBatchFailed = (batch: QueuedAttachmentBatch) => {
+    const failedBatch: QueuedAttachmentBatch = {
+      ...batch,
+      updatedAt: Date.now(),
+      transfers: batch.transfers.map((transfer) => transfer.status === "succeeded" ? transfer : { ...transfer, status: "failed", errorCode: transfer.errorCode ?? "transfer_failed" }),
+    };
+    projectPendingBatch(failedBatch);
+  };
+
   const actions: AttachmentTransferActions = {
     uploadAttachment: async (input, onProgress, transferId) => {
       const guard = captureGuard();
@@ -118,13 +153,25 @@ export function createAttachmentTransferDomain<Guard>({
       return attachment;
     },
 
-    sendAttachmentBatch: (streamId, inputs, messageKind, replyToId) => {
+    sendAttachmentBatch: (streamId, inputs, messageKind, replyToId, text = "") => {
       const transferId = createId();
       const me = get().me;
       const guard = captureGuard();
+      let accept: () => void = () => undefined;
+      let rejectAcceptance: (error: unknown) => void = () => undefined;
+      const accepted = new Promise<void>((resolve, reject) => { accept = resolve; rejectAcceptance = reject; });
+      let projectedBatch: QueuedAttachmentBatch | null = null;
       const completion = (async () => {
-        if (!me) throw new Error("No active session");
-        if (!get().online) throw new Error("Attachments require a network connection");
+        if (!me) {
+          const error = new Error("No active session");
+          rejectAcceptance(error);
+          throw error;
+        }
+        if (!background.available && !get().online) {
+          const error = new Error("Attachments require a network connection on this device");
+          rejectAcceptance(error);
+          throw error;
+        }
         const transfer = manager.begin({
           id: transferId,
           ownerId: me.id,
@@ -141,31 +188,41 @@ export function createAttachmentTransferDomain<Guard>({
           if (!guardIsCurrent(guard)) throw new StaleAccountOperationError();
           const prepared = compressed.map((input) => ({ ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation }));
           if (!background.available) {
-            await sendForegroundAttachmentBatch(streamId, prepared, messageKind, replyToId, guard, transfer, transferId);
+            accept();
+            await sendForegroundAttachmentBatch(streamId, prepared, messageKind, replyToId, text, guard, transfer, transferId);
           } else {
             batchId = await background.enqueueBatch({
               ownerId: me.id,
               streamId,
               messageKind,
               replyToId,
+              text,
               inputs: prepared,
-              onCreated: (createdBatchId) => {
-                batchId = createdBatchId;
-                activeBackgroundBatches.set(createdBatchId, transfer);
+              onCreated: (createdBatch) => {
+                batchId = createdBatch.id;
+                projectedBatch = createdBatch;
+                activeBackgroundBatches.set(createdBatch.id, transfer);
+                projectPendingBatch(createdBatch);
               },
             });
             activeBackgroundBatches.set(batchId, transfer);
+            accept();
             await background.waitForBatch({
               batchId,
               ownerId: me.id,
               isOnline: () => get().online,
+              isActive: () => guardIsCurrent(guard),
               dispatchGroup: dispatchBackgroundAttachmentGroup,
               onProgress: (progress) => transfer.updateProgress(progress),
             });
           }
           if (!transfer.cancelled) transfer.complete();
         } catch (error) {
-          if (!transfer.cancelled) transfer.fail();
+          rejectAcceptance(error);
+          const paused = error instanceof Error && error.name === "BackgroundTransferPausedError";
+          if (!paused && projectedBatch) markBatchFailed(projectedBatch);
+          if (!transfer.cancelled) paused ? transfer.complete() : transfer.fail();
+          if (paused) return;
           throw error;
         } finally {
           removeCancelHandler();
@@ -173,7 +230,7 @@ export function createAttachmentTransferDomain<Guard>({
           manager.clearTerminal();
         }
       })();
-      return { id: transferId, completion };
+      return { id: transferId, accepted, completion };
     },
 
     reconcileBackgroundTransfers: async () => {
@@ -183,11 +240,22 @@ export function createAttachmentTransferDomain<Guard>({
       await background.reconcile({
         ownerId: state.me.id,
         online: state.online,
+        isActive: () => guardIsCurrent(guard),
         dispatchGroup: dispatchBackgroundAttachmentGroup,
         onProgress: (batchId, progress) => {
           if (guardIsCurrent(guard)) activeBackgroundBatches.get(batchId)?.updateProgress(progress);
         },
+        onBatch: (batch) => {
+          if (guardIsCurrent(guard)) projectPendingBatch(batch);
+        },
       });
+    },
+
+    retryAttachmentTransfer: async (clientId) => {
+      const batch = await background.retryForMessage(clientId);
+      if (!batch) return;
+      projectPendingBatch(batch);
+      if (get().online) await actions.reconcileBackgroundTransfers();
     },
 
     cancelUpload: async (transferId) => {

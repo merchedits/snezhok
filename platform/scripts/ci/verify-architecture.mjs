@@ -4,11 +4,35 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const defaultPlatformRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const defaultSourceRoots = ["apps/mobile/src", "apps/api/src", "apps/media-worker/src", "packages/contracts/src"];
+export const defaultSourceRoots = [
+  "apps/mobile/src",
+  "apps/api/src",
+  "apps/media-worker/src",
+  "apps/web/src",
+  "packages/contracts/src",
+  "packages/game-engine/src",
+];
 const MAX_FILE_LINES = 500;
+const MAX_REACT_COMPONENT_LINES = 300;
 const defaultExceptions = new Map([
   // Dormant compatibility surface. This ceiling may only move down.
   ["apps/api/src/modules/servers/routes.ts", 692],
+  // Existing React monoliths are frozen at their audited 2026-08-30 size.
+  // Decomposition removes these entries; new code may not raise the ceilings.
+  ["apps/web/src/state/AppContext.tsx", 929],
+  ["apps/mobile/src/screens/ProfileScreen.tsx", 330],
+  ["apps/mobile/src/calls/CallSessionProvider.tsx", 422],
+  ["apps/mobile/src/components/VoiceMessageAttachment.tsx", 320],
+  ["apps/mobile/src/components/MessageBubble.tsx", 353],
+  ["apps/mobile/src/components/AttachmentSheet.tsx", 318],
+  ["apps/mobile/src/components/chat/ChatMessageList.tsx", 344],
+  ["apps/mobile/src/components/chat/ChatVoiceControls.tsx", 355],
+  ["apps/mobile/src/components/CooperativeActivityModal.tsx", 448],
+  ["apps/mobile/src/components/CooperativeActivityCard.tsx", 417],
+  ["apps/mobile/src/components/ImageViewer.tsx", 332],
+  ["apps/mobile/src/components/activities/CooperativeActivityShared.tsx", 375],
+  ["apps/mobile/src/components/activities/CooperativeActivityInputs.tsx", 490],
+  ["apps/mobile/src/components/games/boards/PoolBoard.tsx", 334],
 ]);
 
 export async function inspectArchitecture({
@@ -24,7 +48,7 @@ export async function inspectArchitecture({
     const source = await readFile(absolute, "utf8");
     const lineCount = source.split(/\r?\n/).length;
     const localizedCopy = relative === "apps/mobile/src/i18n.ts";
-    const ceiling = exceptions.get(relative) ?? (localizedCopy ? Number.POSITIVE_INFINITY : MAX_FILE_LINES);
+    const ceiling = exceptions.get(relative) ?? (localizedCopy ? Number.POSITIVE_INFINITY : relative.endsWith(".tsx") ? MAX_REACT_COMPONENT_LINES : MAX_FILE_LINES);
     if (lineCount > ceiling) failures.push(`${relative}: ${lineCount} lines exceeds ${ceiling}`);
 
     const imports = extractImports(source);

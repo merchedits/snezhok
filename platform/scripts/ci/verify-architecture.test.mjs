@@ -4,7 +4,25 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { inspectArchitecture } from "./verify-architecture.mjs";
+import { defaultSourceRoots, inspectArchitecture } from "./verify-architecture.mjs";
+
+test("architecture gate covers every shipped TypeScript product surface", () => {
+  assert(defaultSourceRoots.includes("apps/web/src"));
+  assert(defaultSourceRoots.includes("packages/game-engine/src"));
+});
+
+test("architecture gate rejects a new oversized React component", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "snezhok-architecture-"));
+  try {
+    await files(root, {
+      "apps/web/src/Oversized.tsx": Array.from({ length: 301 }, (_, index) => `// ${index}`).join("\n"),
+    });
+    const result = await inspectArchitecture({ platformRoot: root, sourceRoots: ["apps/web/src"], exceptions: new Map() });
+    assert(result.failures.some((failure) => failure.includes("301 lines exceeds 300")));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("architecture gate rejects inverted mobile dependencies and direct UI transport", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "snezhok-architecture-"));

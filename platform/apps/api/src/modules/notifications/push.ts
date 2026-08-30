@@ -61,12 +61,14 @@ export function pushContentForEvent(
       ...(options.sound === false ? {} : { sound: "default" as const }),
       priority: "high",
       channelId: "messages-v1",
+      categoryId: "message-actions-v1",
       collapseId: `stream-${value.streamId}`.slice(0, 64),
       data: {
         notificationType: "message",
         streamId: value.streamId,
         streamKind: value.streamKind,
         title: senderName,
+        sequence: value.sequence,
       },
     };
   }

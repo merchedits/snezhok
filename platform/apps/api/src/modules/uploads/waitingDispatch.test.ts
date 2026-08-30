@@ -9,6 +9,7 @@ import {
   validateWaitingDispatchShape,
   type WaitingUploadDeclaration,
 } from "./waitingDispatch.js";
+import { waitingGroupSchema } from "./uploadModel.js";
 
 function upload(overrides: Partial<WaitingUploadDeclaration> = {}): WaitingUploadDeclaration {
   return {
@@ -33,4 +34,13 @@ test("waiting dispatch SQL promotes only complete ordered groups and has cancell
   assert.match(recoverWaitingDispatchesSql, /status='waiting'/);
   assert.match(expireWaitingDispatchesSql, /expires_at<=now\(\)/);
   assert.match(cancelWaitingDispatchForUploadSql, /ANY\(attachment_ids\)/);
+});
+
+test("waiting attachment groups preserve bounded captions", () => {
+  const payload = {
+    streamId: crypto.randomUUID(), clientId: crypto.randomUUID(), kind: "media", text: "Summer photo",
+    replyToId: null, silent: false, uploads: [upload()],
+  };
+  assert.equal(waitingGroupSchema.parse(payload).text, "Summer photo");
+  assert.throws(() => waitingGroupSchema.parse({ ...payload, text: "x".repeat(4097) }));
 });

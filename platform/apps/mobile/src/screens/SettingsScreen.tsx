@@ -27,6 +27,7 @@ import { optionLabel, useTranslation } from "../i18n";
 import { clearMediaCache, currentMediaCacheBytes, formatStorageBytes, mediaCacheLimit, MEDIA_CACHE_LIMITS_MB, setMediaCacheLimit, type MediaCacheLimitMb } from "../lib/mediaCache";
 import { userFacingError } from "../lib/userFacingError";
 import { productCopy } from "../lib/productCopy";
+import { AppLockSettingRow } from "../security/AppLockSettingRow";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
 import { useAndroidUpdate } from "../updates/UpdateProvider";
@@ -177,6 +178,7 @@ export function SettingsScreen({ embedded = false }: { embedded?: boolean }) {
           <SettingsCard tone="mint">
             <SettingsRow icon="person-circle-outline" label={pc("accountSecurity")} onPress={() => setAccountPage("account")} />
             <SettingsRow icon="shield-checkmark-outline" label={pc("privacyDetails")} onPress={() => setAccountPage("privacy")} />
+            <AppLockSettingRow />
             <SettingsSwitchRow icon="checkmark-done-outline" label={t("readReceipts")} value={settings.readReceipts} onChange={(readReceipts) => patch({ readReceipts })} />
             <SettingsSwitchRow icon="time-outline" label={t("showLastSeen")} value={settings.showLastSeen} onChange={(showLastSeen) => patch({ showLastSeen })} />
           </SettingsCard>

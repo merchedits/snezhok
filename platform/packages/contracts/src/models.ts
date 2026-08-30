@@ -7,6 +7,13 @@ export type UploadQuality = "data-saver" | "auto" | "high" | "original";
 export type ChannelKind = "text" | "voice";
 export type ConversationKind = "direct" | "group";
 export type MessageKind = "text" | "system" | "voice" | "video-note" | "media" | "file";
+
+export interface LinkPreview {
+  url: string;
+  hostname: string;
+  title: string;
+  description: string | null;
+}
 export type MemberRole = "owner" | "admin" | "moderator" | "member";
 export type CooperativeActivityType =
   | "question"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseCallStats } from "./callStats";
+import { callNetworkQuality, parseCallStats, type CallNetworkStats } from "./callStats";
 
 test("aggregates privacy-safe WebRTC network statistics and deltas", () => {
   const shared = [{ id: "codec-a", type: "codec", mimeType: "audio/opus" }, { id: "candidate-a", type: "local-candidate", candidateType: "relay", protocol: "tcp", relayProtocol: "tls" }, { type: "candidate-pair", nominated: true, state: "succeeded", currentRoundTripTime: 0.052, localCandidateId: "candidate-a" }];
@@ -22,4 +22,12 @@ test("accepts map-like RTCStatsReport values and ignores malformed numbers", () 
   const result = parseCallStats([report], undefined, 5_000);
   assert.equal(result.stats.pingMs, null);
   assert.equal(result.stats.packetLossPercent, null);
+});
+
+test("classifies visible call quality from latency, jitter and packet loss", () => {
+  const stats: CallNetworkStats = { pingMs: 70, jitterMs: 8, packetLossPercent: 1, inboundKbps: 80, outboundKbps: 40, codecs: [], iceCandidateType: "relay", transportProtocol: "udp", sampledAt: 1 };
+  assert.equal(callNetworkQuality(stats), "good");
+  assert.equal(callNetworkQuality({ ...stats, pingMs: 250 }), "fair");
+  assert.equal(callNetworkQuality({ ...stats, packetLossPercent: 9 }), "poor");
+  assert.equal(callNetworkQuality({ ...stats, sampledAt: 0 }), "unknown");
 });

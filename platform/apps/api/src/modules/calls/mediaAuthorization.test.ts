@@ -106,6 +106,8 @@ test("user-wide termination ends every reachable room once and preserves unrelat
     const stored = await db.query<{ count: number }>(
       "SELECT count(*)::integer count FROM events WHERE name='call:updated' AND payload->>'reason'='account-suspended'",
     );
+    const history = await db.query<{ count: number }>("SELECT count(*)::integer count FROM messages WHERE kind='system' AND text::jsonb->>'type'='call'");
+    const historyEvents = await db.query<{ count: number }>("SELECT count(*)::integer count FROM events WHERE name='message:created' AND payload->>'kind'='system'");
 
     assert.equal(events.length, 4);
     assert.equal(duplicateEvents.length, 0);
@@ -117,6 +119,8 @@ test("user-wide termination ends every reachable room once and preserves unrelat
       "target-conversation",
     ]);
     assert.equal(stored.rows[0]?.count, 4);
+    assert.equal(history.rows[0]?.count, 2);
+    assert.equal(historyEvents.rows[0]?.count, 2);
   } finally {
     await db.close();
   }

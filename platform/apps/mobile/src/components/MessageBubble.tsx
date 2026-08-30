@@ -8,12 +8,16 @@ import type { Message } from "@snezhok/contracts";
 import { usePalette } from "../hooks/usePalette";
 import { useUiPreferences } from "../hooks/useUiPreferences";
 import { useTranslation } from "../i18n";
+import { messagePrimaryPressAction } from "../domains/messaging/messageInteraction";
+import { parseCallHistoryEvent } from "../domains/messaging/callHistory";
 import { renderableAttachments, renderableReactions } from "../domains/messaging/messagePayload";
 import { Avatar } from "./Avatar";
 import { CooperativeActivityCard } from "./CooperativeActivityCard";
 import { MediaAlbum, SafeAttachmentView } from "./message/MessageMedia";
 import { messageBubbleStyles as styles } from "./message/messageBubbleStyles";
-
+import { RichMessageText } from "./message/RichMessageText";
+import { MessageLinkPreview } from "./message/MessageLinkPreview";
+import { CallHistoryMessage } from "./message/CallHistoryMessage";
 interface MessageBubbleProps {
   streamId: string;
   message: Message;
@@ -23,49 +27,27 @@ interface MessageBubbleProps {
   selected?: boolean;
   selectionMode?: boolean;
   selectionProgress: SharedValue<number>;
-  onPress?: () => void;
-  onLongPress?: () => void;
-  onReact?: (emoji: string) => void;
-  onOpenReactions?: (anchorY: number) => void;
-  onReplyPress?: (messageId: string) => void;
+  onPress?: () => void; onLongPress?: () => void;
+  onReact?: (emoji: string) => void; onOpenReactions?: (anchorY: number) => void;
+  onRetry?: () => void; onReplyPress?: (messageId: string) => void;
   onOpenActivity?: () => void;
 }
 
 export const MessageBubble = memo(
-  function MessageBubble({ streamId, message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions, onReplyPress, onOpenActivity }: MessageBubbleProps) {
+  function MessageBubble({ streamId, message, mine, showSender, variant, selected = false, selectionMode = false, selectionProgress, onPress, onLongPress, onReact, onOpenReactions, onRetry, onReplyPress, onOpenActivity }: MessageBubbleProps) {
     const palette = usePalette();
     const ui = useUiPreferences();
+    const { t } = useTranslation();
     const displayAttachments = useMemo(() => renderableAttachments(message.attachments), [message.attachments]);
     const mediaOnly = !message.activity && !message.text && !message.replyTo && !message.forwardedFrom && displayAttachments.length > 0 && displayAttachments.every((attachment) => attachment.kind === "image" || attachment.kind === "video") && variant === "bubble";
     const stateTestId = `${message.failed ? "message_failed" : message.pending ? "message_pending" : "message_committed"}_${message.id}`;
-    const lastTapAt = useRef(0);
-    const tapAnchorY = useRef(0);
-    const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressTriggered = useRef(false);
-    useEffect(
-      () => () => {
-        if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-      },
-      [],
-    );
     useEffect(() => {
-      // FlashList recycles the native row for another message. Gesture state must
-      // never leak from the previously displayed item into the recycled cell.
-      if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-      singleTapTimer.current = null;
-      lastTapAt.current = 0;
+      // Recycled rows must not inherit the prior message's gesture state.
       longPressTriggered.current = false;
     }, [message.id]);
-    useEffect(() => {
-      if (!selectionMode || !singleTapTimer.current) return;
-      clearTimeout(singleTapTimer.current);
-      singleTapTimer.current = null;
-      lastTapAt.current = 0;
-    }, [selectionMode]);
     const selectionContentStyle = useAnimatedStyle(() => ({
-      // Incoming/direct and server messages need to clear the selector. Outgoing
-      // bubbles already live on the opposite edge, so keeping them stationary
-      // avoids clipping and leaves this as a compositor-only animation.
+      // Incoming rows move clear of the selector; outgoing rows avoid clipping.
       transform: [
         {
           translateX: mine && variant === "bubble" ? 0 : 34 * selectionProgress.value,
@@ -81,35 +63,22 @@ export const MessageBubble = memo(
         longPressTriggered.current = false;
         return;
       }
-      tapAnchorY.current = event.nativeEvent.pageY;
-      if (selectionMode) {
-        lastTapAt.current = 0;
+      if (messagePrimaryPressAction(selectionMode) === "toggle-selection") {
         onPress?.();
         return;
       }
-      const now = Date.now();
-      if (now - lastTapAt.current <= 280) {
-        if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-        singleTapTimer.current = null;
-        lastTapAt.current = 0;
-        onReact?.("\u2764\uFE0F");
+      if (message.failed) {
+        onRetry?.();
         return;
       }
-      lastTapAt.current = now;
-      singleTapTimer.current = setTimeout(() => {
-        singleTapTimer.current = null;
-        lastTapAt.current = 0;
-        onOpenReactions?.(tapAnchorY.current);
-      }, 280);
+      onOpenReactions?.(event.nativeEvent.pageY);
     };
     const handleLongPress = () => {
-      if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-      singleTapTimer.current = null;
       longPressTriggered.current = true;
-      lastTapAt.current = 0;
       onLongPress?.();
     };
     if (message.deletedAt) return null;
+    if (message.kind === "system" && parseCallHistoryEvent(message.text)) return <CallHistoryMessage message={message} mine={mine} selected={selected} {...(onLongPress ? { onLongPress } : {})} />;
     if (variant === "channel") {
       return (
         <View style={styles.selectionFrame}>
@@ -117,6 +86,7 @@ export const MessageBubble = memo(
           <Animated.View style={[styles.selectionContent, selectionContentStyle]}>
             <Pressable
               testID={stateTestId}
+              accessibilityLabel={message.failed ? t("retry") : undefined}
               delayLongPress={240}
               onPress={handlePress}
               onLongPress={handleLongPress}
@@ -166,7 +136,7 @@ export const MessageBubble = memo(
             {mediaOnly ? (
               <Pressable
                 testID={`message_media_gutter_${message.id}`}
-                accessibilityLabel={selectionMode ? undefined : "Reactions"}
+                accessibilityLabel={selectionMode ? undefined : t("reactions")}
                 onPress={(event) => {
                   if (selectionMode) onPress?.();
                   else onOpenReactions?.(event.nativeEvent.pageY);
@@ -176,6 +146,7 @@ export const MessageBubble = memo(
             ) : null}
             <Pressable
               testID={stateTestId}
+              accessibilityLabel={message.failed ? t("retry") : undefined}
               delayLongPress={240}
               onPress={message.activity ? (selectionMode ? handlePress : undefined) : handlePress}
               onLongPress={handleLongPress}
@@ -303,20 +274,8 @@ function MessageContent({ streamId, message, mine, foreground, mutedForeground, 
       )}
       {message.text ? (
         <View style={inlineMetadata ? styles.inlineTextWrap : undefined}>
-          <Text
-            selectable={false}
-            style={[
-              styles.text,
-              inlineMetadata && styles.inlineMessageText,
-              {
-                color: foreground,
-                fontSize: ui.font(16),
-                lineHeight: ui.font(21),
-              },
-            ]}
-          >
-            {message.text}
-          </Text>
+          <RichMessageText text={message.text} color={foreground} fontSize={ui.font(16)} lineHeight={ui.font(21)} inline={inlineMetadata} />
+          <MessageLinkPreview text={message.text} />
           {inlineMetadata ? <View style={styles.inlineMeta}>{metadata}</View> : null}
         </View>
       ) : null}
@@ -343,7 +302,7 @@ function MessageMetadata({ message, mine, showTime, foreground, mutedForeground,
           <Text style={[styles.edited, { color: overlay ? "white" : palette.accent }]}>{t("pinnedMessage")}</Text>
         </View>
       ) : null}
-      {message.editedAt ? <Text style={[styles.edited, { color: mutedForeground }]}>edited</Text> : null}
+      {message.editedAt ? <Text style={[styles.edited, { color: mutedForeground }]}>{t("edited")}</Text> : null}
       {showTime ? (
         <Text style={[styles.time, { color: mutedForeground }]}>
           {new Date(message.createdAt).toLocaleTimeString([], {
@@ -359,11 +318,12 @@ function MessageMetadata({ message, mine, showTime, foreground, mutedForeground,
 
 function ReactionBar({ reactions, overlay, onReact }: { reactions: ReturnType<typeof renderableReactions>; overlay: boolean; onReact?: ((emoji: string) => void) | undefined }) {
   const palette = usePalette();
+  const { t } = useTranslation();
   return (
     <View style={styles.reactions}>
       {reactions.map((reaction) => (
         <Pressable
-          accessibilityLabel={reaction.emoji}
+          accessibilityLabel={t("reactionSummary", { emoji: reaction.emoji, count: reaction.count })}
           key={reaction.emoji}
           onPress={() => onReact?.(reaction.emoji)}
           style={[
@@ -377,6 +337,7 @@ function ReactionBar({ reactions, overlay, onReact }: { reactions: ReturnType<ty
           ]}
         >
           <Text style={styles.emoji}>{reaction.emoji}</Text>
+          {reaction.count > 1 ? <Text style={[styles.reactionCount, { color: overlay ? "white" : palette.secondaryText }]}>{reaction.count}</Text> : null}
         </Pressable>
       ))}
     </View>

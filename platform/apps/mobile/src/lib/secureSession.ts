@@ -2,17 +2,32 @@ import * as SecureStore from "expo-secure-store";
 
 import type { AuthTokens } from "../types";
 import { AsyncValueCache } from "./asyncValueCache";
+import { forgetStoredAccount, updateStoredAccountTokens } from "./accountVault";
 
 const SESSION_KEY = "snezhok.session.v1";
 const listeners = new Set<() => void>();
+const eventListeners = new Set<(event: SessionChangeEvent) => void>();
 let mutationGeneration = 0;
 let mutationQueue: Promise<void> = Promise.resolve();
 const sessionCache = new AsyncValueCache<AuthTokens>(() => {
   for (const listener of listeners) listener();
 });
 
-function updateRuntime(tokens: AuthTokens | null) {
+export interface SessionChangeEvent {
+  previousOwnerId: string | null;
+  ownerId: string | null;
+  preservedStoredAccount: boolean;
+}
+
+function updateRuntime(tokens: AuthTokens | null, preservedStoredAccount = false) {
+  const previousOwnerId = sessionOwnerId(sessionCache.peek());
   sessionCache.set(tokens);
+  const event: SessionChangeEvent = {
+    previousOwnerId,
+    ownerId: sessionOwnerId(tokens),
+    preservedStoredAccount,
+  };
+  for (const listener of eventListeners) listener(event);
 }
 
 export async function readSession(): Promise<AuthTokens | null> {
@@ -59,11 +74,13 @@ export async function writeSessionIfCurrent(tokens: AuthTokens, expectedGenerati
   return written;
 }
 
-export async function clearSession(): Promise<void> {
+export async function clearSession(options: { preserveStoredAccount?: boolean } = {}): Promise<void> {
   await enqueueMutation(async () => {
+    const ownerId = sessionOwnerId(sessionCache.peek());
     await SecureStore.deleteItemAsync(SESSION_KEY);
+    if (ownerId && !options.preserveStoredAccount) await forgetStoredAccount(ownerId);
     mutationGeneration += 1;
-    updateRuntime(null);
+    updateRuntime(null, options.preserveStoredAccount === true);
   });
 }
 
@@ -72,7 +89,9 @@ export async function clearSessionIfCurrent(expectedGeneration: number): Promise
   let cleared = false;
   await enqueueMutation(async () => {
     if (mutationGeneration !== expectedGeneration) return;
+    const ownerId = sessionOwnerId(sessionCache.peek());
     await SecureStore.deleteItemAsync(SESSION_KEY);
+    if (ownerId) await forgetStoredAccount(ownerId);
     mutationGeneration += 1;
     updateRuntime(null);
     cleared = true;
@@ -108,10 +127,16 @@ export function subscribeToSession(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+export function subscribeToSessionEvents(listener: (event: SessionChangeEvent) => void): () => void {
+  eventListeners.add(listener);
+  return () => eventListeners.delete(listener);
+}
+
 async function persistSession(tokens: AuthTokens): Promise<void> {
   await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(tokens), {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
+  await updateStoredAccountTokens(tokens);
 }
 
 function enqueueMutation(operation: () => Promise<void>): Promise<void> {

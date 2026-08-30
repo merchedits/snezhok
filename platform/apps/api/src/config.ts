@@ -22,6 +22,7 @@ const schema = z.object({
   SOURCE_REVISION: z.string().default("development"),
   APP_ORIGINS: z.string().default("http://localhost:5173"),
   STORAGE_ROOT: z.string().default("./data"),
+  DEPLOYMENT_REPLICAS: z.coerce.number().int().min(1).max(100).default(1),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(2 * 1024 * 1024 * 1024),
   UPLOAD_CHUNK_BYTES: z.coerce.number().int().min(64 * 1024).default(4 * 1024 * 1024),
   INTERNAL_MEDIA_PREFIX: z.string().default("/_protected-media/"),
@@ -67,6 +68,7 @@ export function productionConfigurationProblems(input: z.infer<typeof schema>): 
   if (obviousPlaceholder.test(liveKitControl.hostname) || ["localhost", "127.0.0.1", "::1"].includes(liveKitControl.hostname)) problems.push("LIVEKIT_CONTROL_URL must identify the production-internal LiveKit control endpoint");
   if (!input.APP_ORIGINS.length || input.APP_ORIGINS.split(",").some((origin) => !origin.trim().startsWith("https://"))) problems.push("APP_ORIGINS must contain only HTTPS origins");
   if (!input.USE_X_ACCEL) problems.push("USE_X_ACCEL must be enabled so protected media is served by the reverse proxy");
+  if (input.DEPLOYMENT_REPLICAS !== 1) problems.push("DEPLOYMENT_REPLICAS must remain 1 until shared object storage and a cross-node Socket.IO presence adapter are configured");
   if (!input.ANDROID_APK_PATH || !input.ANDROID_RELEASE_MANIFEST_PATH) problems.push("Android APK and release manifest paths are required for the private update channel");
   if (!/^[0-9a-f]{40}$/.test(input.SOURCE_REVISION)) problems.push("SOURCE_REVISION must be the exact 40-character public commit");
   return problems;

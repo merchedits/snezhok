@@ -17,10 +17,8 @@ import type {
   Id,
   Message,
   MessageKind,
-  MessagePreview,
   UserSummary,
 } from "@snezhok/contracts";
-import { productCapabilities } from "../config/productCapabilities.js";
 import { api, RequestError, type AuthCredentials } from "../lib/api.js";
 import {
   cacheMessages,
@@ -34,11 +32,8 @@ import {
   type OutboxEntry,
 } from "../lib/offlineStore.js";
 import { closeRealtimeSocket, getRealtimeSocket } from "../lib/realtime.js";
-
-export interface StreamSelection {
-  kind: "conversation" | "channel";
-  id: Id;
-}
+import { cacheBootstrap, cacheSelection, cachedBootstrap, cachedOwnerId, clearCachedSession, initialSelection, isPermanentOutboxFailure, mergeMessage, outboxDelay, selectionKey, setCachedOwner, toPreview, userMessage, type StreamSelection } from "./appContextDomain.js";
+export type { StreamSelection } from "./appContextDomain.js";
 
 type AuthStatus = "checking" | "guest" | "ready";
 type View = "stream" | "friends";
@@ -93,84 +88,6 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
-const BOOTSTRAP_CACHE = "snezhok.v3.bootstrap";
-const SELECTION_CACHE = "snezhok.v3.selection";
-const OWNER_CACHE = "snezhok.v3.owner";
-
-function selectionKey(selection: StreamSelection) {
-  return `${selection.kind}:${selection.id}`;
-}
-
-function parseCache<T>(key: string): T | null {
-  try {
-    const value = localStorage.getItem(key);
-    return value ? JSON.parse(value) as T : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // A full or disabled cache must not break messaging.
-  }
-}
-
-function cachedBootstrap(): BootstrapPayload | null {
-  const payload = parseCache<BootstrapPayload>(BOOTSTRAP_CACHE);
-  return payload && localStorage.getItem(OWNER_CACHE) === payload.me.id ? payload : null;
-}
-
-function initialSelection(payload: BootstrapPayload): StreamSelection | null {
-  const cached = parseCache<StreamSelection>(SELECTION_CACHE);
-  if (cached?.kind === "conversation" && payload.conversations.some((item) => item.id === cached.id)) return cached;
-  if (productCapabilities.servers && cached?.kind === "channel" && payload.channels.some((item) => item.id === cached.id)) return cached;
-  const conversation = payload.conversations.find((item) => !item.archived) || payload.conversations[0];
-  if (conversation) return { kind: "conversation", id: conversation.id };
-  const channel = productCapabilities.servers ? payload.channels.find((item) => item.kind === "text") : undefined;
-  return channel ? { kind: "channel", id: channel.id } : null;
-}
-
-export function mergeMessage(list: Message[], incoming: Message): Message[] {
-  const optimisticIndex = list.findIndex((message) =>
-    message.id === incoming.id || Boolean(incoming.clientId && (message.clientId === incoming.clientId || ((message.pending || message.failed) && message.id === incoming.clientId))),
-  );
-  if (optimisticIndex >= 0) {
-    const next = [...list];
-    next[optimisticIndex] = incoming;
-    return next.sort((a, b) => a.sequence - b.sequence);
-  }
-  if (list.some((message) => message.id === incoming.id)) return list;
-  return [...list, incoming].sort((a, b) => a.sequence - b.sequence);
-}
-
-function toPreview(message: Message): MessagePreview {
-  return {
-    id: message.id,
-    senderId: message.sender.id,
-    senderName: message.sender.displayName,
-    text: message.text,
-    kind: message.kind,
-    createdAt: message.createdAt,
-  };
-}
-
-function userMessage(error: unknown): string {
-  if (error instanceof RequestError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Request failed. Retry.";
-}
-
-function isPermanentOutboxFailure(error: unknown): boolean {
-  if (!(error instanceof RequestError)) return false;
-  return error.status >= 400 && error.status < 500 && ![408, 409, 425, 429].includes(error.status);
-}
-
-function outboxDelay(attempts: number): number {
-  return Math.min(60_000, 1_000 * (2 ** Math.min(6, Math.max(0, attempts - 1))));
-}
 
 export function AppProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<AuthStatus>("checking");
@@ -231,7 +148,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       ? payload
       : { ...payload, eventCursor: eventCursorRef.current };
     setBootstrap(currentPayload);
-    writeCache(BOOTSTRAP_CACHE, currentPayload);
+    cacheBootstrap(currentPayload);
     setSelection((current) => {
       if (current) return current;
       const next = initialSelection(currentPayload);
@@ -241,17 +158,16 @@ export function AppProvider({ children }: PropsWithChildren) {
   }, []);
 
   const prepareOfflineOwner = useCallback(async (payload: BootstrapPayload) => {
-    const previous = localStorage.getItem(OWNER_CACHE) ?? parseCache<BootstrapPayload>(BOOTSTRAP_CACHE)?.me.id ?? null;
+    const previous = cachedOwnerId();
     const changed = await claimOfflineOwner(payload.me.id);
     if (changed || (previous && previous !== payload.me.id)) {
-      localStorage.removeItem(BOOTSTRAP_CACHE);
-      localStorage.removeItem(SELECTION_CACHE);
+      clearCachedSession({ preserveOwner: true });
       setMessagesByStream({});
       setCursors({});
       setSelection(null);
       selectionRef.current = null;
     }
-    localStorage.setItem(OWNER_CACHE, payload.me.id);
+    setCachedOwner(payload.me.id);
     ownerRef.current = payload.me.id;
   }, []);
 
@@ -301,9 +217,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       selectionRef.current = null;
       setMessagesByStream({});
       setCursors({});
-      localStorage.removeItem(BOOTSTRAP_CACHE);
-      localStorage.removeItem(SELECTION_CACHE);
-      localStorage.removeItem(OWNER_CACHE);
+      clearCachedSession();
       offlineClear.current = clearOfflineData();
       void offlineClear.current.catch(() => undefined);
       setStatus("guest");
@@ -392,7 +306,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       setBootstrap((current) => {
         if (!current || cursor <= current.eventCursor) return current;
         const next = { ...current, eventCursor: cursor };
-        writeCache(BOOTSTRAP_CACHE, next);
+        cacheBootstrap(next);
         return next;
       });
     };
@@ -476,9 +390,7 @@ export function AppProvider({ children }: PropsWithChildren) {
       selectionRef.current = null;
       setMessagesByStream({});
       setCursors({});
-      localStorage.removeItem(BOOTSTRAP_CACHE);
-      localStorage.removeItem(SELECTION_CACHE);
-      localStorage.removeItem(OWNER_CACHE);
+      clearCachedSession();
       offlineClear.current = clearOfflineData();
       await offlineClear.current.catch(() => undefined);
       setStatus("guest");
@@ -526,7 +438,7 @@ export function AppProvider({ children }: PropsWithChildren) {
     if (previous) socket.emit("stream:leave", { streamId: previous.id });
     selectionRef.current = next;
     setSelection(next);
-    writeCache(SELECTION_CACHE, next);
+    cacheSelection(next);
     setView("stream");
     setReplyingTo(null);
     setEditing(null);

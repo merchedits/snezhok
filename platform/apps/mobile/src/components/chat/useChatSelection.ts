@@ -10,6 +10,7 @@ import { useTranslation } from "../../i18n";
 import { selectedMessageText } from "../../lib/messageSelection";
 import { userFacingError } from "../../lib/userFacingError";
 import { useAppStore } from "../../store/useAppStore";
+import { selectedAttachmentUseCases } from "../../application/attachments/selectedAttachmentUseCases";
 
 interface Options {
   streamId: string;
@@ -37,6 +38,7 @@ export function useChatSelection({ streamId, streamKind, isGroup, messages, meId
     ? (selectedMessages[0]?.sender.id === meId && selectedMessages[0]?.kind === "text" && !selectedMessages[0]?.pending && !selectedMessages[0]?.failed ? selectedMessages[0] : null)
     : null;
   const allPinned = selectedMessages.length > 0 && selectedMessages.every((message) => Boolean(message.pinnedAt));
+  const hasAttachments = selectedMessages.some((message) => message.attachments.some((attachment) => attachment.status !== "processing" && attachment.status !== "failed"));
 
   useEffect(() => {
     selectionProgress.value = withTiming(selectedIds.size > 0 ? 1 : 0, {
@@ -118,6 +120,15 @@ export function useChatSelection({ streamId, streamKind, isGroup, messages, meId
     }
   }, [clear, forwardMessage, selectedMessages, showDialog, t]);
 
+  const downloadAttachments = useCallback(async () => {
+    const snapshot = selectedMessages;
+    clear();
+    try {
+      const count = await selectedAttachmentUseCases.download(snapshot);
+      showDialog(t("attachmentsSaved", { count }));
+    } catch (error) { showDialog(t("attachmentDownloadFailed"), userFacingError(error, t)); }
+  }, [clear, selectedMessages, showDialog, t]);
+
   return {
     selectedIds,
     selectedCount: selectedIds.size,
@@ -126,11 +137,13 @@ export function useChatSelection({ streamId, streamKind, isGroup, messages, meId
     hasClipboardText: Boolean(clipboardText),
     editableMessage,
     allPinned,
+    hasAttachments,
     toggle,
     clear,
     copy,
     edit,
     togglePins,
+    downloadAttachments,
     confirmDelete,
     forwardPickerVisible,
     forwarding,

@@ -7,6 +7,7 @@ import type { Message, UserSummary } from "@snezhok/contracts";
 import { useAppDialog } from "../AppDialogProvider";
 import { useTranslation } from "../../i18n";
 import { activeMentionQuery, insertMention, mentionSuggestions } from "../../lib/mentionAutocomplete";
+import { applyTextFormat, type TextFormat } from "../../domains/messaging/textFormatting";
 import { emitRealtimeTyping } from "../../lib/realtimeBridge";
 import { appendRecordingLevel } from "../../lib/recordingWaveform";
 import { stopVoicePlayback } from "../../lib/voicePlaybackCoordinator";
@@ -146,6 +147,11 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
     handleTextChange(inserted.text);
     setSelection({ start: inserted.caret, end: inserted.caret });
   }, [handleTextChange, mentionQuery, text]);
+  const formatSelection = useCallback((format: TextFormat) => {
+    const formatted = applyTextFormat(text, selection, format);
+    handleTextChange(formatted.text);
+    setSelection(formatted.selection);
+  }, [handleTextChange, selection, text]);
 
   const sendText = useCallback(async (silent = false) => {
     const value = text.trim();
@@ -190,15 +196,26 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
 
   const handleUploads = useCallback(async (inputs: UploadInput[], messageKind: "media" | "file" | "video-note" | "voice" = "media") => {
     if (!inputs.length) return;
-    if (!online) {
-      showDialog(t("offline"), t("attachmentOnline"));
-      return;
-    }
+    const caption = messageKind === "voice" || messageKind === "video-note" ? "" : text.trim();
     setUploading(true);
     try {
-      const task = sendAttachmentBatch(streamId, inputs, messageKind, replyingTo?.id ?? null);
+      const task = sendAttachmentBatch(streamId, inputs, messageKind, replyingTo?.id ?? null, caption);
       setActiveTransferId(task.id);
-      await task.completion;
+      void task.completion.catch((error) => {
+        if (isUploadCancelled(error)) return;
+        showDialog(t("uploadFailed"), userFacingError(error, t), [
+          { text: t("cancel"), style: "cancel" },
+          { text: t("retry"), onPress: () => void handleUploads(inputs, messageKind) },
+        ]);
+      });
+      // Dismiss only after the intent and stable message IDs are durable. Byte
+      // transfer and server dispatch continue independently in WorkManager.
+      await task.accepted;
+      if (caption) {
+        setText("");
+        setSelection({ start: 0, end: 0 });
+        setDraft(streamId, "");
+      }
       onCancelReply();
       setAttachmentSheet(false);
     } catch (error) {
@@ -212,14 +229,9 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
       setActiveTransferId(null);
       setUploading(false);
     }
-  }, [online, onCancelReply, replyingTo?.id, sendAttachmentBatch, showDialog, streamId, t]);
+  }, [onCancelReply, replyingTo?.id, sendAttachmentBatch, setDraft, showDialog, streamId, t, text]);
 
   const beginRecording = useCallback(async () => {
-    if (!online) {
-      updateVoiceCommand("idle");
-      showDialog(t("offline"), t("voiceOnline"));
-      return;
-    }
     try {
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
@@ -237,7 +249,7 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
       return;
     }
     setRecorderMounted(true);
-  }, [online, showDialog, t, updateVoiceCommand]);
+  }, [showDialog, t, updateVoiceCommand]);
   const startVoiceRecording = useCallback(() => {
     if (uploading || recording || voiceCommandRef.current !== "idle") return;
     stopVoicePlayback();
@@ -258,7 +270,7 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
     online, capabilities, uploadProgress, uploadQuality, microphoneMode, reducedMotion,
     text, selection, setSelection, attachmentSheet, setAttachmentSheet, uploading,
     recorderMounted, recording, setRecording, recordingLevels, recordingDuration,
-    voiceCommand, updateVoiceCommand, suggestedMentions, chooseMention, cancelEditing,
+    voiceCommand, updateVoiceCommand, suggestedMentions, chooseMention, formatSelection, cancelEditing,
     handleTextChange, sendText, showSendOptions, handleUploads, startVoiceRecording,
     resetRecorder,
     handleMetering: (metering: number | undefined, durationMillis: number) => {

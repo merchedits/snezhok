@@ -56,7 +56,12 @@ Release 4.0.1 removes user-selectable accent colors and applies the fixed whimsi
 
 Release 4.0.2 hardens attachment messages before they enter FlashList. Cached, optimistic, HTTP, and realtime payloads are normalized centrally; malformed nested attachment records cannot reach native media views; attachment children use their durable IDs rather than recycler indexes; and a per-attachment render boundary contains a JavaScript media failure without unmounting the chat.
 
-## Publishing a release
+## Publishing an APK
+
+Classify the APK first. A tester candidate follows the focused validation lane
+in [DEVELOPMENT_WORKFLOW.md](./DEVELOPMENT_WORKFLOW.md); a stable promotion
+follows the full release gate. Steps that protect upgradeability and artifact
+integrity remain mandatory for both.
 
 0. Classify the release before touching production. If the running server is
    `SERVER_REVISION`, prove that the candidate changes only the Android client,
@@ -76,7 +81,10 @@ Release 4.0.2 hardens attachment messages before they enter FlashList. Cached, o
    maintenance revision continue to describe the running server; the Android
    manifest independently names the exact public mobile source revision.
 1. Increase both `version` and `android.versionCode` in `apps/mobile/app.config.ts`; version codes must never decrease or be reused.
-2. Run the monorepo type checks and tests.
+2. For a tester candidate, run the changed mobile workspace typecheck, focused
+   tests for the changed behavior, and any targeted risk-boundary check. Do not
+   run unrelated monorepo suites. For a stable promotion, run the complete
+   required typecheck, test, compliance, and physical-device gates.
 3. In a clean checkout, run `npm ci --omit=dev`, Expo prebuild with `--clean --no-install`, then build `assembleRelease` with the protected Snezhok signing environment. The local config plugin injects release signing from `SNEZHOK_KEYSTORE_FILE`, `SNEZHOK_KEYSTORE_PASSWORD`, `SNEZHOK_KEY_ALIAS`, and `SNEZHOK_KEY_PASSWORD`.
 4. Verify the APK with `apksigner`, inspect it with `aapt`, and calculate its byte count and SHA-256.
    Run the automated configuration and artifact gates described in [RELEASE_ENGINEERING.md](./RELEASE_ENGINEERING.md); release APKs containing Expo Dev Launcher or Dev Menu are rejected.

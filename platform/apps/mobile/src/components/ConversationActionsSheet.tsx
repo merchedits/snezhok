@@ -17,13 +17,15 @@ interface ConversationActionsSheetProps {
   pinned: boolean;
   muted: boolean;
   unread: boolean;
+  archived: boolean;
   onPin: () => void;
   onMute: () => void;
   onMarkUnread: () => void;
+  onArchive: () => void;
   conversationId: string | null;
 }
 
-export const ConversationActionsSheet = memo(function ConversationActionsSheet({ visible, title, busy, pinned, muted, unread, onClose, onDelete, onPin, onMute, onMarkUnread, conversationId }: ConversationActionsSheetProps) {
+export const ConversationActionsSheet = memo(function ConversationActionsSheet({ visible, title, busy, pinned, muted, unread, archived, onClose, onDelete, onPin, onMute, onMarkUnread, onArchive, conversationId }: ConversationActionsSheetProps) {
   const palette = usePalette();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -37,6 +39,7 @@ export const ConversationActionsSheet = memo(function ConversationActionsSheet({
         {group && conversationId ? <SheetAction icon="settings-outline" label={t("settings")} onPress={() => { setManageId(conversationId); onClose(); }} /> : null}
         <SheetAction icon="pin-outline" label={t(pinned ? "unpinChat" : "pinChat")} onPress={onPin} />
         <SheetAction icon="volume-mute" label={t(muted ? "unmuteChat" : "muteChat")} onPress={onMute} />
+        <SheetAction icon="archive-outline" label={t(archived ? "unarchiveChat" : "archiveChat")} onPress={onArchive} />
         {!unread ? <SheetAction icon="mail-outline" label={t("markUnread")} onPress={onMarkUnread} /> : null}
         <Pressable disabled={busy} onPress={onDelete} style={({ pressed }) => [styles.action, { backgroundColor: pressed ? palette.accentSoft : "transparent", opacity: busy ? 0.55 : 1 }]}>
           <View style={[styles.iconTile, { backgroundColor: palette.surface }]}>{busy ? <ActivityIndicator color={palette.danger} /> : <AppIcon name="trash-outline" size={21} color={palette.danger} />}</View>
@@ -47,7 +50,7 @@ export const ConversationActionsSheet = memo(function ConversationActionsSheet({
   </Modal><GroupAdminModal visible={manageId !== null} conversationId={manageId} onClose={() => setManageId(null)} /></>;
 });
 
-function SheetAction({ icon, label, onPress }: { icon: "pin-outline" | "volume-mute" | "mail-outline" | "settings-outline"; label: string; onPress: () => void }) {
+function SheetAction({ icon, label, onPress }: { icon: "pin-outline" | "volume-mute" | "mail-outline" | "settings-outline" | "archive-outline"; label: string; onPress: () => void }) {
   const palette = usePalette();
   return <Pressable onPress={onPress} style={({ pressed }) => [styles.action, { backgroundColor: pressed ? palette.accentSoft : "transparent" }]}><View style={[styles.iconTile, { backgroundColor: palette.surface }]}><AppIcon name={icon} size={21} color={palette.accent} /></View><Text style={[styles.actionText, { color: palette.text }]}>{label}</Text></Pressable>;
 }

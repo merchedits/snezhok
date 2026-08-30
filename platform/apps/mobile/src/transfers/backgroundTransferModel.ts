@@ -1,4 +1,4 @@
-import type { Attachment } from "@snezhok/contracts";
+import type { Attachment, Message, UserSummary } from "@snezhok/contracts";
 
 import type { NativeTransferSnapshot } from "../../modules/snezhok-background-transfer";
 import type { UploadInput } from "../types";
@@ -23,6 +23,8 @@ export interface QueuedAttachmentGroup {
   clientId: string;
   transferIds: string[];
   replyToId: string | null;
+  /** Caption is attached to the first deterministic message group. */
+  text?: string;
   dispatchedAt: number | null;
 }
 
@@ -48,6 +50,7 @@ export function createAttachmentBatch(input: {
   streamId: string;
   messageKind: AttachmentMessageKind;
   replyToId: string | null;
+  text?: string;
   silent?: boolean;
   inputs: UploadInput[];
   transferIds: string[];
@@ -79,6 +82,7 @@ export function createAttachmentBatch(input: {
     clientId: input.clientIds[groupIndex]!,
     transferIds: transfers.slice(groupIndex * groupSize, (groupIndex + 1) * groupSize).map((transfer) => transfer.transferId),
     replyToId: groupIndex === 0 ? input.replyToId : null,
+    text: groupIndex === 0 ? input.text?.trim() ?? "" : "",
     dispatchedAt: null,
   }));
   return {
@@ -92,6 +96,60 @@ export function createAttachmentBatch(input: {
     transfers,
     groups,
   };
+}
+
+export function optimisticMessagesForAttachmentBatch(input: {
+  batch: QueuedAttachmentBatch;
+  sender: UserSummary;
+  streamKind: "conversation" | "channel";
+  startingSequence: number;
+}): Message[] {
+  const transfers = new Map(input.batch.transfers.map((transfer) => [transfer.transferId, transfer]));
+  const failed = batchFailed(input.batch);
+  return input.batch.groups.map((group, index) => ({
+    id: group.clientId,
+    clientId: group.clientId,
+    streamId: input.batch.streamId,
+    streamKind: input.streamKind,
+    sequence: input.startingSequence + index,
+    sender: input.sender,
+    kind: input.batch.messageKind,
+    text: group.text ?? "",
+    replyTo: null,
+    forwardedFrom: null,
+    attachments: group.transferIds.flatMap((transferId): Attachment[] => {
+      const transfer = transfers.get(transferId);
+      if (!transfer) return [];
+      if (transfer.attachment) return [transfer.attachment];
+      return [{
+        id: transfer.transferId,
+        ownerId: input.batch.ownerId,
+        kind: transfer.input.kind,
+        filename: transfer.input.filename,
+        mimeType: transfer.input.mimeType,
+        bytes: transfer.declaredBytes ?? 0,
+        width: transfer.input.sourceWidth ?? null,
+        height: transfer.input.sourceHeight ?? null,
+        durationMs: null,
+        quality: transfer.input.quality,
+        url: transfer.input.uri,
+        thumbnailUrl: null,
+        checksum: "",
+        status: failed ? "failed" : "processing",
+        updatedAt: input.batch.updatedAt,
+      }];
+    }),
+    reactions: [],
+    activity: null,
+    createdAt: input.batch.createdAt,
+    editedAt: null,
+    deletedAt: null,
+    pinnedAt: null,
+    silent: input.batch.silent,
+    readByOthers: false,
+    pending: !failed,
+    failed,
+  }));
 }
 
 export function applyInitializedAttachment(

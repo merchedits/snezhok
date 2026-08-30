@@ -29,6 +29,7 @@ import { userRoutes } from "./modules/users/routes.js";
 import { adminRoutes } from "./modules/admin/routes.js";
 import { realtimeListenerHealthy } from "./modules/realtime/socket.js";
 import { activityRoutes } from "./modules/activities/routes.js";
+import { linkRoutes } from "./modules/links/routes.js";
 
 export async function buildApp() {
   const app = Fastify({
@@ -115,6 +116,7 @@ export async function buildApp() {
     await api.register(uploadRoutes);
     await api.register(settingsRoutes);
     await api.register(searchRoutes);
+    await api.register(linkRoutes);
     await api.register(callRoutes);
     await api.register(clientRoutes);
   }, { prefix: config.PUBLIC_API_PREFIX });

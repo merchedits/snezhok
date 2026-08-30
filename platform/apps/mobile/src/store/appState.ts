@@ -61,8 +61,9 @@ export interface AppState {
   markStreamUnread: (streamId: string, sequence?: number) => Promise<void>;
   loadPinnedMessages: (streamId: string) => Promise<void>;
   uploadAttachment: (input: UploadInput, onProgress?: (progress: number) => void, transferId?: string) => Promise<Attachment>;
-  sendAttachmentBatch: (streamId: string, inputs: UploadInput[], messageKind: AttachmentMessageKind, replyToId: string | null) => AttachmentTransferTask;
+  sendAttachmentBatch: (streamId: string, inputs: UploadInput[], messageKind: AttachmentMessageKind, replyToId: string | null, text?: string) => AttachmentTransferTask;
   reconcileBackgroundTransfers: () => Promise<void>;
+  retryAttachmentTransfer: (clientId: string) => Promise<void>;
   cancelUpload: (transferId?: string) => Promise<void>;
   sendMessage: (streamId: string, input: Omit<MessageCreateInput, "clientId" | "silent"> & { silent?: boolean }, optimisticAttachments?: Attachment[]) => Promise<void>;
   forwardMessage: (messageId: string, targetStreamId: string) => Promise<Message>;
@@ -95,6 +96,8 @@ export interface AppState {
 
 export interface AttachmentTransferTask {
   id: string;
+  /** Resolves after the transfer intent is durable and safe to dismiss. */
+  accepted: Promise<void>;
   completion: Promise<void>;
 }
 

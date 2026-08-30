@@ -19,6 +19,7 @@ import { notificationTargetFromData, type NotificationTarget } from "./notificat
 export const MESSAGE_CHANNEL = "messages-v1";
 export const CALL_CHANNEL = "calls-v1";
 export const CALL_CATEGORY = "incoming-call-v1";
+export const MESSAGE_CATEGORY = "message-actions-v1";
 export const BACKGROUND_NOTIFICATION_TASK = "snezhok-background-notifications-v1";
 const INSTALLATION_KEY = "@snezhok/push-installation/v1";
 let configured: Promise<boolean> | null = null;
@@ -67,6 +68,11 @@ export async function initializeAndroidNotifications(): Promise<boolean> {
       { identifier: "answer", buttonTitle: english ? "Answer" : "Ответить", options: { opensAppToForeground: true } },
       { identifier: "answer-video", buttonTitle: english ? "Video" : "С видео", options: { opensAppToForeground: true } },
       { identifier: "decline", buttonTitle: english ? "Decline" : "Отклонить", options: { opensAppToForeground: false, isDestructive: true } },
+    ]);
+    await Notifications.setNotificationCategoryAsync(MESSAGE_CATEGORY, [
+      { identifier: "reply", buttonTitle: english ? "Reply" : "Ответить", textInput: { submitButtonTitle: english ? "Send" : "Отправить", placeholder: english ? "Message" : "Сообщение" }, options: { opensAppToForeground: false } },
+      { identifier: "mark-read", buttonTitle: english ? "Mark read" : "Прочитано", options: { opensAppToForeground: false } },
+      { identifier: "mute", buttonTitle: english ? "Mute" : "Без звука", options: { opensAppToForeground: false } },
     ]);
     let permission = await Notifications.getPermissionsAsync();
     if (!permission.granted && permission.canAskAgain) permission = await Notifications.requestPermissionsAsync();
@@ -120,7 +126,7 @@ export async function notifyIncomingMessage(message: Message): Promise<void> {
   const channel = state.channels.find((item) => item.id === message.streamId);
   const title = conversation?.title ?? channel?.name ?? message.sender.displayName;
   await Notifications.scheduleNotificationAsync({
-    content: { title: message.sender.displayName, body: notificationMessageBody(message, state.settings.language), sound: "default", priority: Notifications.AndroidNotificationPriority.HIGH, color: "#35b9ef", data: { notificationType: "message", streamId: message.streamId, streamKind: message.streamKind, title } },
+    content: { title: message.sender.displayName, body: notificationMessageBody(message, state.settings.language), sound: "default", priority: Notifications.AndroidNotificationPriority.HIGH, color: "#35b9ef", categoryIdentifier: MESSAGE_CATEGORY, data: { notificationType: "message", streamId: message.streamId, streamKind: message.streamKind, title, sequence: message.sequence } },
     trigger: { channelId: MESSAGE_CHANNEL },
   });
 }
@@ -199,6 +205,10 @@ export function handleNotificationResponse(response: Notifications.NotificationR
   handledNotificationActions.add(actionKey);
   if (handledNotificationActions.size > 32) handledNotificationActions.delete(handledNotificationActions.values().next().value!);
   const data = response.notification.request.content.data;
+  if (["reply", "mark-read", "mute"].includes(response.actionIdentifier)) {
+    void handleMessageNotificationAction(response.actionIdentifier, data, response.userText).catch(() => undefined);
+    return;
+  }
   if (response.actionIdentifier === "decline") {
     if (typeof data?.roomId === "string") { void api.declineCall(data.roomId).catch(() => undefined); void dismissCallNotification(data.roomId); }
     return;
@@ -206,6 +216,24 @@ export function handleNotificationResponse(response: Notifications.NotificationR
   const target = notificationTargetFromData(data, response.actionIdentifier, Notifications.DEFAULT_ACTION_IDENTIFIER, productCapabilities.servers);
   if (target) navigateToNotificationTarget(target);
   else if (data?.notificationType === "call" && typeof data.roomId === "string") void dismissCallNotification(data.roomId);
+}
+
+export async function handleMessageNotificationAction(action: string, data: Record<string, unknown> | undefined, userText?: string): Promise<boolean> {
+  if (!data || data.notificationType !== "message" || typeof data.streamId !== "string") return false;
+  if (action === "reply") {
+    const text = userText?.trim().slice(0, 16_000) ?? "";
+    if (!text) return false;
+    await api.createMessage(data.streamId, { clientId: Crypto.randomUUID(), text, kind: "text", replyToId: null, attachmentIds: [], silent: false });
+  } else if (action === "mark-read") {
+    if (typeof data.sequence !== "number" || !Number.isSafeInteger(data.sequence) || data.sequence < 1) return false;
+    await api.markRead(data.streamId, data.sequence);
+  } else if (action === "mute") {
+    if (data.streamKind !== "conversation") return false;
+    const updated = await api.updateConversationPreferences(data.streamId, { muted: true });
+    useAppStore.getState().applyConversation(updated);
+  } else return false;
+  await dismissMessageNotifications(data.streamId);
+  return true;
 }
 
 export function flushPendingNotificationNavigation(): void {

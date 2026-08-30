@@ -30,9 +30,11 @@ test("voice and video playback failures remain retryable", async () => {
 });
 
 test("protected documents never bypass authenticated media transport", async () => {
-  const media = await readFile(new URL("./message/MessageMedia.tsx", import.meta.url), "utf8");
-  assert.match(media, /downloadAuthorizedMedia\(attachment\.url, destination\)/);
-  assert.match(media, /destination\.size === attachment\.bytes/);
+  const [media, manager] = await Promise.all([source("./message/MessageMedia.tsx"), source("../lib/attachmentDownloadManager.ts")]);
+  assert.match(media, /ensureAttachmentDownloaded\(attachment\)/);
+  assert.match(manager, /downloadAuthorizedMedia\(descriptor\.url, destination/);
+  assert.match(manager, /destination\.size === descriptor\.bytes/);
+  assert.match(manager, /AbortController/);
   assert.doesNotMatch(media, /Linking\.openURL\(attachment\.url\)/);
 });
 

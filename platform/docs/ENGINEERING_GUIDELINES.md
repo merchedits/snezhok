@@ -25,6 +25,22 @@ Never silently weaken a higher rule to satisfy a lower one. Document an
 intentional exception with its owner, expiry condition, regression test, and
 rollback plan.
 
+### Evidence-based solution selection
+
+Every non-mechanical product or engineering change **MUST** follow
+[DEVELOPMENT_WORKFLOW.md](./DEVELOPMENT_WORKFLOW.md) before implementation.
+The evidence pass is proportional, but it is not optional: trace the existing
+root cause, open current authoritative guidance, inspect established interaction
+precedents when relevant, and evaluate mature native/open-source reuse before
+choosing custom code. A new core dependency or costly-to-reverse architectural
+choice **MUST** include a decision record under `docs/decisions/` with rejected
+alternatives, license/security evidence, consequences, rollback, and validation.
+
+Do not keep a weak path merely because it already exists, and do not adopt a
+popular library solely from search snippets, download counts, or a demo. The
+choice must account for Snezhok's offline, retry, process-death, accessibility,
+Android-scale, performance, and recovery requirements.
+
 ## 2. Architectural shape
 
 Code is divided into the following dependency layers:
@@ -299,6 +315,15 @@ single global `activeUpload` or `uploadProgress` is prohibited.
 Every behavior change includes the lowest useful deterministic test and the
 highest necessary integration test.
 
+Validation is incremental. During implementation, run changed-workspace
+typechecks and focused behavioral tests; do not repeatedly run the complete
+monorepo or release matrix. A signed Android tester candidate follows the
+reduced, risk-based lane in `DEVELOPMENT_WORKFLOW.md`: it keeps mandatory
+signing, provenance, package, legal-evidence, updater, hash, and atomic
+publication checks, while unrelated suites and the full physical-device matrix
+wait for stable promotion. Production server/data changes always retain the
+full applicable gate.
+
 - Source-text/regex assertions may guard a build invariant but never count as
   behavioral coverage.
 - Contract tests validate both accepted and rejected payloads.
@@ -314,7 +339,10 @@ highest necessary integration test.
   call, and performance claims.
 
 A release cannot be called complete while required physical evidence is absent.
-It may be labelled a test candidate with the exact unverified journeys listed.
+It may be published as a tester candidate with the exact unverified journeys
+listed. A tester candidate is intentionally outside the definition of done; its
+purpose is to collect fast, honest evidence rather than simulate final release
+confidence with unrelated tests.
 
 ## 17. Rewrite and migration discipline
 

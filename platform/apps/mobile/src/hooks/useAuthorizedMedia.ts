@@ -4,6 +4,7 @@ import { Image } from "expo-image";
 import { API_URL } from "../infrastructure/http/apiConfig";
 import { sessionTransport } from "../infrastructure/http/sessionTransport";
 import { getRuntimeSession, subscribeToSession } from "../lib/secureSession";
+import { resolveMediaUrl as resolveMediaUrlAgainst } from "../lib/mediaUrl";
 
 export interface AuthenticatedMediaSource {
   uri: string;
@@ -11,10 +12,7 @@ export interface AuthenticatedMediaSource {
 }
 
 export function resolveMediaUrl(uri: string): string {
-  if (/^https?:\/\//i.test(uri)) return uri;
-  const apiMarker = API_URL.indexOf("/api/v1");
-  const deploymentBase = apiMarker >= 0 ? API_URL.slice(0, apiMarker) : new URL(API_URL).origin;
-  return `${deploymentBase}${uri.startsWith("/") ? uri : `/${uri}`}`;
+  return resolveMediaUrlAgainst(uri, API_URL);
 }
 
 export function useAuthorizedMedia(uri: string): AuthenticatedMediaSource {

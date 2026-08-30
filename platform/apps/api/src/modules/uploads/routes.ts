@@ -225,8 +225,8 @@ export async function uploadRoutes(app: FastifyInstance) {
           await client.query(
             `INSERT INTO scheduled_messages(
                id,user_id,stream_kind,stream_id,client_id,kind,text,reply_to_id,attachment_ids,silent,scheduled_for,status,expires_at
-             ) VALUES ($1,$2,$3,$4,$5,$6,'',$7,$8,$9,now(),'waiting',to_timestamp($10/1000.0))`,
-            [newId(), request.auth.id, access.streamKind, body.streamId, body.clientId, body.kind, body.replyToId, uploadIds, body.silent, expiresAt],
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),'waiting',to_timestamp($11/1000.0))`,
+            [newId(), request.auth.id, access.streamKind, body.streamId, body.clientId, body.kind, body.text, body.replyToId, uploadIds, body.silent, expiresAt],
           );
         } else if (existingDispatch.status === "waiting") {
           await client.query("UPDATE scheduled_messages SET expires_at=to_timestamp($3/1000.0),updated_at=now() WHERE user_id=$1 AND client_id=$2 AND status='waiting'", [request.auth.id, body.clientId, expiresAt]);

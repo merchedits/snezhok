@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { NativeTransferSnapshot } from "../../modules/snezhok-background-transfer";
-import { applyInitializedAttachment, applyNativeSnapshot, batchComplete, batchProgress, createAttachmentBatch, readyAttachmentGroups } from "./backgroundTransferModel";
+import { applyInitializedAttachment, applyNativeSnapshot, batchComplete, batchProgress, createAttachmentBatch, optimisticMessagesForAttachmentBatch, readyAttachmentGroups } from "./backgroundTransferModel";
 
 const input = { uri: "file:///private/photo.jpg", filename: "photo.jpg", mimeType: "image/jpeg", kind: "image" as const, quality: "auto" as const };
 
@@ -15,6 +15,23 @@ test("media batches split deterministically into 10 + 10 + remainder", () => {
   });
   assert.deepEqual(batch.groups.map((group) => group.transferIds.length), [10, 10, 3]);
   assert.deepEqual(batch.groups.map((group) => group.replyToId), ["reply", null, null]);
+});
+
+test("attachment captions stay on the first group and optimistic media uses local sources", () => {
+  const batch = createAttachmentBatch({
+    id: "batch", ownerId: "owner", streamId: "stream", messageKind: "media", replyToId: null, text: "A caption",
+    inputs: [input], transferIds: ["transfer"], clientIds: ["client"], now: 10,
+  });
+  const messages = optimisticMessagesForAttachmentBatch({
+    batch,
+    sender: { id: "owner", username: "owner", displayName: "Owner", avatarUrl: null, avatarColor: "#000", bio: "", statusText: "", presence: "offline", lastSeenAt: 0 },
+    streamKind: "conversation",
+    startingSequence: 4,
+  });
+  assert.equal(messages[0]?.text, "A caption");
+  assert.equal(messages[0]?.attachments[0]?.url, input.uri);
+  assert.equal(messages[0]?.pending, true);
+  assert.equal(messages[0]?.sequence, 4);
 });
 
 test("file batches obey the server's ten-attachment message limit", () => {

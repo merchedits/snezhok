@@ -54,7 +54,7 @@ export function ChatComposer({
     capabilities, uploadProgress, uploadQuality, microphoneMode, reducedMotion,
     text, selection, setSelection, attachmentSheet, setAttachmentSheet, uploading,
     recorderMounted, recording, setRecording, recordingLevels, recordingDuration,
-    voiceCommand, updateVoiceCommand, suggestedMentions, chooseMention, cancelEditing,
+    voiceCommand, updateVoiceCommand, suggestedMentions, chooseMention, formatSelection, cancelEditing,
     handleTextChange, sendText, showSendOptions, handleUploads, startVoiceRecording,
     resetRecorder, handleMetering, cancelUpload,
   } = controller;
@@ -78,6 +78,12 @@ export function ChatComposer({
       ) : replyingTo ? (
         <ComposerContext title={replyingTo.sender.displayName} text={replyingTo.text || t("attachment")} onClose={onCancelReply} />
       ) : null}
+      {selection.start !== selection.end ? <View style={[styles.formatBar, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        <FormatButton label={t("bold")} text="B" onPress={() => formatSelection("bold")} />
+        <FormatButton label={t("italic")} text="I" italic onPress={() => formatSelection("italic")} />
+        <FormatButton label={t("monospace")} text="{ }" onPress={() => formatSelection("mono")} />
+        <FormatButton label={t("quote")} text="❯" onPress={() => formatSelection("quote")} />
+      </View> : null}
       <Animated.View
         style={[
           styles.composer,
@@ -175,6 +181,11 @@ function ComposerContext({ title, text, onClose }: { title: string; text: string
   );
 }
 
+function FormatButton({ label, text, italic = false, onPress }: { label: string; text: string; italic?: boolean; onPress: () => void }) {
+  const palette = usePalette();
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.formatButton}><Text style={{ color: palette.text, fontWeight: "800", fontStyle: italic ? "italic" : "normal" }}>{text}</Text></Pressable>;
+}
+
 function MentionSuggestions({ participants, onSelect }: { participants: readonly UserSummary[]; onSelect: (username: string) => void }) {
   const palette = usePalette();
   const ui = useUiPreferences();
@@ -200,6 +211,8 @@ function MentionSuggestions({ participants, onSelect }: { participants: readonly
 }
 
 const styles = StyleSheet.create({
+  formatBar: { minHeight: 40, borderTopWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, gap: 4 },
+  formatButton: { minWidth: 42, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: 10 },
   mentionList: { maxHeight: 230, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 3 },
   mentionRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12 },
   mentionCopy: { flex: 1, minWidth: 0 },

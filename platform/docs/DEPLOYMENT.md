@@ -1,5 +1,23 @@
 # Production Deployment
 
+## Delivery modes
+
+Use [DEVELOPMENT_WORKFLOW.md](./DEVELOPMENT_WORKFLOW.md) to classify the change
+before running checks.
+
+- A mobile-only APK published so the owner can try a feature is a **signed
+  tester candidate** by default. Use focused changed-workspace validation, the
+  mobile-only classifier, one clean signed build, mandatory artifact/updater
+  safety checks, and atomic publication. Do not run this document's full
+  production matrix for every candidate.
+- An explicit stable promotion or any production API, worker, database,
+  migration, storage, authentication, authorization, infrastructure, or
+  server-dependency change is a **production deployment** and uses the complete
+  gate below.
+
+Tester status never relaxes signing, source provenance, package identity,
+version monotonicity, secret handling, updater integrity, or data-safety rules.
+
 ## Prerequisites
 
 - Docker Engine and Compose.
@@ -17,7 +35,7 @@ The `snezhok_v3_postgres` volume and `platform/data-v3/storage` media directory 
 
 Daily age-encrypted synchronized backups, isolated weekly restore drills, and retention are defined in [OPERATIONS.md](./OPERATIONS.md). A local database dump without its matching media archive is not a valid recovery point.
 
-## Release gate
+## Full production release gate
 
 1. Install from the lockfiles.
 2. Run the executable architecture gate plus contract, API, media-worker, web,

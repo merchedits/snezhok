@@ -492,3 +492,6 @@ export const androidReleaseManifestSchema = z.object({
   downloadUrl: relativeOrAbsoluteUrlSchema,
   downloadMirrors: z.array(relativeOrAbsoluteUrlSchema).max(10).optional(),
 });
+export const linkPreviewSchema = z.object({
+  url: z.string().url().max(2_048), hostname: z.string().min(1).max(253), title: z.string().min(1).max(200), description: z.string().max(400).nullable(),
+}).strict();

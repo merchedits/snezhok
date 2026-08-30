@@ -1,5 +1,33 @@
 # Release engineering
 
+## Verification lanes
+
+Do not treat every private tester APK as a final stable release.
+
+For a mobile-only **tester candidate**, run the changed mobile workspace
+typecheck, focused tests for the changed behavior, the mobile-only revision
+classifier, configuration/environment verification, one clean signed APK build,
+artifact/source verification, and publication endpoint smoke checks. Keep the
+APK's embedded dependency/legal evidence valid. When the dependency graph is
+unchanged, do not add repo-wide compliance regeneration, unrelated workspace
+tests, Expo export, or the complete physical-device matrix merely because an
+APK is being published.
+
+If the candidate changes dependencies, run the applicable compliance and
+supply-chain checks. If it changes server, shared contracts, migrations,
+containers, infrastructure, signing, updater integrity, authentication,
+authorization, destructive data paths, or recovery, escalate to the full
+applicable release gate.
+
+For a **stable client promotion** or **production deployment**, run every gate
+required by this document, `DEPLOYMENT.md`, and the affected reliability
+documents. Physical-device evidence is required before claiming completion, but
+its absence does not prevent an honestly labelled tester candidate from being
+published for that testing.
+
+Do not run overlapping broad suites only because they exist. Prefer one clean
+build and evidence from the closest deterministic check to the changed risk.
+
 ## Android profiles
 
 `expo-dev-client` is a development-only dependency. The EAS `development` profile retains it; `preview` and `production` set `NPM_CONFIG_OMIT=dev`, select matching EAS environments, and identify themselves as release builds. This separation is meaningful only when the final binary is inspected, so configuration and artifact checks are both mandatory.

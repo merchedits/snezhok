@@ -17,6 +17,7 @@ import {
   folderEnvelopeSchema,
   friendEnvelopeSchema,
   hiddenMessageEnvelopeSchema,
+  linkPreviewSchema,
   mutationAcknowledgementSchema,
   productivityPayloadSchema,
   profileEnvelopeSchema,
@@ -30,7 +31,7 @@ import {
   userEnvelopeSchema,
   usersEnvelopeSchema,
 } from "@snezhok/contracts";
-import type { AdminMember, AdminSettings, AppSettings, Attachment, BootstrapPayload, ConversationSummary, CooperativeActivity, CooperativeActivityType, DiagnosticHealth, FriendEntry, GlobalPermission, Message, ServerSummary, UserProfile, UserSummary } from "@snezhok/contracts";
+import type { AdminMember, AdminSettings, AppSettings, Attachment, BootstrapPayload, ConversationSummary, CooperativeActivity, CooperativeActivityType, DiagnosticHealth, FriendEntry, GlobalPermission, LinkPreview, Message, ServerSummary, UserProfile, UserSummary } from "@snezhok/contracts";
 
 import type {
   AuthResponse,
@@ -92,6 +93,10 @@ class ApiClient {
 
   bootstrap(): Promise<BootstrapPayload> {
     return this.request<BootstrapPayload>("/bootstrap", {}, bootstrapPayloadSchema);
+  }
+
+  linkPreview(url: string): Promise<LinkPreview> {
+    return this.request<LinkPreview>(`/links/preview?url=${encodeURIComponent(url)}`, {}, linkPreviewSchema);
   }
 
   adminSettings(): Promise<AdminSettings> {
@@ -227,6 +232,7 @@ class ApiClient {
     kind: "media" | "file" | "voice" | "video-note";
     replyToId: string | null;
     silent: boolean;
+    text: string;
     capabilityUploadIds: string[];
     uploads: Array<{ uploadId: string; input: UploadInput; bytes: number }>;
   }): Promise<BackgroundMessageGroupInitResponse> {
@@ -238,6 +244,7 @@ class ApiClient {
         kind: input.kind,
         replyToId: input.replyToId,
         silent: input.silent,
+        text: input.text,
         capabilityUploadIds: input.capabilityUploadIds,
         uploads: input.uploads.map(({ uploadId, input: upload, bytes }) => ({
           uploadId,

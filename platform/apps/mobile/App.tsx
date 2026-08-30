@@ -31,6 +31,7 @@ import { PublicProfileScreen } from "./src/screens/ProfileScreen";
 import { useAppStore } from "./src/store/useAppStore";
 import type { RootStackParamList } from "./src/types";
 import { AndroidUpdateProvider } from "./src/updates/UpdateProvider";
+import { AppLockGate } from "./src/security/AppLockGate";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -46,7 +47,7 @@ export default function App() {
       <KeyboardProvider>
         <SafeAreaProvider initialMetrics={initialWindowMetrics}>
           <AndroidUpdateProvider>
-            <AppDialogProvider><CallSessionProvider><AppRoot /></CallSessionProvider></AppDialogProvider>
+            <AppDialogProvider><CallSessionProvider><AppLockGate><AppRoot /></AppLockGate></CallSessionProvider></AppDialogProvider>
           </AndroidUpdateProvider>
         </SafeAreaProvider>
       </KeyboardProvider>

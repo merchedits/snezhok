@@ -55,9 +55,10 @@ test("launch-time storage failures are contained instead of becoming unhandled r
   assert.match(updateProviderSource, /AsyncStorage\.getItem\(AUTO_UPDATE_KEY\)[\s\S]*?\.catch\(/);
 });
 
-test("small-deployment chats hide global search, folders, and archive controls", () => {
-  assert.doesNotMatch(chatsSource, /styles\.filterStrip|MessageSearchModal|TextEntryModal/);
-  assert.doesNotMatch(chatsSource, /onArchive=|onAddToFolder=|onToggleFolder=/);
+test("chat list exposes global search, folders, and archive controls", () => {
+  assert.match(chatsSource, /ChatListFilters/);
+  assert.match(chatsSource, /MessageSearchModal/);
+  assert.match(chatsSource, /onArchive=/);
 });
 
 test("chat media uses native bounded caches and lazy audio players", () => {
@@ -111,8 +112,7 @@ test("cached chats use one bottom-anchor mechanism without a duplicate overlay",
   assert.match(timelineSource, /onLoad=\{recordFirstPaint\}/);
   assert.doesNotMatch(timelineSource, /FIRST_FRAME_MESSAGES|firstFrameMessages|onContentSizeChange=/);
   assert.match(timelineSource, /onScrollBeginDrag=\{\(\) => \{[\s\S]{0,40}userDraggedHistory\.current = true/);
-  assert.match(timelineSource, /initialBottomAnchored\.current = true;[\s\S]{0,160}scrollToEnd\(\{ animated: false \}\)/);
-  assert.match(timelineSource, /targetMessageId \|\| userDraggedHistory\.current \|\| renderedMessages\.length === 0/);
+  assert.doesNotMatch(timelineSource, /initialBottomAnchored|scrollToEnd\(\{ animated: false \}\)/);
 });
 
 test("conversation touch warms SQLite without pre-mounting the native route", () => {
@@ -202,7 +202,7 @@ test("compact message metadata uses real layout without a visible fake timestamp
   assert.match(messageBubbleSource, /!message\.editedAt && !message\.pinnedAt/);
   assert.match(messageBubbleSource, /voiceOnly/);
   assert.match(messageBubbleSource, /styles\.voiceMetaOverlay/);
-  assert.match(messageBubbleSource, /styles\.inlineMessageText/);
+  assert.match(messageBubbleSource, /<RichMessageText[\s\S]{0,180}inline=\{inlineMetadata\}/);
   assert.doesNotMatch(messageBubbleSource, /00:00/);
 });
 

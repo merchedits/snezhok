@@ -24,6 +24,7 @@ const validProduction = {
   SOURCE_REVISION: "0123456789abcdef0123456789abcdef01234567",
   APP_ORIGINS: "https://merchedits.xyz",
   STORAGE_ROOT: "/app/data",
+  DEPLOYMENT_REPLICAS: 1,
   MAX_UPLOAD_BYTES: 2_147_483_648,
   UPLOAD_CHUNK_BYTES: 4_194_304,
   INTERNAL_MEDIA_PREFIX: "/chat/_media/",
@@ -69,4 +70,10 @@ test("field-based database credentials safely accept URI-reserved characters", (
 
 test("production configuration rejects an untraceable source revision", () => {
   assert.equal(productionConfigurationProblems({ ...validProduction, SOURCE_REVISION: "development" }).some((problem) => problem.includes("SOURCE_REVISION")), true);
+});
+
+test("production fails closed before an unsafe multi-replica rollout", () => {
+  const problems = productionConfigurationProblems({ ...validProduction, DEPLOYMENT_REPLICAS: 2 });
+  assert.equal(problems.some((problem) => problem.includes("shared object storage")), true);
+  assert.equal(problems.some((problem) => problem.includes("presence adapter")), true);
 });

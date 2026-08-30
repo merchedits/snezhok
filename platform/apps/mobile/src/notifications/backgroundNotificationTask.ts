@@ -1,6 +1,6 @@
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
-import { BACKGROUND_NOTIFICATION_TASK, dismissCallNotification } from "./androidNotifications";
+import { BACKGROUND_NOTIFICATION_TASK, dismissCallNotification, handleMessageNotificationAction } from "./androidNotifications";
 import { api } from "../infrastructure/http/apiClient";
 import { extractNotificationTaskData } from "./notificationRouting";
 
@@ -13,6 +13,10 @@ if (!TaskManager.isTaskDefined(BACKGROUND_NOTIFICATION_TASK)) {
       if (response.actionIdentifier === "decline" && typeof callData?.roomId === "string") {
         await Promise.all([api.declineCall(callData.roomId).catch(() => undefined), dismissCallNotification(callData.roomId)]);
         return Notifications.BackgroundNotificationTaskResult.NewData;
+      }
+      if (["reply", "mark-read", "mute"].includes(response.actionIdentifier)) {
+        const handled = await handleMessageNotificationAction(response.actionIdentifier, callData, response.userText).catch(() => false);
+        return handled ? Notifications.BackgroundNotificationTaskResult.NewData : Notifications.BackgroundNotificationTaskResult.NoData;
       }
     }
     const payload = extractNotificationTaskData(data);

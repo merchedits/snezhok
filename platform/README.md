@@ -38,9 +38,12 @@ Internal APK builds use the `preview` profile in `apps/mobile/eas.json`, or the 
 
 ## Required reading
 
+- [Evidence-first development and tester delivery](docs/DEVELOPMENT_WORKFLOW.md)
 - [Product specification](docs/PRODUCT.md)
 - [Design language](docs/DESIGN.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Priority audit execution](docs/PRIORITY_AUDIT_EXECUTION.md)
+- [Current validation status](docs/CURRENT_VALIDATION_STATUS.md)
 - [Migration](docs/MIGRATION.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Android release channel](docs/MOBILE_RELEASES.md)

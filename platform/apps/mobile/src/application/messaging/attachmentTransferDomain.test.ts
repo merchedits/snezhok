@@ -104,6 +104,7 @@ function disabledBackground(): AttachmentTransferDependencies<number>["backgroun
     waitForBatch: async () => undefined,
     cancelBatch: async () => undefined,
     reconcile: async () => undefined,
+    retryForMessage: async () => null,
   };
 }
 

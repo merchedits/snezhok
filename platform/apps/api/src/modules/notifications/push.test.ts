@@ -11,11 +11,13 @@ test("silent messages never create push notifications", () => {
   assert.equal(pushContentForEvent("u2", "message:created", { streamId: "s", silent: true, sender: { id: "u1", displayName: "Anna" } }), null);
 });
 
-test("builds a native message notification", () => {
-  const result = pushContentForEvent("u2", "message:created", { streamId: "s", streamKind: "conversation", text: "hello", sender: { id: "u1", displayName: "Anna" } });
+test("builds an actionable native message notification", () => {
+  const result = pushContentForEvent("u2", "message:created", { streamId: "s", streamKind: "conversation", sequence: 7, text: "hello", sender: { id: "u1", displayName: "Anna" } });
   assert.equal(result?.title, "Anna");
   assert.equal(result?.body, "hello");
   assert.equal(result?.channelId, "messages-v1");
+  assert.equal(result?.categoryId, "message-actions-v1");
+  assert.equal(result?.data.sequence, 7);
 });
 
 test("disabled previews never expose message content", () => {

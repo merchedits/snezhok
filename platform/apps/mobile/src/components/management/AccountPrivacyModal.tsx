@@ -9,6 +9,8 @@ import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
 import { productCopy } from "../../lib/productCopy";
 import { userFacingError } from "../../lib/userFacingError";
+import { listStoredAccounts, readStoredAccount, type StoredAccount } from "../../lib/accountVault";
+import { clearSession, writeSession } from "../../lib/secureSession";
 import { useAppStore } from "../../store/useAppStore";
 import { Avatar } from "../Avatar";
 import { useAppDialog } from "../AppDialogProvider";
@@ -23,6 +25,8 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
   const friends = useAppStore((state) => state.friends);
   const refresh = useAppStore((state) => state.refreshBootstrap);
   const signOut = useAppStore((state) => state.signOut);
+  const initialize = useAppStore((state) => state.initialize);
+  const me = useAppStore((state) => state.me);
   const [page, setPage] = useState(initialPage);
   const [sessions, setSessions] = useState<SessionDevice[]>([]);
   const [privacy, setPrivacy] = useState<PrivacySettings | null>(null);
@@ -33,13 +37,14 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
   const [blocking, setBlocking] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserSummary[]>([]);
+  const [accounts, setAccounts] = useState<StoredAccount[]>([]);
   const pc = useCallback((key: Parameters<typeof productCopy>[1], values?: Record<string, string | number>) => productCopy(language, key, values), [language]);
 
   useEffect(() => { if (visible) setPage(initialPage); }, [initialPage, visible]);
   useEffect(() => {
     if (!visible) return;
     setBusy(true);
-    void accountUseCases.load().then(({ sessions: nextSessions, privacy: nextPrivacy }) => { setSessions(nextSessions); setPrivacy(nextPrivacy); }).catch((error) => showDialog(pc("operationFailed"), userFacingError(error, t))).finally(() => setBusy(false));
+    void Promise.all([accountUseCases.load(), listStoredAccounts()]).then(([loaded, stored]) => { setSessions(loaded.sessions); setPrivacy(loaded.privacy); setAccounts(stored); }).catch((error) => showDialog(pc("operationFailed"), userFacingError(error, t))).finally(() => setBusy(false));
   }, [pc, showDialog, t, visible]);
 
   const run = async (action: () => Promise<void>) => {
@@ -66,6 +71,20 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
 
   const audienceLabel = (value: PrivacyAudience) => value === "everyone" ? pc("everyone") : value === "contacts" ? pc("contactsOnly") : pc("nobody");
   const blocked = friends.filter((entry) => entry.relationship === "blocked");
+  const switchAccount = (account: StoredAccount) => void run(async () => {
+    const tokens = await readStoredAccount(account.ownerId);
+    if (!tokens) throw new Error("STORED_ACCOUNT_UNAVAILABLE");
+    onClose();
+    useAppStore.setState({ phase: "booting", error: null });
+    try {
+      await writeSession(tokens);
+      await initialize();
+    } catch (error) {
+      useAppStore.setState({ phase: "ready" });
+      throw error;
+    }
+  });
+  const addAccount = () => void run(async () => { onClose(); await clearSession({ preserveStoredAccount: true }); });
 
   return <ManagementModal visible={visible} title={page === "account" ? pc("accountSecurity") : pc("privacyDetails")} onClose={onClose} busy={busy}>
     <View style={[styles.segment, { backgroundColor: palette.surface }]}>
@@ -73,6 +92,10 @@ export function AccountPrivacyModal({ visible, initialPage, onClose }: { visible
       <Segment label={pc("privacyDetails")} active={page === "privacy"} onPress={() => setPage("privacy")} />
     </View>
     {page === "account" ? <ManagementScroll>
+      <ManagementSection title={pc("savedAccounts")}>
+        {accounts.map((account) => <ManagementRow key={account.ownerId} icon="person-circle-outline" label={account.displayName} detail={`@${account.username}`} {...(account.ownerId === me?.id ? { value: pc("currentAccount") } : { onPress: () => switchAccount(account) })} />)}
+        <ManagementRow icon="person-add-outline" label={pc("addAccount")} onPress={addAccount} />
+      </ManagementSection>
       <ManagementSection title={pc("activeSessions")}>
         {sessions.length ? sessions.map((session) => <ManagementRow
           key={session.id}

@@ -31,6 +31,11 @@ not an acceptable substitute.
   message cache and downloaded media rely on Android application sandboxing and
   device encryption; users of a rooted or unlocked device should assume local
   content is recoverable.
+- The optional biometric app lock conceals the authenticated UI after
+  backgrounding; it does not encrypt SQLite, downloaded files, or notification
+  content and must never be described as E2EE. Up to five remembered accounts
+  keep separate SecureStore credentials, account-scoped caches, async guards,
+  and durable transfer ownership.
 - Diagnostic reports exclude credentials, email addresses, account IDs,
   message text, exception messages, and stack payloads that may contain user
   content.
@@ -60,6 +65,13 @@ not an acceptable substitute.
   lock screen. Users can disable previews globally or per stream.
 - Run dependency, migration, restore, artifact-signature, and attachment
   authorization gates for every release.
+- Keep React Native's Metro packages on the compatible patched 0.84.5 line;
+  0.84.4 pulls the vulnerable `image-size` parsers even though they are build
+  tooling rather than shipped runtime code. The remaining advisory is confined
+  to Expo SDK 56's Android-inactive Xcode tooling: `xcode@3.0.1` invokes only
+  `uuid.v4()` and never the advisory's buffered v3/v5/v6 paths. npm's offered
+  remediation downgrades Expo to 46, so it must not be applied. Re-evaluate the
+  chain on each Expo patch and remove the exception when Expo updates Xcode.
 - Run `npm run compliance:check` before review. CI keeps the committed-secret
   scanner redacted, emits CycloneDX/license evidence, verifies public GPL source
   reachability on pushed release builds, and blocks fixable high/critical
@@ -91,3 +103,5 @@ generation-specific key is past the retention grace period.
 
 Operational retention values, encrypted backup handling, recovery drills, and
 incident commands are documented in [OPERATIONS.md](./OPERATIONS.md).
+The future E2EE boundary and prerequisites are recorded in
+[`decisions/2026-08-30-e2ee-feasibility.md`](./decisions/2026-08-30-e2ee-feasibility.md).

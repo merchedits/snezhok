@@ -38,7 +38,26 @@ For a private release build, create one long-lived upload keystore and expose it
 
 See `../../docs/MOBILE_RELEASES.md` for the web-hosted update channel and atomic publication procedure.
 
-## Release checks
+## Tester-candidate checks
+
+When the owner asks for an APK to test, use the signed tester-candidate lane in
+`../../docs/DEVELOPMENT_WORKFLOW.md`:
+
+1. Run the mobile workspace typecheck and focused tests for the changed path.
+2. Run only the targeted integration or release-build smoke required by the
+   touched messaging, media, keyboard, gesture, game, call, or data boundary.
+3. Build once with the production-like signed profile and run the mandatory APK
+   identity, version, signature, provenance, legal-evidence, byte-count, hash,
+   and updater checks.
+4. Publish atomically, verify the manifest and a byte range, and hand the owner
+   the exact real-device scenario checklist.
+
+Do not add Expo export, unrelated workspace suites, or the complete device
+matrix to an ordinary tester candidate. Escalate destructive data,
+authentication/authorization, updater/signing, recovery, dependency, contract,
+or server changes to their full safety gates.
+
+## Stable release checks
 
 1. Run the workspace mobile typecheck and Expo Doctor.
 2. Verify login, token refresh, and logout against production.

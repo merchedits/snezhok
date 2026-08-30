@@ -45,8 +45,12 @@ use the normal attachment authorization rules.
   resume it reconciles native results, sends groups of at most ten media items,
   and retries the same idempotent message ID after a crash. A 23-item selection
   therefore becomes 10 + 10 + 3 without duplicates.
-- Signing out cancels native work, requests remote cancellation, deletes staged
-  sources, and clears the account's pending intent queue.
+- Adding or switching accounts never cancels another account's durable batch.
+  Native work remains capability-scoped, while message dispatch and UI
+  projection occur only for the active owner. Switching back reconciles the
+  persisted result. Signing out cancels native work, requests remote
+  cancellation, deletes staged sources, and clears only that account's pending
+  intent queue.
 - Foreground compatibility transfers are owned by `TransferManager`, keyed by
   transfer and batch IDs, and bounded independently. There is no process-global
   active-upload slot: progress/cancellation in one chat cannot overwrite a

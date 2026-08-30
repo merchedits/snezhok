@@ -1,7 +1,6 @@
 import type { Attachment } from "@snezhok/contracts";
-import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import { File, Paths } from "expo-file-system";
+import { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import * as IntentLauncher from "expo-intent-launcher";
 
 import { recordDiagnostic } from "../../diagnostics/diagnostics";
@@ -10,7 +9,7 @@ import { usePalette } from "../../hooks/usePalette";
 import { useTranslation } from "../../i18n";
 import { mediaAlbumRows } from "../../lib/mediaAlbums";
 import { messageMediaSize } from "../../lib/mediaLayout";
-import { downloadAuthorizedMedia } from "../../lib/authorizedMediaDownload";
+import { cancelAttachmentDownload, ensureAttachmentDownloaded, getAttachmentDownloadSnapshot, subscribeToAttachmentDownload } from "../../lib/attachmentDownloadManager";
 import { userFacingError } from "../../lib/userFacingError";
 import { AppIcon } from "../AppIcon";
 import { useAppDialog } from "../AppDialogProvider";
@@ -99,16 +98,8 @@ function AlbumMediaTile({ attachment, onOpen, onMessageReaction, onMessageLongPr
 }
 
 function AlbumAttachmentViewer({ attachments, index, onIndex, onClose }: { attachments: Attachment[]; index: number; onIndex: (index: number) => void; onClose: () => void }) {
-  const attachment = attachments[index]!;
-  const source = useAuthorizedMedia(attachment.url);
-  const imageAttachments = useMemo(() => attachments.filter((item) => item.kind === "image"), [attachments]);
-  const galleryItems = useMemo<ImageGalleryItem[]>(() => imageAttachments.map((item) => ({ key: item.id, uri: item.url, filename: item.filename, mimeType: item.mimeType })), [imageAttachments]);
-  if (attachment.kind === "video") return <VideoViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={onClose} />;
-  const imageIndex = Math.max(0, imageAttachments.findIndex((item) => item.id === attachment.id));
-  return <ImageGalleryViewer visible items={galleryItems} initialIndex={imageIndex} onIndexChange={(next) => {
-    const nextAttachment = imageAttachments[next];
-    if (nextAttachment) onIndex(attachments.findIndex((item) => item.id === nextAttachment.id));
-  }} onClose={onClose} />;
+  const galleryItems = useMemo<ImageGalleryItem[]>(() => attachments.map((item) => ({ key: item.id, uri: item.url, filename: item.filename, mimeType: item.mimeType, kind: item.kind === "video" ? "video" : "image", durationMs: item.durationMs })), [attachments]);
+  return <ImageGalleryViewer visible items={galleryItems} initialIndex={index} onIndexChange={onIndex} onClose={onClose} />;
 }
 
 function AttachmentView({ attachment, streamId, mine, foreground, mutedForeground, onMessageReaction, onMessageLongPress }: { attachment: Attachment; streamId: string; mine: boolean; foreground: string; mutedForeground: string } & MediaMessageInteractions) {
@@ -123,32 +114,34 @@ function DocumentAttachment({ attachment }: { attachment: Attachment }) {
   const palette = usePalette();
   const { t } = useTranslation();
   const showDialog = useAppDialog();
-  const [opening, setOpening] = useState(false);
-  const open = useCallback(async () => {
-    if (opening) return;
-    setOpening(true);
+  const [action, setAction] = useState<"open" | "share" | null>(null);
+  const download = useSyncExternalStore(
+    useCallback((listener) => subscribeToAttachmentDownload(attachment.id, listener), [attachment.id]),
+    useCallback(() => getAttachmentDownloadSnapshot(attachment.id), [attachment.id]),
+    useCallback(() => getAttachmentDownloadSnapshot(attachment.id), [attachment.id]),
+  );
+  const run = useCallback(async (nextAction: "open" | "share") => {
+    if (action || download.state === "downloading") return;
+    setAction(nextAction);
     try {
-      const safeName = attachment.filename.replace(/[^A-Za-z0-9._-]+/g, "-").slice(-100) || "attachment.bin";
-      const destination = new File(Paths.cache, `snezhok-${attachment.id}-${safeName}`);
-      const completeCachedCopy = destination.exists && destination.size === attachment.bytes;
-      const downloaded = completeCachedCopy ? destination : await downloadAuthorizedMedia(attachment.url, destination);
-      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-        data: downloaded.contentUri,
-        type: attachment.mimeType || "application/octet-stream",
-        flags: 1,
-      });
+      const downloaded = await ensureAttachmentDownloaded(attachment);
+      const type = attachment.mimeType || "application/octet-stream";
+      if (nextAction === "open") await IntentLauncher.startActivityAsync("android.intent.action.VIEW", { data: downloaded.contentUri, type, flags: 1 });
+      else await IntentLauncher.startActivityAsync("android.intent.action.SEND", { type, flags: 1, extra: { "android.intent.extra.STREAM": downloaded.contentUri, "android.intent.extra.TITLE": attachment.filename } });
     } catch (error) {
+      if (getAttachmentDownloadSnapshot(attachment.id).state === "cancelled") return;
       recordDiagnostic("warn", "media", "Protected document open failed", { failure: error instanceof Error ? error.name : "UnknownError" });
       showDialog(t("requestFailed"), userFacingError(error, t));
     } finally {
-      setOpening(false);
+      setAction(null);
     }
-  }, [attachment, opening, showDialog, t]);
+  }, [action, attachment, download.state, showDialog, t]);
+  const progressLabel = download.progress === null ? t("downloading") : `${Math.round(download.progress * 100)}%`;
   return (
-    <Pressable disabled={opening} onPress={() => void open()} style={[styles.file, { backgroundColor: palette.surface }]}>
+    <Pressable onPress={() => void run("open")} style={[styles.file, { backgroundColor: palette.surface }]}>
       <View style={[styles.fileIcon, { backgroundColor: palette.accentSoft }]}><AppIcon name="document-outline" size={23} color={palette.accent} /></View>
-      <View style={styles.fileText}><Text numberOfLines={1} style={[styles.filename, { color: palette.text }]}>{attachment.filename}</Text><Text style={[styles.filesize, { color: palette.secondaryText }]}>{formatBytes(attachment.bytes)} · {attachment.quality}</Text></View>
-      {opening ? <ActivityIndicator size="small" color={palette.accent} /> : <AppIcon name="download-outline" size={20} color={palette.accent} />}
+      <View style={styles.fileText}><Text numberOfLines={1} style={[styles.filename, { color: palette.text }]}>{attachment.filename}</Text><Text style={[styles.filesize, { color: palette.secondaryText }]}>{download.state === "downloading" ? progressLabel : `${formatBytes(attachment.bytes)} · ${attachment.quality}`}</Text></View>
+      {download.state === "downloading" ? <Pressable accessibilityRole="button" accessibilityLabel={t("cancelDownload")} hitSlop={8} onPress={(event) => { event.stopPropagation(); cancelAttachmentDownload(attachment.id); }}><AppIcon name="close" size={21} color={palette.accent} /></Pressable> : <Pressable accessibilityRole="button" accessibilityLabel={t("shareFile")} hitSlop={8} disabled={Boolean(action)} onPress={(event) => { event.stopPropagation(); void run("share"); }}><AppIcon name="return-up-forward-outline" size={20} color={palette.accent} /></Pressable>}
     </Pressable>
   );
 }

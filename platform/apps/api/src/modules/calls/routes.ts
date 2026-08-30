@@ -18,6 +18,7 @@ import {
   recordParticipantJoined, recordParticipantLeft, revocationTimestamp,
 } from "./mediaControl.js";
 import { getCallMediaPlane } from "./mediaPlane.js";
+import { recordCallHistoryMessage } from "./callHistory.js";
 
 const tokenSchema = z.object({ streamId: z.string().uuid(), expectedCallId: z.string().uuid().optional() });
 const callParams = z.object({ id: z.string().uuid() });
@@ -45,6 +46,7 @@ export async function callRoutes(app: FastifyInstance) {
       const staleEvents = [];
       for (const old of stale.rows) {
         await enqueueRoomTermination(client, old.id, old.livekit_room, "stale-timeout");
+        await recordCallHistoryMessage(client, { id: old.id, streamId, streamKind: access.streamKind, answeredBy: old.answered_by, endedAt: old.ended_at });
         staleEvents.push(await storeEvent(client, recipients, "call:updated", { roomId: old.id, state: "ended", participantIds: [], endedAt: old.ended_at.getTime(), answeredByIds: old.answered_by, reason: "stale-timeout" }));
       }
       let call = (await client.query<{ id: string; livekit_room: string; started_by: string }>("SELECT id,livekit_room,started_by FROM call_sessions WHERE stream_kind=$1 AND stream_id=$2 AND ended_at IS NULL LIMIT 1", [access.streamKind, streamId])).rows[0];
@@ -104,6 +106,7 @@ export async function callRoutes(app: FastifyInstance) {
       if (call.ended_at) return null;
       const endedAt = (await client.query<{ ended_at: Date }>("UPDATE call_sessions SET ended_at=now() WHERE id=$1 RETURNING ended_at", [id])).rows[0]!.ended_at;
       await enqueueRoomTermination(client, id, call.livekit_room, "ended-by-user");
+      await recordCallHistoryMessage(client, { id, streamId: call.stream_id, streamKind: call.stream_kind, answeredBy: call.answered_by, endedAt });
       const recipients = await streamRecipients(access, client);
       return storeEvent(client, recipients, "call:updated", { roomId: id, state: "ended", participantIds: [], endedAt: endedAt.getTime(), answeredByIds: call.answered_by, reason: "ended-by-user" });
     });
@@ -127,6 +130,7 @@ export async function callRoutes(app: FastifyInstance) {
       const endedAt = (await client.query<{ ended_at: Date }>("UPDATE call_sessions SET ended_at=now() WHERE id=$1 AND ended_at IS NULL RETURNING ended_at", [id])).rows[0]?.ended_at;
       if (!endedAt) return null;
       await enqueueRoomTermination(client, id, call.livekit_room, "ended-by-user");
+      await recordCallHistoryMessage(client, { id, streamId: call.stream_id, streamKind: call.stream_kind, answeredBy: call.answered_by, endedAt });
       const recipients = await streamRecipients(access, client);
       return storeEvent(client, recipients, "call:updated", { roomId: id, state: "ended", participantIds: [], streamId: call.stream_id, streamKind: call.stream_kind, endedAt: endedAt.getTime(), answeredByIds: call.answered_by, reason: "ended-by-user" });
     });
@@ -149,6 +153,7 @@ export async function callRoutes(app: FastifyInstance) {
       if (!direct) return null;
       const endedAt = (await client.query<{ ended_at: Date }>("UPDATE call_sessions SET ended_at=now() WHERE id=$1 RETURNING ended_at", [id])).rows[0]!.ended_at;
       await enqueueRoomTermination(client, id, call.livekit_room, "declined");
+      await recordCallHistoryMessage(client, { id, streamId: call.stream_id, streamKind: call.stream_kind, answeredBy: call.answered_by, endedAt });
       const recipients = await streamRecipients(access, client);
       return storeEvent(client, recipients, "call:updated", { roomId: id, state: "ended", participantIds: [], streamId: call.stream_id, streamKind: call.stream_kind, endedAt: endedAt.getTime(), answeredByIds: call.answered_by, reason: "declined" });
     });

@@ -21,6 +21,15 @@ export interface ParsedCallStats {
   baseline: CallStatsBaseline;
 }
 
+export type CallNetworkQuality = "unknown" | "good" | "fair" | "poor";
+
+export function callNetworkQuality(stats: CallNetworkStats): CallNetworkQuality {
+  if (!stats.sampledAt) return "unknown";
+  if ((stats.packetLossPercent ?? 0) >= 8 || (stats.pingMs ?? 0) >= 450 || (stats.jitterMs ?? 0) >= 80) return "poor";
+  if ((stats.packetLossPercent ?? 0) >= 3 || (stats.pingMs ?? 0) >= 220 || (stats.jitterMs ?? 0) >= 35) return "fair";
+  return "good";
+}
+
 type StatsRecord = Record<string, unknown>;
 
 export function parseCallStats(reports: readonly unknown[], previous?: CallStatsBaseline, now = Date.now()): ParsedCallStats {

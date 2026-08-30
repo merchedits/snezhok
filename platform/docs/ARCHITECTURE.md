@@ -150,6 +150,13 @@ The production stack is deliberately small:
 
 Redis is not mandatory on this single-node, low-memory server. Durable events, jobs and rate-limit state use PostgreSQL. Redis becomes appropriate only when the API or LiveKit is scaled to multiple nodes.
 
+This is enforced rather than assumed: production startup requires
+`DEPLOYMENT_REPLICAS=1`. Increasing it fails configuration validation until
+both immutable media objects move to shared S3-compatible storage and
+Socket.IO presence/room delivery uses a cross-node adapter. This prevents an
+operator from creating split presence, missed socket delivery, or attachments
+that exist on only one API host by changing an orchestrator replica count.
+
 Android abnormal-exit evidence is consumed on the next launch and automatically
 delivered after authentication. The server stores only deduplicated event hashes
 and daily aggregates by application version, Android version, device model,

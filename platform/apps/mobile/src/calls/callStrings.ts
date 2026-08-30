@@ -30,6 +30,10 @@ const copy = {
     microphoneLevel: "Уровень микрофона",
     minimize: "Свернуть",
     permissionRestricted: "Для этого действия недостаточно прав в голосовом канале.",
+    cameraFailed: "Камера не запустилась. Звонок продолжается без видео.",
+    networkGood: "Сеть стабильна",
+    networkFair: "Связь нестабильна",
+    networkPoor: "Слабая связь",
   },
   en: {
     incoming: "Incoming call",
@@ -60,6 +64,10 @@ const copy = {
     microphoneLevel: "Microphone level",
     minimize: "Minimize",
     permissionRestricted: "Your voice-channel role does not allow this action.",
+    cameraFailed: "The camera did not start. The call continues without video.",
+    networkGood: "Stable network",
+    networkFair: "Unstable network",
+    networkPoor: "Poor network",
   },
 } as const;
 

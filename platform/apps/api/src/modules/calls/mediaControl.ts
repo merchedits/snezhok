@@ -8,6 +8,7 @@ import { resolveStreamAccess, streamRecipients, type StreamAccess } from "../str
 import { assertDirectConversationMessagingAllowed } from "../users/privacy.js";
 import { voiceChannelGrantPolicy } from "./semantics.js";
 import { getCallMediaPlane, type CallMediaPlane } from "./mediaPlane.js";
+import { recordCallHistoryMessage } from "./callHistory.js";
 
 interface MaintenanceLog {
   info: (fields: object, message: string) => void;
@@ -350,6 +351,7 @@ async function endedEvent(client: DbClient, call: ActiveCallRow, reason: CallEnd
     access.serverId = (await client.query<{ server_id: string }>("SELECT server_id FROM channels WHERE id=$1", [call.stream_id])).rows[0]?.server_id ?? null;
   }
   const recipients = await streamRecipients(access, client);
+  await recordCallHistoryMessage(client, { id: call.id, streamId: call.stream_id, streamKind: call.stream_kind, answeredBy: call.answered_by, endedAt });
   return storeEvent(client, recipients, "call:updated", {
     roomId: call.id,
     state: "ended",
