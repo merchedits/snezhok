@@ -25,6 +25,7 @@ import { visibleConversationSummaries } from "../lib/conversationList";
 import { directPeer, startsRegularConversationSection } from "../store/conversationIdentity";
 import { useAppStore } from "../store/useAppStore";
 import type { RootStackParamList } from "../types";
+import { shouldFillChatListViewport } from "../ui/chat/chatListLayout";
 
 interface ConversationListRow {
   conversation: ConversationSummary;
@@ -148,7 +149,7 @@ export function ChatsScreen({ embedded: _embedded = false, active = true }: { em
       <ChatListFilters folders={folders} selected={filter} onSelect={setFilter} onCreate={() => setFolderCreateOpen(true)} />
       <FlatList
         style={styles.list}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, shouldFillChatListViewport(rows.length) && styles.emptyListContent]}
         data={rows}
         keyExtractor={(item) => item.conversation.id}
         keyboardShouldPersistTaps="handled"
@@ -270,7 +271,8 @@ function mediaLabel(kind: string, t: ReturnType<typeof useTranslation>["t"]): st
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   list: { flex: 1 },
-  listContent: { flexGrow: 1, paddingTop: 4, paddingBottom: 86 },
+  listContent: { paddingTop: 4, paddingBottom: 86 },
+  emptyListContent: { flexGrow: 1 },
   row: { height: 72, flexDirection: "row", marginHorizontal: 12, marginVertical: 1, paddingHorizontal: 8, borderRadius: 18, alignItems: "center" },
   sectionBreak: { borderTopWidth: 2, borderTopColor: "transparent" },
   savedAvatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },

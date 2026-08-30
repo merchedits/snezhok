@@ -4,6 +4,7 @@ import test from "node:test";
 
 const chatSource = readFileSync(new URL("./ChatScreen.tsx", import.meta.url), "utf8");
 const chatsSource = readFileSync(new URL("./ChatsScreen.tsx", import.meta.url), "utf8");
+const chatFiltersSource = readFileSync(new URL("../components/chat/ChatListFilters.tsx", import.meta.url), "utf8");
 const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
 const serverAdminSource = readFileSync(new URL("../components/management/ServerAdminModal.tsx", import.meta.url), "utf8");
 const storeSource = readFileSync(new URL("../store/useAppStore.ts", import.meta.url), "utf8");
@@ -59,6 +60,14 @@ test("chat list exposes global search, folders, and archive controls", () => {
   assert.match(chatsSource, /ChatListFilters/);
   assert.match(chatsSource, /MessageSearchModal/);
   assert.match(chatsSource, /onArchive=/);
+});
+
+test("populated chat rows start directly below the filters", () => {
+  assert.match(chatFiltersSource, /<ScrollView style=\{styles\.scroll\} horizontal/);
+  assert.match(chatFiltersSource, /scroll: \{ flexGrow: 0, flexShrink: 0 \}/);
+  assert.match(chatsSource, /shouldFillChatListViewport\(rows\.length\) && styles\.emptyListContent/);
+  assert.match(chatsSource, /emptyListContent: \{ flexGrow: 1 \}/);
+  assert.doesNotMatch(chatsSource, /listContent: \{[^}]*flexGrow/);
 });
 
 test("chat media uses native bounded caches and lazy audio players", () => {
