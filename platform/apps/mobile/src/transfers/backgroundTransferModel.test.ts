@@ -56,9 +56,10 @@ test("each optimistic album tile retains its gallery preview and individual prog
     streamKind: "conversation",
     startingSequence: 1,
   })[0]!;
-  const decorated = message.attachments as Array<typeof message.attachments[number] & { localTransfer?: { progress: number } }>;
+  const decorated = message.attachments as Array<typeof message.attachments[number] & { localTransfer?: { progress: number; previewUri: string | null } }>;
   assert.deepEqual(decorated.map((attachment) => attachment.url), [previewInput.previewUri, previewInput.previewUri]);
   assert.deepEqual(decorated.map((attachment) => attachment.localTransfer?.progress), [25, 70]);
+  assert.deepEqual(decorated.map((attachment) => attachment.localTransfer?.previewUri), [previewInput.previewUri, previewInput.previewUri]);
 });
 
 test("optimistic voice notes expose the locally recorded waveform immediately and retain it through initialization", () => {

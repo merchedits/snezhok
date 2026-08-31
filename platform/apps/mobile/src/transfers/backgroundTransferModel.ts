@@ -43,6 +43,7 @@ export interface QueuedAttachmentBatch {
 interface LocalTransferPresentation {
   status: QueuedTransferStatus;
   progress: number;
+  previewUri: string | null;
 }
 
 export function attachmentGroupSize(messageKind: AttachmentMessageKind): number {
@@ -125,7 +126,11 @@ export function optimisticMessagesForAttachmentBatch(input: {
     attachments: group.transferIds.flatMap((transferId): Attachment[] => {
       const transfer = transfers.get(transferId);
       if (!transfer) return [];
-      const localTransfer: LocalTransferPresentation = { status: transfer.status, progress: transfer.progress };
+      const localTransfer: LocalTransferPresentation = {
+        status: transfer.status,
+        progress: transfer.progress,
+        previewUri: (transfer.input.previewUri ?? transfer.input.uri) || null,
+      };
       if (transfer.attachment) return [{ ...transfer.attachment, localTransfer } as Attachment];
       return [{
         id: transfer.transferId,

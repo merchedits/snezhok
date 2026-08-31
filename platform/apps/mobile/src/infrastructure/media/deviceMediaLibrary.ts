@@ -82,6 +82,7 @@ class DeviceMediaLibrary {
         messageKind: "media",
         inputs: [{
           uri: asset.uri,
+          previewUri: asset.uri,
           filename,
           mimeType: asset.mimeType ?? mimeTypeFor(filename, false),
           kind: "image",
@@ -106,7 +107,10 @@ class DeviceMediaLibrary {
       const video = info.mediaType === MediaLibrary.MediaType.VIDEO;
       return {
         uri: info.uri,
-        previewUri: info.uri,
+        // MediaStore filesystem paths can be unreadable under scoped storage.
+        // The asset id is the durable content:// handle already used by the
+        // gallery grid and can be decoded immediately without a server roundtrip.
+        previewUri: info.id,
         filename,
         mimeType: mimeTypeFor(filename, video),
         kind: video ? "video" : "image",

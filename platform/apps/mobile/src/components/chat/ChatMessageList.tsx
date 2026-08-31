@@ -2,9 +2,10 @@ import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useIsFocused } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type ViewToken } from "react-native";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ElementRef } from "react";
+import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewProps, type ViewToken } from "react-native";
 import type { SharedValue } from "react-native-reanimated";
+import { KeyboardChatScrollView } from "react-native-keyboard-controller";
 
 import type { ConversationSummary, Message, UserSummary } from "@snezhok/contracts";
 
@@ -37,6 +38,16 @@ const maintainVisibleMessagePosition = {
   animateAutoScrollToBottom: false,
 } as const;
 const messageKey = (message: Message) => message.id;
+const TelegramKeyboardScrollView = forwardRef<ElementRef<typeof KeyboardChatScrollView>, ScrollViewProps>((props, ref) => (
+  <KeyboardChatScrollView
+    {...props}
+    ref={ref}
+    automaticallyAdjustContentInsets={false}
+    contentInsetAdjustmentBehavior="never"
+    keyboardLiftBehavior="always"
+  />
+));
+TelegramKeyboardScrollView.displayName = "TelegramKeyboardScrollView";
 const messageCellType = (message: Message) => {
   if (message.activity) return `activity-${message.activity.type}`;
   const attachments = renderableAttachments(message.attachments);
@@ -349,6 +360,7 @@ export const ChatMessageList = forwardRef<ChatMessageListHandle, Props>(function
         keyExtractor={messageKey}
         getItemType={messageCellType}
         renderItem={renderMessage}
+        renderScrollComponent={TelegramKeyboardScrollView}
         style={styles.list}
         contentContainerStyle={styles.content}
         drawDistance={360}

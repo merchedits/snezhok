@@ -1,8 +1,8 @@
 import type { Attachment } from "@snezhok/contracts";
+import { Image as ExpoImage } from "expo-image";
 import { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import * as IntentLauncher from "expo-intent-launcher";
-import Svg, { Circle as SvgCircle } from "react-native-svg";
 
 import { recordDiagnostic } from "../../diagnostics/diagnostics";
 import { useAuthorizedMedia } from "../../hooks/useAuthorizedMedia";
@@ -93,9 +93,12 @@ function attachmentComponentName(componentStack?: string | null): string {
 }
 
 function AlbumMediaTile({ attachment, pending, onOpen, onMessageReaction, onMessageLongPress }: { attachment: Attachment; pending: boolean; onOpen: () => void } & MediaMessageInteractions) {
+  const previewUri = localImagePreviewUri(attachment);
   return (
     <MediaPressSurface testID={attachment.kind === "video" ? "message_video" : "message_image"} onOpen={onOpen} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} style={styles.albumTile}>
-      <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
+      {previewUri
+        ? <ExpoImage cachePolicy="none" contentFit="cover" recyclingKey={`${attachment.id}:local-preview`} source={{ uri: previewUri }} style={StyleSheet.absoluteFill} transition={0} />
+        : <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />}
       <AttachmentTransferOverlay attachment={attachment} fallbackPending={pending} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </MediaPressSurface>
@@ -103,8 +106,13 @@ function AlbumMediaTile({ attachment, pending, onOpen, onMessageReaction, onMess
 }
 
 type TransferDecoratedAttachment = Attachment & {
-  localTransfer?: { status: string; progress: number };
+  localTransfer?: { status: string; progress: number; previewUri?: string | null };
 };
+
+function localImagePreviewUri(attachment: Attachment): string | null {
+  if (attachment.kind !== "image") return null;
+  return (attachment as TransferDecoratedAttachment).localTransfer?.previewUri ?? null;
+}
 
 function AttachmentTransferOverlay({ attachment, fallbackPending }: { attachment: Attachment; fallbackPending: boolean }) {
   const transfer = (attachment as TransferDecoratedAttachment).localTransfer;
@@ -112,25 +120,17 @@ function AttachmentTransferOverlay({ attachment, fallbackPending }: { attachment
   const active = transfer ? !failed && transfer.status !== "succeeded" : fallbackPending;
   if (!active && !failed) return null;
   const progress = Math.max(0, Math.min(100, Math.round(transfer?.progress ?? 0)));
-  const radius = 16;
-  const circumference = 2 * Math.PI * radius;
   return (
     <View pointerEvents="none" style={styles.pendingAttachmentMask}>
       <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progress }} style={styles.attachmentProgressBadge}>
-        {failed ? <AppIcon name="warning-outline" size={22} color="white" /> : <>
-          <Svg width={42} height={42} viewBox="0 0 42 42" style={StyleSheet.absoluteFill}>
-            <SvgCircle cx="21" cy="21" r={radius} fill="none" stroke="rgba(255,255,255,0.28)" strokeWidth="3" />
-            <SvgCircle cx="21" cy="21" r={radius} fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeDasharray={`${circumference} ${circumference}`} strokeDashoffset={circumference * (1 - progress / 100)} rotation="-90" origin="21, 21" />
-          </Svg>
-          <Text allowFontScaling={false} style={styles.attachmentProgressText}>{progress}</Text>
-        </>}
+        {failed ? <AppIcon name="warning-outline" size={22} color="white" /> : <ActivityIndicator color="white" size={36} />}
       </View>
     </View>
   );
 }
 
 function AlbumAttachmentViewer({ attachments, index, onIndex, onClose }: { attachments: Attachment[]; index: number; onIndex: (index: number) => void; onClose: () => void }) {
-  const galleryItems = useMemo<ImageGalleryItem[]>(() => attachments.map((item) => ({ key: item.id, uri: item.url, filename: item.filename, mimeType: item.mimeType, kind: item.kind === "video" ? "video" : "image", durationMs: item.durationMs })), [attachments]);
+  const galleryItems = useMemo<ImageGalleryItem[]>(() => attachments.map((item) => ({ key: item.id, uri: localImagePreviewUri(item) ?? item.url, filename: item.filename, mimeType: item.mimeType, kind: item.kind === "video" ? "video" : "image", durationMs: item.durationMs })), [attachments]);
   return <ImageGalleryViewer visible items={galleryItems} initialIndex={index} onIndexChange={onIndex} onClose={onClose} />;
 }
 
@@ -181,7 +181,8 @@ function DocumentAttachment({ attachment }: { attachment: Attachment }) {
 function ImageAttachment({ attachment, onMessageReaction, onMessageLongPress }: { attachment: Attachment } & MediaMessageInteractions) {
   const [open, setOpen] = useState(false);
   const [size, onIntrinsicSize] = useMediaFrame(attachment);
-  return <><MediaPressSurface testID={`message_image_${attachment.id}`} onOpen={() => setOpen(true)} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress}><AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} resizeMode="contain" showLoader onIntrinsicSize={onIntrinsicSize} style={[styles.photo, size]} /></MediaPressSurface>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
+  const previewUri = localImagePreviewUri(attachment);
+  return <><MediaPressSurface testID={`message_image_${attachment.id}`} onOpen={() => setOpen(true)} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress}>{previewUri ? <ExpoImage cachePolicy="none" contentFit="contain" recyclingKey={`${attachment.id}:local-preview`} source={{ uri: previewUri }} transition={0} onLoad={(event) => onIntrinsicSize(event.source.width, event.source.height)} style={[styles.photo, size]} /> : <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} resizeMode="contain" showLoader onIntrinsicSize={onIntrinsicSize} style={[styles.photo, size]} />}</MediaPressSurface>{open ? <AttachmentViewer attachment={attachment} onClose={() => setOpen(false)} /> : null}</>;
 }
 
 function InlineVideo({ attachment, onMessageReaction, onMessageLongPress }: { attachment: Attachment } & MediaMessageInteractions) {
@@ -224,7 +225,9 @@ function useMediaFrame(attachment: Attachment): [ReturnType<typeof messageMediaS
 }
 
 function AttachmentViewer({ attachment, onClose }: { attachment: Attachment; onClose: () => void }) {
-  const source = useAuthorizedMedia(attachment.url);
+  const authorizedSource = useAuthorizedMedia(attachment.url);
+  const previewUri = localImagePreviewUri(attachment);
+  const source = previewUri ? { uri: previewUri, headers: {} } : authorizedSource;
   return attachment.kind === "video" ? <VideoViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} durationMs={attachment.durationMs} onClose={onClose} /> : <ImageViewer visible source={source} filename={attachment.filename} mimeType={attachment.mimeType} onClose={onClose} />;
 }
 

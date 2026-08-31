@@ -122,6 +122,10 @@ test("audited native background transfers retain the resumable foreground fallba
   assert.doesNotMatch(composerControllerSource, /task\.completion\.catch\([\s\S]{0,300}handleUploads\(inputs, messageKind\)/);
   assert.match(messageMediaSource, /AttachmentTransferOverlay attachment=\{attachment\}/);
   assert.match(messageMediaSource, /transfer\?\.progress/);
+  assert.match(messageMediaSource, /localImagePreviewUri\(attachment\)/);
+  assert.match(messageMediaSource, /<ExpoImage cachePolicy="none"/);
+  assert.match(messageMediaSource, /<ActivityIndicator color="white" size=\{36\}/);
+  assert.doesNotMatch(messageMediaSource, /attachmentProgressText|SvgCircle|strokeDasharray/);
 });
 
 test("cached chats use one bottom-anchor mechanism without a duplicate overlay", () => {
@@ -176,12 +180,19 @@ test("chat identity header stays outside the keyboard-translated region", () => 
   assert.match(chatSource, /<KeyboardStickyView>[\s\S]*<ChatComposer/);
   assert.doesNotMatch(chatSource, /translate-with-padding/);
   assert.match(timelineSource, /autoscrollToBottomThreshold: 0\.2/);
+  assert.match(timelineSource, /<KeyboardChatScrollView[\s\S]*keyboardLiftBehavior="always"/);
+  assert.match(timelineSource, /renderScrollComponent=\{TelegramKeyboardScrollView\}/);
+  assert.match(timelineSource, /automaticallyAdjustContentInsets=\{false\}/);
+  assert.match(timelineSource, /contentInsetAdjustmentBehavior="never"/);
 });
 
 test("pool playback prepares its renderer before cue impact and begins motion on the next frame", () => {
   assert.match(poolBoardSource, /opacity: playbackRunning \? 1 : 0/);
   assert.match(poolBoardSource, /withSequence\([\s\S]*remainingPullback[\s\S]*runOnJS\(beginPlayback\)/);
   assert.match(poolBoardSource, /if \(!playback \|\| !playbackRunning\) return;[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*animationProgress\.value = withTiming/);
+  assert.match(poolBoardSource, /setVisualBalls\(frames\[0\]!\)/);
+  assert.match(poolBoardSource, /const visualCue = visualBalls\.find/);
+  assert.match(poolBoardSource, /playbackAnimationFrame\.current = requestAnimationFrame\(\(\) => \{[\s\S]*cueStrikeVisible\.value = 0;[\s\S]*animationProgress\.value = withTiming/);
   assert.doesNotMatch(poolBoardSource, /setPlaybackReady/);
 });
 
@@ -206,6 +217,8 @@ test("attachments expose camera capture without replacing original-file sending"
   assert.match(deviceMediaSource, /requestCameraPermissionsAsync/);
   assert.match(deviceMediaSource, /launchCameraAsync/);
   assert.match(deviceMediaSource, /stripLocation: true/);
+  assert.match(deviceMediaSource, /previewUri: asset\.uri/);
+  assert.match(deviceMediaSource, /previewUri: info\.id/);
   assert.doesNotMatch(attachmentSheetSource, /expo-(document-picker|image-picker|media-library)/);
 });
 

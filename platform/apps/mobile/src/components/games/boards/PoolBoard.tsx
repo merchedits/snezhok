@@ -108,6 +108,8 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
 
   const canPlay = state.status === "playing" && state.turnUserId === meId && !busy && !playback;
   const activeCue = ballInHand ? cuePosition : cue;
+  const visualCue = visualBalls.find((ball) => ball.id === 0) ?? cue;
+  const staticCue = ballInHand ? { ...visualCue, x: activeCue.x, y: activeCue.y, pocketed: false } : visualCue;
   const gesture = useMemo(() => pull ? poolShotFromPull(activeCue, pull) : null, [activeCue, pull]);
   const rawPoint = (event: GestureResponderEvent) => ({
     x: event.nativeEvent.locationX / tableWidth,
@@ -196,6 +198,10 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
     cancelAnimation(animationProgress);
     if (pocketTimer.current !== null) clearTimeout(pocketTimer.current);
     animationProgress.value = 0;
+    // Server state may already contain the result while the local animation is
+    // preparing. Freeze every static glyph, including the cue ball, to frame
+    // zero so no future position can leak into the pre-impact scene.
+    setVisualBalls(frames[0]!);
     setPlaybackRunning(false);
     setPocketBurst(null);
     playbackKey.current += 1;
@@ -243,7 +249,6 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
           withTiming(0.65, { duration: remainingPullback, easing: Easing.out(Easing.cubic) }),
           withTiming(1, { duration: timing.impactMs, easing: Easing.in(Easing.quad) }, (struck) => {
             if (!struck) return;
-            cueStrikeVisible.value = 0;
             runOnJS(beginPlayback)(playback.key);
           }),
         );
@@ -275,6 +280,9 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
     // the following display frame so no final-state sample can flash through.
     playbackAnimationFrame.current = requestAnimationFrame(() => {
       playbackAnimationFrame.current = null;
+      // Keep the cue touching the ball until the prepared Skia frame has owned
+      // the table for a display frame. Hide it exactly when motion begins.
+      cueStrikeVisible.value = 0;
       animationProgress.value = withTiming(1, {
         duration: Math.max(1, playback.duration),
         easing: Easing.linear,
@@ -318,7 +326,7 @@ export const PoolBoard = memo(function PoolBoard({ state, meId, busy, run, langu
         </> : null}
         <AnimatedCueLine animatedProps={cueAnimatedProps} stroke="#D7B37A" strokeWidth="12" strokeLinecap="round" />
         {!playbackRunning ? visualBalls.filter((ball) => !ball.pocketed && ball.id !== 0).map((ball) => <PoolBallGlyph key={ball.id} ball={ball} />) : null}
-        {!playbackRunning && (ballInHand || !cue.pocketed) ? <PoolBallGlyph ball={{ id: 0, kind: "cue", x: activeCue.x, y: activeCue.y, pocketed: false }} /> : null}
+        {!playbackRunning && (ballInHand || !staticCue.pocketed) ? <PoolBallGlyph ball={{ ...staticCue, pocketed: false }} /> : null}
         {pocketBurst ? <><SvgCircle key={pocketBurst.key} cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="48" fill="none" stroke="#D7FF29" strokeWidth="8" opacity="0.9" /><SvgCircle cx={pocketBurst.x * 1000} cy={pocketBurst.y * 1000} r="62" fill="none" stroke="#FFF9DB" strokeWidth="4" opacity="0.55" /></> : null}
       </Svg>
       <Canvas androidWarmup pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: playbackRunning ? 1 : 0 }]}>
