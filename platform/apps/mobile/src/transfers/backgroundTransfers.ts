@@ -383,12 +383,11 @@ async function reconcileOnce(input: {
   // native work may finish, but only the active owner may project or dispatch
   // its message groups. Switching back resumes reconciliation safely.
   batches = batches.filter((batch) => batch.ownerId === input.ownerId);
-  for (const batch of batches) input.onBatch?.(batch);
   const snapshots = await listNativeTransfers();
   const invalidNativeResults = snapshots.filter((snapshot) => snapshot.status === "succeeded"
     && (!snapshot.resultJson || !parseAttachmentResult(snapshot.resultJson)));
   const snapshotById = new Map(snapshots.map((snapshot) => [snapshot.transferId, snapshot]));
-  await mutateBackgroundTransferBatches((current) => current.map((batch) => {
+  const projectedBatches = await mutateBackgroundTransferBatches((current) => current.map((batch) => {
     if (batch.ownerId !== input.ownerId || batchComplete(batch)) return batch;
     let next = batch;
     for (const transfer of batch.transfers) {
@@ -398,6 +397,7 @@ async function reconcileOnce(input: {
     input.onProgress?.(batch.id, batchProgress(next));
     return next;
   }));
+  for (const batch of projectedBatches.filter((item) => item.ownerId === input.ownerId && !batchComplete(item))) input.onBatch?.(batch);
   // A malformed terminal row must not poison every future reconciliation.
   // Removing only the native terminal record allows the stable upload id to be
   // recovered through the server initializer (or safely re-enqueued).

@@ -2,7 +2,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, StyleSheet, View } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { CooperativeActivityType, Message } from "@snezhok/contracts";
@@ -182,7 +182,7 @@ export function ChatScreen({ navigation, route }: Props) {
       />
       <ChatPinnedBanner message={latestPin} onPress={jumpToPinned} />
       <VoicePlaybackBanner streamId={streamId} />
-      <KeyboardAvoidingView style={styles.keyboardRegion} behavior="height" automaticOffset>
+      <View style={styles.keyboardRegion}>
         <ChatMessageList
           ref={timeline}
           navigation={navigation}
@@ -204,23 +204,25 @@ export function ChatScreen({ navigation, route }: Props) {
           onOpenReactions={(message, anchorY) => setReactionTarget({ message, anchorY })}
           onOpenActivity={setActiveActivityMessage}
         />
-        {selection.selectionMode ? (
-          <ChatSelectionToolbar actions={selectionActions} bottomInset={insets.bottom} />
-        ) : (
-          <ChatComposer
-            streamId={streamId}
-            streamKind={streamKind}
-            isGroup={isGroup}
-            participants={typingParticipants}
-            {...(me?.id ? { meId: me.id } : {})}
-            replyingTo={replyingTo}
-            editingMessage={editingMessage}
-            onCancelReply={() => setReplyingTo(null)}
-            onCancelEditing={() => setEditingMessage(null)}
-            onEditingComplete={() => setEditingMessage(null)}
-          />
-        )}
-      </KeyboardAvoidingView>
+        <KeyboardStickyView>
+          {selection.selectionMode ? (
+            <ChatSelectionToolbar actions={selectionActions} bottomInset={insets.bottom} />
+          ) : (
+            <ChatComposer
+              streamId={streamId}
+              streamKind={streamKind}
+              isGroup={isGroup}
+              participants={typingParticipants}
+              {...(me?.id ? { meId: me.id } : {})}
+              replyingTo={replyingTo}
+              editingMessage={editingMessage}
+              onCancelReply={() => setReplyingTo(null)}
+              onCancelEditing={() => setEditingMessage(null)}
+              onEditingComplete={() => setEditingMessage(null)}
+            />
+          )}
+        </KeyboardStickyView>
+      </View>
       <ReactionPicker visible={Boolean(reactionTarget)} anchorY={reactionTarget?.anchorY ?? 0} activeEmojis={activeReactionEmojis} onClose={() => setReactionTarget(null)} onSelect={selectReaction} />
       <ForwardPickerModal visible={selection.forwardPickerVisible} busy={selection.forwarding} onClose={selection.closeForwardPicker} onSelect={selection.selectForwardTarget} />
       <MessageSearchModal

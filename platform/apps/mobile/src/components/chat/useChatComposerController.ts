@@ -205,16 +205,14 @@ export function useChatComposerController(input: ChatComposerControllerInput) {
     try {
       const task = sendAttachmentBatch(streamId, inputs, messageKind, replyingTo?.id ?? null, caption);
       setActiveTransferId(task.id);
-      void task.completion.catch((error) => {
-        if (isUploadCancelled(error)) return;
-        showDialog(t("uploadFailed"), userFacingError(error, t), [
-          { text: t("cancel"), style: "cancel" },
-          { text: t("retry"), onPress: () => void handleUploads(inputs, messageKind) },
-        ]);
-      });
       // Dismiss only after the intent and stable message IDs are durable. Byte
       // transfer and server dispatch continue independently in WorkManager.
       await task.accepted;
+      // A post-acceptance failure belongs to the durable inline bubble. Its
+      // Retry action reuses the original batch/client IDs and retries only the
+      // failed transfer rows. Starting handleUploads again would create a
+      // second logical message while the first native batch could still win.
+      void task.completion.catch(() => undefined);
       if (caption) {
         setText("");
         setSelection({ start: 0, end: 0 });

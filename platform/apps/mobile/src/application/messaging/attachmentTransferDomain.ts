@@ -181,6 +181,7 @@ export function createAttachmentTransferDomain<Guard>({
           kind: background.available ? "background-batch" : "foreground-upload",
         });
         let batchId: string | null = null;
+        let preparedBatchPersisted = false;
         const removeCancelHandler = transfer.onCancel(async () => {
           await manager.cancelWhere((child) => child.id.startsWith(`${transferId}:`));
           if (batchId) await background.cancelBatch(batchId);
@@ -215,6 +216,7 @@ export function createAttachmentTransferDomain<Guard>({
             if (!guardIsCurrent(guard)) throw new StaleAccountOperationError();
             const prepared = compressed.map((input) => ({ ...input, stripLocation: input.stripLocation ?? get().settings.stripMediaLocation }));
             await background.replaceBatchInputs(batchId, prepared);
+            preparedBatchPersisted = true;
             await background.resumeBatch(batchId);
             await background.waitForBatch({
               batchId,
@@ -229,8 +231,12 @@ export function createAttachmentTransferDomain<Guard>({
         } catch (error) {
           rejectAcceptance(error);
           const paused = error instanceof Error && error.name === "BackgroundTransferPausedError";
-          if (!paused && batchId) await background.failBatch(batchId).catch(() => undefined);
-          if (!paused && projectedBatch) markBatchFailed(projectedBatch);
+          // Preparation failures make the whole batch retryable. Once the
+          // prepared rows are durable, preserve every native transfer's own
+          // outcome: successful/in-flight siblings must not be reset merely
+          // because one photo failed.
+          if (!paused && batchId && !preparedBatchPersisted) await background.failBatch(batchId).catch(() => undefined);
+          if (!paused && projectedBatch && !preparedBatchPersisted) markBatchFailed(projectedBatch);
           if (!transfer.cancelled) paused ? transfer.complete() : transfer.fail();
           if (paused) return;
           throw error;

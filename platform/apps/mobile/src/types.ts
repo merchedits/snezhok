@@ -92,6 +92,8 @@ export interface BackgroundMessageGroupInitResponse {
 
 export interface UploadInput {
   uri: string;
+  /** Stable gallery/camera preview retained even when the staged upload URI changes. */
+  previewUri?: string;
   filename: string;
   mimeType: string;
   kind: Attachment["kind"];

@@ -10,10 +10,12 @@ module.exports = function withLegalAssets(config) {
     const gradleEvidenceSource = path.join(__dirname, "android-dependency-evidence.gradle");
     const gradleEvidenceDestination = path.join(androidConfig.modRequest.platformProjectRoot, "android-dependency-evidence.gradle");
     const appBuildGradle = path.join(androidConfig.modRequest.platformProjectRoot, "app", "build.gradle");
+    const projectNotices = await readFile(path.join(repositoryRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
+    const mobileArtworkNotices = await readFile(path.join(androidConfig.modRequest.projectRoot, "assets", "chess", "cburnett", "NOTICE.md"), "utf8");
     await mkdir(destination, { recursive: true });
     await Promise.all([
       copyFile(path.join(repositoryRoot, "LICENSE"), path.join(destination, "LICENSE.txt")),
-      copyFile(path.join(repositoryRoot, "THIRD_PARTY_NOTICES.md"), path.join(destination, "THIRD_PARTY_NOTICES.txt")),
+      writeFile(path.join(destination, "THIRD_PARTY_NOTICES.txt"), `${projectNotices.trimEnd()}\n${mobileArtworkNotices}\n`, "utf8"),
       copyFile(gradleEvidenceSource, gradleEvidenceDestination),
     ]);
     const marker = 'apply from: rootProject.file("android-dependency-evidence.gradle")';

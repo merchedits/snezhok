@@ -40,6 +40,11 @@ export interface QueuedAttachmentBatch {
   groups: QueuedAttachmentGroup[];
 }
 
+interface LocalTransferPresentation {
+  status: QueuedTransferStatus;
+  progress: number;
+}
+
 export function attachmentGroupSize(messageKind: AttachmentMessageKind): number {
   return messageKind === "voice" || messageKind === "video-note" ? 1 : 10;
 }
@@ -105,7 +110,7 @@ export function optimisticMessagesForAttachmentBatch(input: {
   startingSequence: number;
 }): Message[] {
   const transfers = new Map(input.batch.transfers.map((transfer) => [transfer.transferId, transfer]));
-  const failed = batchFailed(input.batch);
+  const failed = batchRetryReady(input.batch);
   return input.batch.groups.map((group, index) => ({
     id: group.clientId,
     clientId: group.clientId,
@@ -120,7 +125,8 @@ export function optimisticMessagesForAttachmentBatch(input: {
     attachments: group.transferIds.flatMap((transferId): Attachment[] => {
       const transfer = transfers.get(transferId);
       if (!transfer) return [];
-      if (transfer.attachment) return [transfer.attachment];
+      const localTransfer: LocalTransferPresentation = { status: transfer.status, progress: transfer.progress };
+      if (transfer.attachment) return [{ ...transfer.attachment, localTransfer } as Attachment];
       return [{
         id: transfer.transferId,
         ownerId: input.batch.ownerId,
@@ -132,13 +138,14 @@ export function optimisticMessagesForAttachmentBatch(input: {
         height: transfer.input.sourceHeight ?? null,
         durationMs: transfer.input.localDurationMs ?? null,
         quality: transfer.input.quality,
-        url: transfer.input.uri,
+        url: transfer.input.previewUri ?? transfer.input.uri,
         thumbnailUrl: null,
         checksum: "",
-        status: failed ? "failed" : "processing",
+        status: transfer.status === "failed" || transfer.status === "cancelled" ? "failed" : "processing",
         updatedAt: input.batch.updatedAt,
         waveform: transfer.input.localWaveform ?? null,
-      }];
+        localTransfer,
+      } as Attachment];
     }),
     reactions: [],
     activity: null,
@@ -207,6 +214,14 @@ export function batchProgress(batch: QueuedAttachmentBatch): number {
 
 export function batchFailed(batch: QueuedAttachmentBatch): boolean {
   return batch.transfers.some((transfer) => transfer.status === "failed" || transfer.status === "cancelled");
+}
+
+export function batchHasActiveTransfers(batch: QueuedAttachmentBatch): boolean {
+  return batch.transfers.some((transfer) => ["pending", "staging", "queued", "running", "retrying"].includes(transfer.status));
+}
+
+export function batchRetryReady(batch: QueuedAttachmentBatch): boolean {
+  return batchFailed(batch) && !batchHasActiveTransfers(batch);
 }
 
 export function batchCancelled(batch: QueuedAttachmentBatch): boolean {

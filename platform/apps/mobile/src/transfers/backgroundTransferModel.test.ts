@@ -34,6 +34,33 @@ test("attachment captions stay on the first group and optimistic media uses loca
   assert.equal(messages[0]?.sequence, 4);
 });
 
+test("each optimistic album tile retains its gallery preview and individual progress", () => {
+  const previewInput = { ...input, uri: "file:///staged-photo.jpg", previewUri: "content://gallery/original-photo" };
+  let batch = createAttachmentBatch({
+    id: "batch", ownerId: "owner", streamId: "stream", messageKind: "media", replyToId: null,
+    inputs: [previewInput, previewInput], transferIds: ["first", "second"], clientIds: ["client"], now: 10,
+  });
+  batch = applyNativeSnapshot(batch, {
+    transferId: "first", uploadId: "first", status: "running", uploadedBytes: 25, totalBytes: 100,
+    progress: 25, attempt: 1, errorCode: null, createdAt: 1, updatedAt: 2, expiresAt: 10, allowMetered: true,
+    resultJson: null,
+  });
+  batch = applyNativeSnapshot(batch, {
+    transferId: "second", uploadId: "second", status: "running", uploadedBytes: 70, totalBytes: 100,
+    progress: 70, attempt: 1, errorCode: null, createdAt: 1, updatedAt: 2, expiresAt: 10, allowMetered: true,
+    resultJson: null,
+  });
+  const message = optimisticMessagesForAttachmentBatch({
+    batch,
+    sender: { id: "owner", username: "owner", displayName: "Owner", avatarUrl: null, avatarColor: "#000", bio: "", statusText: "", presence: "offline", lastSeenAt: 0 },
+    streamKind: "conversation",
+    startingSequence: 1,
+  })[0]!;
+  const decorated = message.attachments as Array<typeof message.attachments[number] & { localTransfer?: { progress: number } }>;
+  assert.deepEqual(decorated.map((attachment) => attachment.url), [previewInput.previewUri, previewInput.previewUri]);
+  assert.deepEqual(decorated.map((attachment) => attachment.localTransfer?.progress), [25, 70]);
+});
+
 test("optimistic voice notes expose the locally recorded waveform immediately and retain it through initialization", () => {
   const voiceInput = {
     ...input,

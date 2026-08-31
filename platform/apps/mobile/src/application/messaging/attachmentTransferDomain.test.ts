@@ -74,6 +74,26 @@ test("background batches are accepted after durable projection and before media 
   assert.deepEqual(steps, ["persist", "project", "prepare", "replace", "resume", "wait"]);
 });
 
+test("a post-scheduling transfer failure preserves the original durable batch for inline retry", async () => {
+  const steps: string[] = [];
+  let wholeBatchFailures = 0;
+  const background = enabledBackground(steps);
+  const fixture = createFixture({
+    background: {
+      ...background,
+      failBatch: async () => { wholeBatchFailures += 1; },
+      waitForBatch: async () => { throw new Error("one photo failed"); },
+    },
+  });
+
+  const handle = fixture.domain.actions.sendAttachmentBatch("chat", [uploadInput(0), uploadInput(1)], "media", null);
+  await handle.accepted;
+  await assert.rejects(handle.completion, /one photo failed/);
+
+  assert.equal(wholeBatchFailures, 0);
+  assert.deepEqual(steps, ["persist", "project", "replace", "resume"]);
+});
+
 interface Overrides {
   guardIsCurrent?: () => boolean;
   upload?: AttachmentTransferDependencies<number>["transport"]["upload"];
@@ -131,7 +151,7 @@ function enabledBackground(steps: string[]): AttachmentTransferDependencies<numb
       const batch = createAttachmentBatch({
         id: "native-batch", ownerId: input.ownerId, streamId: input.streamId, messageKind: input.messageKind,
         replyToId: input.replyToId, ...(input.text === undefined ? {} : { text: input.text }),
-        inputs: input.inputs, transferIds: ["native-transfer"],
+        inputs: input.inputs, transferIds: input.inputs.map((_, index) => `native-transfer-${index}`),
         clientIds: ["native-message"], now: 1,
       });
       input.onCreated?.(batch);

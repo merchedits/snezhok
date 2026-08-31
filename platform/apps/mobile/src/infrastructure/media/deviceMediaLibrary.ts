@@ -57,6 +57,7 @@ class DeviceMediaLibrary {
         messageKind: "file",
         inputs: [{
           uri: asset.uri,
+          previewUri: asset.uri,
           filename: asset.name,
           mimeType: asset.mimeType ?? "application/octet-stream",
           kind: kindFromMimeType(asset.mimeType),
@@ -95,13 +96,17 @@ class DeviceMediaLibrary {
   }
 
   async resolveAssets(assetIds: string[], quality: "auto" | "high"): Promise<UploadInput[]> {
-    const infos = await Promise.all(assetIds.map(async (id) => ({ id, info: await new MediaLibrary.Asset(id).getInfo() })));
+    // Resolve sequentially. Several simultaneous MediaStore descriptors can
+    // exhaust the small native resource budget on low-memory Android devices.
+    const infos: Array<{ id: string; info: Awaited<ReturnType<MediaLibrary.Asset["getInfo"]>> }> = [];
+    for (const id of assetIds) infos.push({ id, info: await new MediaLibrary.Asset(id).getInfo() });
     return infos.map(({ id, info }) => {
       const cached = this.recent.find((asset) => asset.id === id);
       const filename = info.filename || cached?.filename || `media-${Date.now()}`;
       const video = info.mediaType === MediaLibrary.MediaType.VIDEO;
       return {
         uri: info.uri,
+        previewUri: info.uri,
         filename,
         mimeType: mimeTypeFor(filename, video),
         kind: video ? "video" : "image",

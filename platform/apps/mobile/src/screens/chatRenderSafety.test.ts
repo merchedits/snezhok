@@ -14,6 +14,7 @@ const messageQueryDomainSource = readFileSync(new URL("../application/messaging/
 const activityMutationDomainSource = readFileSync(new URL("../application/activities/activityMutationActions.ts", import.meta.url), "utf8");
 const timelineSource = readFileSync(new URL("../components/chat/ChatMessageList.tsx", import.meta.url), "utf8");
 const composerSource = readFileSync(new URL("../components/chat/ChatComposer.tsx", import.meta.url), "utf8");
+const composerControllerSource = readFileSync(new URL("../components/chat/useChatComposerController.ts", import.meta.url), "utf8");
 const updateProviderSource = readFileSync(new URL("../updates/UpdateProvider.tsx", import.meta.url), "utf8");
 const messageBubbleSource = readFileSync(new URL("../components/MessageBubble.tsx", import.meta.url), "utf8");
 const messageMediaSource = readFileSync(new URL("../components/message/MessageMedia.tsx", import.meta.url), "utf8");
@@ -36,6 +37,8 @@ const loginSource = readFileSync(new URL("./LoginScreen.tsx", import.meta.url), 
 const profileSource = readFileSync(new URL("./ProfileScreen.tsx", import.meta.url), "utf8");
 const imageViewerSource = readFileSync(new URL("../components/ImageViewer.tsx", import.meta.url), "utf8");
 const mainScreenSource = readFileSync(new URL("./MainScreen.tsx", import.meta.url), "utf8");
+const poolBoardSource = readFileSync(new URL("../components/games/boards/PoolBoard.tsx", import.meta.url), "utf8");
+const chessBoardSource = readFileSync(new URL("../components/games/boards/ChessBoard.tsx", import.meta.url), "utf8");
 
 test("chat external-store selectors never allocate a filtered snapshot", () => {
   assert.doesNotMatch(chatSource, /useAppStore\(\(state\)\s*=>\s*state\.[^)]+\.filter\(/);
@@ -116,6 +119,9 @@ test("audited native background transfers retain the resumable foreground fallba
   assert.match(attachmentTransferDomainSource, /deferScheduling: true/);
   assert.match(attachmentTransferDomainSource, /accept\(\);[\s\S]{0,120}media\.prepareMany/);
   assert.match(composerSource, /showBusyState=\{false\}/);
+  assert.doesNotMatch(composerControllerSource, /task\.completion\.catch\([\s\S]{0,300}handleUploads\(inputs, messageKind\)/);
+  assert.match(messageMediaSource, /AttachmentTransferOverlay attachment=\{attachment\}/);
+  assert.match(messageMediaSource, /transfer\?\.progress/);
 });
 
 test("cached chats use one bottom-anchor mechanism without a duplicate overlay", () => {
@@ -164,12 +170,27 @@ test("chat composer follows keyboard progress without late JS visibility jumps",
 
 test("chat identity header stays outside the keyboard-translated region", () => {
   const header = chatSource.indexOf("<ChatHeader");
-  const keyboardRegion = chatSource.indexOf("<KeyboardAvoidingView style={styles.keyboardRegion}", header);
+  const keyboardRegion = chatSource.indexOf("<View style={styles.keyboardRegion}", header);
   const timeline = chatSource.indexOf("<ChatMessageList", keyboardRegion);
   assert.ok(header >= 0 && keyboardRegion > header && timeline > keyboardRegion);
-  assert.match(chatSource, /KeyboardAvoidingView style=\{styles\.keyboardRegion\} behavior="height" automaticOffset/);
+  assert.match(chatSource, /<KeyboardStickyView>[\s\S]*<ChatComposer/);
   assert.doesNotMatch(chatSource, /translate-with-padding/);
   assert.match(timelineSource, /autoscrollToBottomThreshold: 0\.2/);
+});
+
+test("pool playback prepares its renderer before cue impact and begins motion on the next frame", () => {
+  assert.match(poolBoardSource, /opacity: playbackRunning \? 1 : 0/);
+  assert.match(poolBoardSource, /withSequence\([\s\S]*remainingPullback[\s\S]*runOnJS\(beginPlayback\)/);
+  assert.match(poolBoardSource, /if \(!playback \|\| !playbackRunning\) return;[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*animationProgress\.value = withTiming/);
+  assert.doesNotMatch(poolBoardSource, /setPlaybackReady/);
+});
+
+test("chess uses bundled outlined image pieces instead of platform-dependent Unicode glyphs", () => {
+  assert.match(chessBoardSource, /const PIECES = \{/);
+  assert.match(chessBoardSource, /satisfies Record<string, ImageSourcePropType>/);
+  assert.equal(chessBoardSource.match(/require\("\.\.\/\.\.\/\.\.\/\.\.\/assets\/chess\/cburnett\//g)?.length, 12);
+  assert.match(chessBoardSource, /<Image resizeMode="contain" source=\{source\}/);
+  assert.doesNotMatch(chessBoardSource, /♔|♕|♖|♗|♘|♙|♚|♛|♜|♝|♞|♟/);
 });
 
 test("text-entry screens and management forms keep focused inputs above the keyboard", () => {

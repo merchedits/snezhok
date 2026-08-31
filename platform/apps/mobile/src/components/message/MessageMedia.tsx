@@ -2,6 +2,7 @@ import type { Attachment } from "@snezhok/contracts";
 import { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ErrorInfo, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import * as IntentLauncher from "expo-intent-launcher";
+import Svg, { Circle as SvgCircle } from "react-native-svg";
 
 import { recordDiagnostic } from "../../diagnostics/diagnostics";
 import { useAuthorizedMedia } from "../../hooks/useAuthorizedMedia";
@@ -33,10 +34,9 @@ export function MediaAlbum({ attachments, pending = false, onMessageReaction, on
       <View style={styles.album}>
         {rows.map((row) => (
           <View key={row.map((attachment) => attachment.id).join(":")} style={[styles.albumRow, { height: rowHeight }]}>
-            {row.map((attachment) => <SafeAlbumMediaTile key={attachment.id} attachment={attachment} onOpen={() => setOpenIndex(attachments.indexOf(attachment))} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />)}
+            {row.map((attachment) => <SafeAlbumMediaTile key={attachment.id} attachment={attachment} pending={pending} onOpen={() => setOpenIndex(attachments.indexOf(attachment))} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />)}
           </View>
         ))}
-        {pending ? <View pointerEvents="none" style={styles.pendingAttachmentMask} /> : null}
       </View>
       {openIndex !== null ? <AlbumAttachmentViewer attachments={attachments} index={openIndex} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} /> : null}
     </>
@@ -51,17 +51,17 @@ export function SafeAttachmentView({ attachment, streamId, mine, foreground, mut
       <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")}>
         <AttachmentView attachment={attachment} streamId={streamId} mine={mine} foreground={foreground} mutedForeground={mutedForeground} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />
       </AttachmentFailureBoundary>
-      {pending ? <View pointerEvents="none" style={styles.pendingAttachmentMask} /> : null}
+      <AttachmentTransferOverlay attachment={attachment} fallbackPending={pending} />
     </View>
   );
 }
 
-function SafeAlbumMediaTile({ attachment, onOpen, onMessageReaction, onMessageLongPress }: { attachment: Attachment; onOpen: () => void } & MediaMessageInteractions) {
+function SafeAlbumMediaTile({ attachment, pending, onOpen, onMessageReaction, onMessageLongPress }: { attachment: Attachment; pending: boolean; onOpen: () => void } & MediaMessageInteractions) {
   const palette = usePalette();
   const { t } = useTranslation();
   return (
     <AttachmentFailureBoundary attachmentId={attachment.id} backgroundColor={palette.surface} color={palette.secondaryText} label={t("attachment")} compact>
-      <AlbumMediaTile attachment={attachment} onOpen={onOpen} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />
+      <AlbumMediaTile attachment={attachment} pending={pending} onOpen={onOpen} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} />
     </AttachmentFailureBoundary>
   );
 }
@@ -92,12 +92,40 @@ function attachmentComponentName(componentStack?: string | null): string {
   return componentStack?.match(/\bat ([A-Za-z][A-Za-z0-9_]*)\b/)?.[1] ?? "AttachmentComponent";
 }
 
-function AlbumMediaTile({ attachment, onOpen, onMessageReaction, onMessageLongPress }: { attachment: Attachment; onOpen: () => void } & MediaMessageInteractions) {
+function AlbumMediaTile({ attachment, pending, onOpen, onMessageReaction, onMessageLongPress }: { attachment: Attachment; pending: boolean; onOpen: () => void } & MediaMessageInteractions) {
   return (
     <MediaPressSurface testID={attachment.kind === "video" ? "message_video" : "message_image"} onOpen={onOpen} onMessageReaction={onMessageReaction} onMessageLongPress={onMessageLongPress} style={styles.albumTile}>
       <AuthenticatedImage uri={attachment.thumbnailUrl ?? attachment.url} fallbackUri={attachment.thumbnailUrl ? attachment.url : null} cacheKey={`${attachment.id}-thumbnail`} mimeType={attachment.thumbnailUrl ? "image/webp" : attachment.mimeType} style={StyleSheet.absoluteFill} />
+      <AttachmentTransferOverlay attachment={attachment} fallbackPending={pending} />
       {attachment.kind === "video" ? <><View style={styles.albumPlay}><AppIcon name="play" size={19} color="white" /></View>{attachment.durationMs ? <View style={styles.albumDuration}><Text style={styles.videoDurationText}>{formatDuration(attachment.durationMs / 1000)}</Text></View> : null}</> : null}
     </MediaPressSurface>
+  );
+}
+
+type TransferDecoratedAttachment = Attachment & {
+  localTransfer?: { status: string; progress: number };
+};
+
+function AttachmentTransferOverlay({ attachment, fallbackPending }: { attachment: Attachment; fallbackPending: boolean }) {
+  const transfer = (attachment as TransferDecoratedAttachment).localTransfer;
+  const failed = transfer?.status === "failed" || transfer?.status === "cancelled";
+  const active = transfer ? !failed && transfer.status !== "succeeded" : fallbackPending;
+  if (!active && !failed) return null;
+  const progress = Math.max(0, Math.min(100, Math.round(transfer?.progress ?? 0)));
+  const radius = 16;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <View pointerEvents="none" style={styles.pendingAttachmentMask}>
+      <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: progress }} style={styles.attachmentProgressBadge}>
+        {failed ? <AppIcon name="warning-outline" size={22} color="white" /> : <>
+          <Svg width={42} height={42} viewBox="0 0 42 42" style={StyleSheet.absoluteFill}>
+            <SvgCircle cx="21" cy="21" r={radius} fill="none" stroke="rgba(255,255,255,0.28)" strokeWidth="3" />
+            <SvgCircle cx="21" cy="21" r={radius} fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeDasharray={`${circumference} ${circumference}`} strokeDashoffset={circumference * (1 - progress / 100)} rotation="-90" origin="21, 21" />
+          </Svg>
+          <Text allowFontScaling={false} style={styles.attachmentProgressText}>{progress}</Text>
+        </>}
+      </View>
+    </View>
   );
 }
 
